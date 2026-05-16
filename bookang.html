@@ -1643,13 +1643,14 @@ function downloadStep2Template() {
 // EXCEL UPLOAD WIZARD
 // ============================================================
 
-let uploadState = null; // 업로드 진행 중 임시 상태
+let uploadState = { uploadStep: 'default' }; // 업로드 진행 중 임시 상태
 
 function startUploadFlow(step) {
   if (!state.currentTargetId) {
     toast('먼저 대상을 선택해주세요', true);
     return;
   }
+  uploadState = uploadState || {}; // null 체크
   uploadState.uploadStep = step || 'default';  // step1, step2, default
   document.getElementById('fileInput').value = '';
   document.getElementById('fileInput').click();
