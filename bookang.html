@@ -13,30 +13,33 @@
 🔥 FIREBASE 설정 (환불 프로그램 연동용)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-아래 주석을 해제하고 Firebase 설정값을 입력하세요.
-
 저장되는 데이터:
 1. shared/bookUnissued: {"학생이름": {total: 미배부금액}}
 2. shared/students: {"학생이름": true}
 
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-<script>
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    databaseURL: "YOUR_DATABASE_URL",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-  };
-  firebase.initializeApp(firebaseConfig);
-  console.log('✅ Firebase 초기화 완료');
-</script>
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -->
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+<!-- Firebase 초기화 -->
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyBIcLrQsEJGmFeikWc4afibUhlWBQkaENw",
+    authDomain: "refund-book.firebaseapp.com",
+    databaseURL: "https://refund-book-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "refund-book",
+    storageBucket: "refund-book.firebasestorage.app",
+    messagingSenderId: "675243179974",
+    appId: "1:675243179974:web:2b7a3d7161ccfc65e73cc7"
+  };
+  
+  firebase.initializeApp(firebaseConfig);
+  console.log('✅ Firebase 초기화 완료');
+  console.log('📊 Firebase Database URL:', firebaseConfig.databaseURL);
+</script>
 
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2222,6 +2225,9 @@ function addClassManual() {
   if (!state.currentTargetId) { toast('대상을 먼저 선택하세요', true); return; }
   const td = getCurrentTargetData();
 
+  // 기존 과목 목록 수집
+  const existingSubjects = [...new Set(td.classes.map(c => c.subject))].sort();
+
   const html = `
     <div class="modal modal-lg">
       <div class="modal-title">반 추가</div>
@@ -2230,7 +2236,10 @@ function addClassManual() {
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px;">
         <div>
           <label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text-dim);">과목 *</label>
-          <input type="text" class="modal-input" id="cmSubject" placeholder="예: 수학" style="margin-bottom:0;">
+          <input type="text" class="modal-input" id="cmSubject" placeholder="예: 수학" list="subjectList" style="margin-bottom:0;">
+          <datalist id="subjectList">
+            ${existingSubjects.map(s => `<option value="${escapeHtml(s)}">`).join('')}
+          </datalist>
         </div>
         <div>
           <label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text-dim);">강사</label>
@@ -2278,15 +2287,28 @@ function addClassManual() {
   bd.addEventListener('click', e => { if (e.target === bd) bd.remove(); });
   bd.querySelector('#cmSubject').focus();
 
-  // 학생 검색
+  // 학생 검색 (자음 검색 지원)
   const searchInput = bd.querySelector('#cmStudentSearch');
   if (searchInput) {
-    searchInput.oninput = (e) => {
-      const q = e.target.value.toLowerCase();
+    let composing = false;
+    searchInput.addEventListener('compositionstart', () => { composing = true; });
+    searchInput.addEventListener('compositionend', (e) => {
+      composing = false;
+      filterStudents(e.target.value);
+    });
+    searchInput.addEventListener('input', (e) => {
+      if (composing) return;
+      filterStudents(e.target.value);
+    });
+    
+    function filterStudents(query) {
+      const q = query.trim();
       bd.querySelectorAll('.cmStudentItem').forEach(item => {
-        item.style.display = item.dataset.name.includes(q) ? '' : 'none';
+        const studentName = item.querySelector('span').textContent;
+        const matches = matchesQuery(studentName, q);
+        item.style.display = matches ? '' : 'none';
       });
-    };
+    }
   }
 
   // 선택 카운트
@@ -3493,8 +3515,8 @@ function addStudentManual() {
       const classIds = Object.values(finalSelection).map(v => v.classId).filter(Boolean);
       td.students.push({ id: uid('s'), name, classIds });
       saveData();
+      toast(`✅ ${name} 학생이 추가되었습니다`);
       render();
-      toast('학생 추가됨');
       return true;
     }
   });
@@ -9430,19 +9452,39 @@ function renderStudentSearch(td) {
     <!-- 학생 검색 -->
     <div class="section">
       <div style="display:flex; gap:10px; align-items:center;">
-        <label style="font-size:13px;font-weight:600;min-width:60px;">학생 선택</label>
-        <select id="studentSelect" class="modal-input" style="flex:1;max-width:300px;">
-          <option value="">학생을 선택하세요</option>
-          ${students.map(s => `
-            <option value="${s.id}" ${selectedStudentId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>
-          `).join('')}
-        </select>
+        <label style="font-size:13px;font-weight:600;min-width:60px;">학생 검색</label>
+        <div style="position:relative; flex:1; max-width:300px;">
+          <input 
+            type="text" 
+            id="studentSearchInput" 
+            class="modal-input" 
+            placeholder="학생 이름 입력 (자음 검색 가능)"
+            value="${selectedStudent ? escapeHtml(selectedStudent.name) : ''}"
+            autocomplete="off"
+            style="width:100%;"
+          >
+          <div id="studentSearchDropdown" style="
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 1000;
+            margin-top: 4px;
+          "></div>
+        </div>
       </div>
     </div>
 
     ${selectedStudent ? renderStudentDetail(selectedStudent, td) : `
       <div class="empty-state">
-        <div class="empty-state-text">위에서 학생을 선택하면 교재 현황이 표시됩니다</div>
+        <div class="empty-state-text">위에서 학생을 검색하면 교재 현황이 표시됩니다</div>
       </div>
     `}
   `;
@@ -10898,6 +10940,11 @@ function attachEvents() {
     attachSearchPageEvents();
   }
 
+  // 학생 조회 탭 - 자동완성 검색
+  if (activeTab === 'student-search') {
+    attachStudentSearchPageEvents();
+  }
+
   // 교재 관리 탭
   attachBooksPageEvents();
 
@@ -10907,6 +10954,109 @@ function attachEvents() {
   // 재고 현황 탭 (별도 탭이지만 같은 함수 사용)
   if (activeTab === 'overview') {
     attachStockOverviewEvents();
+  }
+}
+
+// 학생 조회 탭 - 자동완성 검색 이벤트
+function attachStudentSearchPageEvents() {
+  const input = document.getElementById('studentSearchInput');
+  const dropdown = document.getElementById('studentSearchDropdown');
+  
+  if (!input || !dropdown) return;
+  
+  const td = getCurrentTargetData();
+  if (!td) return;
+  
+  const students = td.students.slice().sort((a, b) => a.name.localeCompare(b.name));
+  
+  // 입력 이벤트 - 드롭다운 표시
+  let composing = false;
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', (e) => {
+    composing = false;
+    showDropdown(e.target.value);
+  });
+  
+  input.addEventListener('input', (e) => {
+    if (composing) return;
+    showDropdown(e.target.value);
+  });
+  
+  input.addEventListener('focus', (e) => {
+    showDropdown(e.target.value);
+  });
+  
+  // 클릭 외부 영역 클릭 시 드롭다운 닫기
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+  
+  function showDropdown(query) {
+    const q = (query || '').trim();
+    
+    if (!q) {
+      // 빈 입력 시 전체 목록 표시
+      const html = students.slice(0, 10).map(s => `
+        <div class="dropdown-item" data-student-id="${s.id}" style="
+          padding: 8px 12px;
+          cursor: pointer;
+          border-bottom: 1px solid var(--border);
+        ">
+          ${escapeHtml(s.name)}
+        </div>
+      `).join('');
+      
+      dropdown.innerHTML = html || '<div style="padding: 12px; text-align: center; color: var(--text-dim);">학생이 없습니다</div>';
+      dropdown.style.display = 'block';
+      attachDropdownEvents();
+      return;
+    }
+    
+    // 자음 검색
+    const filtered = students.filter(s => matchesQuery(s.name, q));
+    
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-dim);">검색 결과가 없습니다</div>';
+      dropdown.style.display = 'block';
+      return;
+    }
+    
+    const html = filtered.slice(0, 10).map(s => `
+      <div class="dropdown-item" data-student-id="${s.id}" style="
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border);
+      ">
+        ${escapeHtml(s.name)}
+      </div>
+    `).join('');
+    
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+    attachDropdownEvents();
+  }
+  
+  function attachDropdownEvents() {
+    dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('mouseenter', () => {
+        item.style.background = 'var(--bg-hover)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'white';
+      });
+      item.addEventListener('click', () => {
+        const studentId = item.dataset.studentId;
+        const student = td.students.find(s => s.id === studentId);
+        if (student) {
+          input.value = student.name;
+          selectedStudentId = studentId;
+          dropdown.style.display = 'none';
+          renderMain();
+        }
+      });
+    });
   }
 }
 
