@@ -11138,28 +11138,25 @@ function updateUploadButtonStates() {
   const downloadStep2Btn = document.getElementById('downloadStep2Btn');
   const upload2Btn = document.getElementById('upload2Btn');
   
+  // 2단계 양식 다운로드는 항상 가능
+  if (downloadStep2Btn) {
+    downloadStep2Btn.disabled = false;
+    downloadStep2Btn.classList.remove('btn-disabled');
+    downloadStep2Btn.title = '';
+  }
+  
   // 1단계 완료 여부 확인 (반이 1개 이상 있으면 완료)
   const step1Complete = td.classes && td.classes.length > 0;
   
   if (step1Complete) {
-    // 1단계 완료 → 2단계 버튼 활성화
-    if (downloadStep2Btn) {
-      downloadStep2Btn.disabled = false;
-      downloadStep2Btn.classList.remove('btn-disabled');
-      downloadStep2Btn.title = '';
-    }
+    // 1단계 완료 → 2단계 업로드 활성화
     if (upload2Btn) {
       upload2Btn.disabled = false;
       upload2Btn.classList.remove('btn-disabled');
       upload2Btn.title = '';
     }
   } else {
-    // 1단계 미완료 → 2단계 버튼 비활성화
-    if (downloadStep2Btn) {
-      downloadStep2Btn.disabled = true;
-      downloadStep2Btn.classList.add('btn-disabled');
-      downloadStep2Btn.title = '⚠️ 1단계를 먼저 완료해주세요';
-    }
+    // 1단계 미완료 → 2단계 업로드만 비활성화
     if (upload2Btn) {
       upload2Btn.disabled = true;
       upload2Btn.classList.add('btn-disabled');
