@@ -22,6 +22,7 @@
 
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
 <!-- Firebase 초기화 -->
@@ -37,7 +38,9 @@
   };
   
   firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
   console.log('✅ Firebase 초기화 완료');
+  console.log('🔐 Firebase Auth 초기화 완료');
   console.log('📊 Firebase Database URL:', firebaseConfig.databaseURL);
 </script>
 
@@ -814,8 +817,18 @@
       <option value="">— 선택 —</option>
     </select>
   </div>
-  <div class="current-user" id="currentUserBtn" title="작성자 변경">
-    👤 <span id="currentUserName"></span>
+  <div class="current-user" style="display: flex; align-items: center; gap: 8px;">
+    <span style="font-size: 13px;">
+      👤 <span id="currentUserName"></span>
+    </span>
+    <button 
+      id="logoutBtn" 
+      class="btn btn-ghost btn-sm" 
+      style="padding: 4px 10px; font-size: 12px;"
+      title="로그아웃"
+    >
+      로그아웃
+    </button>
   </div>
   <div class="settings-btn" id="settingsBtn" title="설정">
     ⚙️
@@ -853,13 +866,34 @@
 
 const STORAGE_KEY = 'bookang_data_v1';
 
+// 간단한 비밀번호 해시 (SHA-256 대신 간단한 방식)
+function hashPassword(password) {
+  // 간단한 해시 (실제로는 더 강력한 방식 사용 권장)
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(16);
+}
+
 // ---------- Data Layer ----------
 function getDefault() {
   // 빈 초기 상태 - 엑셀 업로드부터 시작
   return {
     version: 3,
     currentTargetId: null,
-    currentUser: '이형빈',
+    currentUserId: null, // 로그인한 사용자 ID
+    users: [
+      // 초기 관리자 계정
+      {
+        id: 'admin',
+        name: '관리자',
+        password: hashPassword('3500'),
+        role: 'admin' // admin, staff, accounting
+      }
+    ],
     targets: [],
     teachersDirectory: [],
     data: {},
@@ -1071,6 +1105,54 @@ function saveData() {
 let state = loadData();
 
 // ---------- Helpers ----------
+
+// 현재 로그인한 사용자 정보
+function getCurrentUser() {
+  if (!state.currentUserId) return null;
+  return state.users.find(u => u.id === state.currentUserId);
+}
+
+// 권한 체크
+function hasPermission(action) {
+  const user = getCurrentUser();
+  if (!user) return false;
+  
+  const { role } = user;
+  
+  // 관리자: 모든 기능 (관리자 삭제 제외)
+  if (role === 'admin') {
+    if (action === 'delete_admin') return false;
+    return true;
+  }
+  
+  // 직원: 입고/일괄배부 불가, 학생 개인별 배부 가능
+  if (role === 'staff') {
+    const allowed = [
+      'view', 'add_class', 'edit_class', 'delete_class',
+      'add_student', 'edit_student', 'delete_student',
+      'distribute_individual', 'return_book'
+    ];
+    return allowed.includes(action);
+  }
+  
+  // 총무: 입고 가능, 조회 모두 가능
+  if (role === 'accounting') {
+    const allowed = ['view', 'stock_in'];
+    return allowed.includes(action);
+  }
+  
+  return false;
+}
+
+// 로그인 체크
+function checkLogin() {
+  if (!state.currentUserId) {
+    showLoginScreen();
+    return false;
+  }
+  return true;
+}
+
 function uid(prefix='id') {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -11422,8 +11504,189 @@ function generateTestData() {
   renderMain();
 }
 
-render();
+// ============================================================
+// 🔐 Firebase Authentication
+// ============================================================
+
+let currentUser = null;
+
+// 로그인 화면 표시
+function showLoginScreen() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+// 로그인 화면 숨기기
+function hideLoginScreen() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
+
+// 로그인 처리
+async function handleLogin(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errorEl = document.getElementById('loginError');
+  
+  if (!email || !password) {
+    errorEl.textContent = '이메일과 비밀번호를 입력해주세요.';
+    return;
+  }
+  
+  try {
+    errorEl.textContent = '';
+    await auth.signInWithEmailAndPassword(email, password);
+    // onAuthStateChanged가 자동으로 처리
+  } catch (error) {
+    console.error('로그인 실패:', error);
+    
+    let errorMessage = '로그인에 실패했습니다.';
+    if (error.code === 'auth/user-not-found') {
+      errorMessage = '등록되지 않은 이메일입니다.';
+    } else if (error.code === 'auth/wrong-password') {
+      errorMessage = '비밀번호가 올바르지 않습니다.';
+    } else if (error.code === 'auth/invalid-email') {
+      errorMessage = '이메일 형식이 올바르지 않습니다.';
+    } else if (error.code === 'auth/too-many-requests') {
+      errorMessage = '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.';
+    }
+    
+    errorEl.textContent = errorMessage;
+  }
+}
+
+// 로그아웃 처리
+async function handleLogout() {
+  try {
+    await auth.signOut();
+    toast('로그아웃되었습니다');
+  } catch (error) {
+    console.error('로그아웃 실패:', error);
+    toast('로그아웃에 실패했습니다', true);
+  }
+}
+
+// 로그인 상태 감지
+auth.onAuthStateChanged((user) => {
+  currentUser = user;
+  
+  if (user) {
+    // 로그인됨
+    console.log('✅ 로그인:', user.email);
+    hideLoginScreen();
+    updateCurrentUserDisplay();
+    render();
+  } else {
+    // 로그아웃됨
+    console.log('❌ 로그아웃');
+    showLoginScreen();
+  }
+});
+
+// 현재 사용자 표시 업데이트
+function updateCurrentUserDisplay() {
+  const userNameEl = document.getElementById('currentUserName');
+  if (userNameEl && currentUser) {
+    userNameEl.textContent = currentUser.email;
+  }
+}
+
+// 로그인 폼 이벤트 연결
+document.addEventListener('DOMContentLoaded', () => {
+  const loginForm = document.getElementById('loginForm');
+  if (loginForm) {
+    loginForm.addEventListener('submit', handleLogin);
+  }
+  
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+  }
+});
+
 </script>
+
+<!-- 로그인 화면 -->
+<div id="loginScreen" style="
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+">
+  <div style="
+    background: white;
+    padding: 40px;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 400px;
+  ">
+    <div style="text-align: center; margin-bottom: 30px;">
+      <h1 style="font-size: 32px; color: #1a1a1a; margin-bottom: 8px;">📚 bookang</h1>
+      <p style="color: #6b6b6b; font-size: 14px;">강안교육 교재관리 시스템</p>
+    </div>
+    
+    <form id="loginForm">
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: #1a1a1a;">이메일</label>
+        <input 
+          type="email" 
+          id="loginEmail" 
+          class="modal-input" 
+          placeholder="example@email.com"
+          required
+          autocomplete="username"
+          style="width: 100%;"
+        >
+      </div>
+      
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: #1a1a1a;">비밀번호</label>
+        <input 
+          type="password" 
+          id="loginPassword" 
+          class="modal-input" 
+          placeholder="비밀번호 입력"
+          required
+          autocomplete="current-password"
+          style="width: 100%;"
+        >
+      </div>
+      
+      <div id="loginError" style="
+        color: #dc2626;
+        font-size: 13px;
+        margin-bottom: 16px;
+        min-height: 20px;
+      "></div>
+      
+      <button 
+        type="submit" 
+        class="btn btn-primary" 
+        style="
+          width: 100%;
+          padding: 14px;
+          font-size: 15px;
+          font-weight: 600;
+        "
+      >
+        로그인
+      </button>
+    </form>
+    
+    <div style="margin-top: 24px; text-align: center; font-size: 12px; color: #9a9a9a;">
+      관리자에게 계정을 요청하세요
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
