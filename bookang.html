@@ -8,31 +8,23 @@
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" rel="stylesheet">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
-<!-- 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 FIREBASE 설정 (환불 프로그램 연동용)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-아래 주석을 해제하고 Firebase 설정값을 입력하세요.
-
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-database-compat.js"></script>
 <script>
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    databaseURL: "YOUR_DATABASE_URL",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-  };
-  firebase.initializeApp(firebaseConfig);
-  console.log('✅ Firebase 초기화 완료');
+// Firebase 설정 (환불 프로그램 연동용)
+const firebaseConfig = {
+  apiKey: "AIzaSyBIcLrQsEJGmFeikWc4afibUhlWBQkaENw",
+  authDomain: "refund-book.firebaseapp.com",
+  databaseURL: "https://refund-book-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "refund-book",
+  storageBucket: "refund-book.firebasestorage.app",
+  messagingSenderId: "675243179974",
+  appId: "1:675243179974:web:2b7a3d7161ccfc65e73cc7"
+};
+firebase.initializeApp(firebaseConfig);
+console.log('✅ Firebase 초기화 완료 (교재 프로그램)');
 </script>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--->
 
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
