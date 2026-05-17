@@ -10025,14 +10025,16 @@ function updatePaymentBadge() {
   const td = getCurrentTargetData();
   let count = 0;
   
-  Object.entries(td.distributions).forEach(([key, dist]) => {
-    if (!dist.history) return;
-    dist.history.forEach(h => {
-      if (h.type === 'additional_distribute' && h.paid === true && h.paymentCompleted !== true) {
-        count++;
-      }
+  if (td.distributions) {
+    Object.entries(td.distributions).forEach(([key, dist]) => {
+      if (!dist.history) return;
+      dist.history.forEach(h => {
+        if (h.type === 'additional_distribute' && h.paid === true && h.paymentCompleted !== true) {
+          count++;
+        }
+      });
     });
-  });
+  }
   
   if (count > 0) {
     paymentTab.innerHTML = `💰 결제대기 <span style="background:var(--danger);color:white;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:4px;">${count}</span>`;
