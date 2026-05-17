@@ -1099,6 +1099,8 @@ function saveStudentsToFirebase() {
 }
 
 function saveData() {
+  console.log('💾 [저장] saveData 호출됨');
+  
   if (!storageAvailable) {
     console.warn('localStorage 사용 불가 - 데이터가 저장되지 않습니다');
     return;
@@ -1106,6 +1108,13 @@ function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     updateDataInfo();
+    
+    console.log('📊 [저장] 현재 대상:', state.currentTargetId);
+    const td = getCurrentTargetData();
+    if (td) {
+      console.log('📊 [저장] 학생 수:', td.students.length);
+    }
+    
     calculateBookUnissued(); // 교재 미배부 총액 자동 업데이트
     saveStudentsToFirebase(); // 학생 목록 자동 업데이트
   } catch (e) {
@@ -1678,9 +1687,12 @@ function executeDeleteStudents() {
   try {
     const td = getCurrentTargetData();
     
+    console.log('🗑️ [학생] 전체 삭제:', td.students.length, '명');
+    
     // 1. Firebase에서 학생 제거
     if (td.students && typeof firebase !== 'undefined' && firebase.database) {
       td.students.forEach(s => {
+        console.log('🗑️ [Firebase] 학생 제거:', s.name);
         firebase.database().ref(`shared/students/${s.name}`).remove();
         firebase.database().ref(`shared/bookUnissued/${s.name}`).remove();
       });
@@ -4039,6 +4051,8 @@ function addStudentManual() {
         return false;
       }
       const classIds = Object.values(finalSelection).map(v => v.classId).filter(Boolean);
+      
+      console.log('➕ [학생] 추가:', name);
       td.students.push({ id: uid('s'), name, classIds });
       saveData();
       toast(`✅ ${name} 학생이 추가되었습니다`);
@@ -11239,6 +11253,24 @@ function attachStudentsSearchEvents() {
       renderMain();
     };
   }
+  
+  // 재고관리 탭 필터 이벤트
+  const bookFilterSubject = document.getElementById('bookFilterSubject');
+  if (bookFilterSubject) {
+    bookFilterSubject.onchange = (e) => {
+      bookFilter.subject = e.target.value;
+      bookFilter.teacher = ''; // 과목 바꾸면 강사 초기화
+      renderMain();
+    };
+  }
+  
+  const bookFilterTeacher = document.getElementById('bookFilterTeacher');
+  if (bookFilterTeacher) {
+    bookFilterTeacher.onchange = (e) => {
+      bookFilter.teacher = e.target.value;
+      renderMain();
+    };
+  }
 }
 
 // ============================================================
@@ -12045,6 +12077,12 @@ function handleLogin(e) {
   hideLoginScreen();
   updateCurrentUserDisplay();
   render();
+  
+  // Firebase 자동 동기화
+  console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+  saveStudentsToFirebase();
+  calculateBookUnissued();
+  
   toast(`${user.name}님 환영합니다!`);
 }
 
@@ -12069,6 +12107,12 @@ function checkLoginStatus() {
       hideLoginScreen();
       updateCurrentUserDisplay();
       render();
+      
+      // Firebase 자동 동기화
+      console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+      saveStudentsToFirebase();
+      calculateBookUnissued();
+      
       return;
     }
   }
