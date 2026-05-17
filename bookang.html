@@ -1045,15 +1045,18 @@ function calculateBookUnissued() {
 // Firebase 경로: shared/students
 // 형식: {"학생이름": true, ...}
 function saveStudentsToFirebase() {
+  console.log('🔥 [Firebase] students 저장 시작...');
+  
   const td = getCurrentTargetData();
   if (!td) {
     // 대상이 없으면 빈 객체 저장
+    console.log('📝 [Firebase] 대상 없음 - 빈 객체 저장');
     try {
       if (typeof firebase !== 'undefined' && firebase.database) {
         firebase.database().ref('shared/students').set({});
       }
     } catch (e) {
-      console.error('Firebase students 저장 실패:', e);
+      console.error('❌ [Firebase] students 저장 실패:', e);
     }
     return;
   }
@@ -1065,15 +1068,20 @@ function saveStudentsToFirebase() {
     result[student.name] = true;
   });
   
+  console.log('📊 [Firebase] 저장할 데이터:', {
+    학생수: Object.keys(result).length,
+    샘플: Object.keys(result).slice(0, 5)
+  });
+  
   // Firebase에 저장
   try {
     if (typeof firebase !== 'undefined' && firebase.database) {
       firebase.database().ref('shared/students').set(result)
         .then(() => {
-          console.log('👥 Firebase students 업데이트 완료:', Object.keys(result).length, '명');
+          console.log('✅ [Firebase] students 저장 완료:', Object.keys(result).length, '명');
         })
         .catch((error) => {
-          console.error('❌ Firebase students 저장 실패:', error);
+          console.error('❌ [Firebase] students 저장 실패:', error);
           // Firebase 실패 시 localStorage에 백업 저장
           try {
             localStorage.setItem('students_backup', JSON.stringify(result));
@@ -1086,7 +1094,7 @@ function saveStudentsToFirebase() {
       console.warn('⚠️ Firebase가 초기화되지 않았습니다. students 저장을 건너뜁니다.');
     }
   } catch (e) {
-    console.error('❌ Firebase students 저장 중 오류:', e);
+    console.error('❌ [Firebase] students 저장 중 오류:', e);
   }
 }
 
