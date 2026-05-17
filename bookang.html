@@ -1210,6 +1210,12 @@ function getCurrentTargetData() {
   if (!state.data[tid].books) state.data[tid].books = [];
   return state.data[tid];
 }
+
+function getCurrentTargetName() {
+  const target = state.targets.find(t => t.id === state.currentTargetId);
+  return target ? target.name : '(선택된 대상 없음)';
+}
+
 function ensureTeacherInDirectory(name) {
   name = (name || '').trim();
   if (!name) return;
@@ -1264,6 +1270,11 @@ function showModal({ title, desc, inputValue, placeholder, hint, warning, confir
     const result = onConfirm(value, (msg) => { if (errorEl) errorEl.textContent = msg; });
     if (result !== false) close();
   };
+}
+
+// 모든 모달 닫기
+function closeModal() {
+  document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
 }
 
 // ---------- Target operations ----------
@@ -1350,11 +1361,16 @@ function showSettingsModal() {
   const totalClasses = Object.values(state.data).reduce((sum, td) => sum + (td.classes?.length || 0), 0);
   const totalBooks = Object.values(state.data).reduce((sum, td) => sum + (td.books?.length || 0), 0);
   
+  const td = getCurrentTargetData();
+  const currentStudents = td?.students?.length || 0;
+  const currentClasses = td?.classes?.length || 0;
+  const currentBooks = td?.books?.length || 0;
+  
   showModal({
     title: '⚙️ 설정',
     desc: `
       <div style="text-align: left; margin-bottom: 20px;">
-        <h3 style="margin-bottom: 12px; color: var(--text);">📊 현재 데이터</h3>
+        <h3 style="margin-bottom: 12px; color: var(--text);">📊 전체 데이터</h3>
         <div style="font-size: 14px; color: var(--text-dim); line-height: 1.8;">
           • 대상: ${totalTargets}개<br>
           • 학생: ${totalStudents}명<br>
@@ -1362,6 +1378,39 @@ function showSettingsModal() {
           • 교재: ${totalBooks}개
         </div>
       </div>
+      
+      ${state.currentTargetId ? `
+      <div style="padding: 16px; background: var(--bg-soft); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px;">
+        <h3 style="margin-bottom: 8px; color: var(--text);">📋 현재 대상 삭제</h3>
+        <p style="font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px;">
+          현재 선택된 대상 (${getCurrentTargetName()})과<br>
+          그 안의 모든 데이터를 삭제합니다.
+        </p>
+        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px;">
+          • 학생: ${currentStudents}명<br>
+          • 반: ${currentClasses}개<br>
+          • 교재: ${currentBooks}개
+        </div>
+        <button class="btn btn-sm" id="deleteTargetBtn" style="background: #f59e0b; color: white; width: 100%;">
+          🗑 현재 대상 삭제
+        </button>
+      </div>
+      
+      <div style="padding: 16px; background: var(--bg-soft); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px;">
+        <h3 style="margin-bottom: 8px; color: var(--text);">🧹 부분 삭제</h3>
+        <p style="font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px;">
+          현재 대상의 특정 데이터만 삭제합니다.
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-ghost" id="deleteClassesBtn" style="flex: 1;">
+            반만 삭제 (${currentClasses})
+          </button>
+          <button class="btn btn-sm btn-ghost" id="deleteStudentsBtn" style="flex: 1;">
+            학생만 삭제 (${currentStudents})
+          </button>
+        </div>
+      </div>
+      ` : ''}
       
       <div style="padding: 16px; background: var(--bg-soft); border-radius: 8px; border: 1px solid var(--border); margin-top: 20px;">
         <h3 style="margin-bottom: 8px; color: var(--text);">⚠️ 전체 초기화</h3>
@@ -1378,16 +1427,60 @@ function showSettingsModal() {
     onConfirm: () => closeModal()
   });
   
-  // 전체 초기화 버튼 이벤트
+  // 모달이 완전히 렌더링된 후 이벤트 연결
   setTimeout(() => {
-    const resetBtn = document.getElementById('fullResetBtn');
-    if (resetBtn) {
-      resetBtn.onclick = (e) => {
+    const fullResetBtn = document.getElementById('fullResetBtn');
+    const deleteTargetBtn = document.getElementById('deleteTargetBtn');
+    const deleteClassesBtn = document.getElementById('deleteClassesBtn');
+    const deleteStudentsBtn = document.getElementById('deleteStudentsBtn');
+    
+    console.log('버튼 연결:', {
+      fullResetBtn: !!fullResetBtn,
+      deleteTargetBtn: !!deleteTargetBtn,
+      deleteClassesBtn: !!deleteClassesBtn,
+      deleteStudentsBtn: !!deleteStudentsBtn
+    });
+    
+    if (fullResetBtn) {
+      fullResetBtn.addEventListener('click', (e) => {
+        e.preventDefault();
         e.stopPropagation();
-        confirmFullReset();
-      };
+        console.log('전체 초기화 버튼 클릭!');
+        closeModal();
+        setTimeout(confirmFullReset, 100);
+      });
     }
-  }, 100);
+    
+    if (deleteTargetBtn) {
+      deleteTargetBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('대상 삭제 버튼 클릭!');
+        closeModal();
+        setTimeout(confirmDeleteTarget, 100);
+      });
+    }
+    
+    if (deleteClassesBtn) {
+      deleteClassesBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('반 삭제 버튼 클릭!');
+        closeModal();
+        setTimeout(confirmDeleteClasses, 100);
+      });
+    }
+    
+    if (deleteStudentsBtn) {
+      deleteStudentsBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('학생 삭제 버튼 클릭!');
+        closeModal();
+        setTimeout(confirmDeleteStudents, 100);
+      });
+    }
+  }, 300); // 300ms 대기
 }
 
 function confirmFullReset() {
@@ -1454,6 +1547,154 @@ function executeFullReset() {
   } catch (e) {
     console.error('초기화 실패:', e);
     toast('❌ 초기화 중 오류가 발생했습니다', true);
+  }
+}
+
+// 현재 대상 삭제
+function confirmDeleteTarget() {
+  closeModal();
+  
+  const targetName = getCurrentTargetName();
+  const td = getCurrentTargetData();
+  
+  setTimeout(() => {
+    showConfirm({
+      title: '⚠️ 현재 대상 삭제',
+      message: `"${targetName}"과 그 안의 모든 데이터를 삭제하시겠습니까?\n\n• 학생: ${td.students?.length || 0}명\n• 반: ${td.classes?.length || 0}개\n• 교재: ${td.books?.length || 0}개\n• 배부 기록\n\n이 작업은 되돌릴 수 없습니다!`,
+      confirmText: '삭제',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        executeDeleteTarget();
+      }
+    });
+  }, 200);
+}
+
+function executeDeleteTarget() {
+  try {
+    const targetId = state.currentTargetId;
+    
+    // 1. 데이터 삭제
+    delete state.data[targetId];
+    
+    // 2. 대상 목록에서 제거
+    state.targets = state.targets.filter(t => t.id !== targetId);
+    
+    // 3. 현재 대상 초기화
+    state.currentTargetId = '';
+    
+    // 4. 저장
+    saveData();
+    
+    // 5. Firebase에서 학생 제거
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      // TODO: Firebase에서 해당 대상의 학생들 제거
+    }
+    
+    toast('✅ 대상이 삭제되었습니다', false);
+    render();
+    
+  } catch (e) {
+    console.error('대상 삭제 실패:', e);
+    toast('❌ 삭제 중 오류가 발생했습니다', true);
+  }
+}
+
+// 반만 삭제
+function confirmDeleteClasses() {
+  closeModal();
+  
+  const td = getCurrentTargetData();
+  const classCount = td.classes?.length || 0;
+  
+  setTimeout(() => {
+    showConfirm({
+      title: '⚠️ 반 삭제',
+      message: `현재 대상의 모든 반(${classCount}개)을 삭제하시겠습니까?\n\n학생 데이터는 유지되지만, 반 배정이 모두 해제됩니다.\n\n이 작업은 되돌릴 수 없습니다!`,
+      confirmText: '삭제',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        executeDeleteClasses();
+      }
+    });
+  }, 200);
+}
+
+function executeDeleteClasses() {
+  try {
+    const td = getCurrentTargetData();
+    
+    // 1. 학생들의 classIds 초기화
+    if (td.students) {
+      td.students.forEach(s => {
+        s.classIds = [];
+      });
+    }
+    
+    // 2. 반 삭제
+    td.classes = [];
+    
+    // 3. 저장
+    saveData();
+    
+    toast('✅ 모든 반이 삭제되었습니다', false);
+    render();
+    
+  } catch (e) {
+    console.error('반 삭제 실패:', e);
+    toast('❌ 삭제 중 오류가 발생했습니다', true);
+  }
+}
+
+// 학생만 삭제
+function confirmDeleteStudents() {
+  closeModal();
+  
+  const td = getCurrentTargetData();
+  const studentCount = td.students?.length || 0;
+  
+  setTimeout(() => {
+    showConfirm({
+      title: '⚠️ 학생 삭제',
+      message: `현재 대상의 모든 학생(${studentCount}명)을 삭제하시겠습니까?\n\n배부 기록도 함께 삭제됩니다.\n\n이 작업은 되돌릴 수 없습니다!`,
+      confirmText: '삭제',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        executeDeleteStudents();
+      }
+    });
+  }, 200);
+}
+
+function executeDeleteStudents() {
+  try {
+    const td = getCurrentTargetData();
+    
+    // 1. Firebase에서 학생 제거
+    if (td.students && typeof firebase !== 'undefined' && firebase.database) {
+      td.students.forEach(s => {
+        firebase.database().ref(`shared/students/${s.name}`).remove();
+        firebase.database().ref(`shared/bookUnissued/${s.name}`).remove();
+      });
+    }
+    
+    // 2. 학생 삭제
+    td.students = [];
+    
+    // 3. 배부 기록 삭제
+    if (td.distributions) {
+      td.distributions = {};
+    }
+    
+    // 4. 저장
+    saveData();
+    
+    toast('✅ 모든 학생이 삭제되었습니다', false);
+    render();
+    
+  } catch (e) {
+    console.error('학생 삭제 실패:', e);
+    toast('❌ 삭제 중 오류가 발생했습니다', true);
   }
 }
 
@@ -1693,23 +1934,37 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
       }
     }
 
+    // uploadStep 먼저 저장
+    const currentStep = uploadState?.uploadStep || 'default';
+    
     uploadState = {
       headers,
       rows: rows.slice(headerRowIdx + 1).filter(r => r.some(c => String(c).trim())),
       mapping: {}, // colIdx → { type: 'studentName'|'subject'|'ignore', subjectName?: string }
-      uploadStep: uploadState?.uploadStep || 'default'
+      uploadStep: currentStep
     };
+    
+    console.log('=== 파일 업로드 ===');
+    console.log('uploadStep:', uploadState.uploadStep);
 
     // STEP1 업로드는 자동 처리 (컬럼 매칭 불필요)
     if (uploadState.uploadStep === 'step1') {
+      console.log('Step1 자동 처리 시작');
       processStep1Upload();
       return;
     }
 
-    // STEP2 또는 기본 업로드는 컬럼 매칭 필요
-    // 자동 추정: 학생명 컬럼은 보통 첫 번째 텍스트 컬럼
+    // STEP2도 자동 처리!
+    if (uploadState.uploadStep === 'step2') {
+      console.log('Step2 자동 처리 시작');
+      processStep2Upload();
+      return;
+    }
+
+    console.log('기본 업로드 - 컬럼 매칭 화면');
+
+    // 기본 업로드는 컬럼 매칭 필요
     uploadState.mapping[headers[0].idx] = { type: 'studentName' };
-    // 나머지는 모두 ignore로 시작
     for (let i = 1; i < headers.length; i++) {
       uploadState.mapping[headers[i].idx] = { type: 'ignore' };
     }
@@ -1913,39 +2168,7 @@ function openTeacherAssignModal() {
     .filter(([k,m]) => m.type === 'subject')
     .map(([k,m]) => ({ colIdx: +k, subjectName: m.subjectName }));
 
-  // 3. 모든 반명 추출 (과목별로)
-  const classBucket = {}; // key: subjectName + '||' + className → { subject, className, count }
-  uploadState.rows.forEach(row => {
-    subjectCols.forEach(sc => {
-      const cellValue = String(row[sc.colIdx] || '').trim();
-      if (!cellValue) return;
-      
-      // 반명 추출: "정규(수)902A 국어 김종훈" → "902A"
-      const classMatch = cellValue.match(/(\d+[A-Z])/);
-      const className = classMatch ? classMatch[1] : cellValue;
-      
-      const key = sc.subjectName + '||' + className;
-      if (!classBucket[key]) {
-        classBucket[key] = { subject: sc.subjectName, className, count: 0, rawValue: cellValue };
-      }
-      classBucket[key].count++;
-    });
-  });
 
-  const classes = Object.values(classBucket).sort((a, b) => {
-    if (a.subject !== b.subject) return a.subject.localeCompare(b.subject);
-    return a.className.localeCompare(b.className);
-  });
-
-  uploadState.classList = classes;
-  // 강사 기본값 채움: 원본 값에서 강사명 추출
-  classes.forEach(c => {
-    if (c.teacher !== undefined) return;
-    // 원본 값에서 강사명 추출 (마지막 단어)
-    const parts = c.rawValue ? c.rawValue.split(/\s+/) : [];
-    const teacherName = parts.length > 0 ? parts[parts.length - 1] : '';
-    c.teacher = teacherName;
-    c.isSuggested = !!teacherName;
   });
 
   renderTeacherAssignModal();
@@ -2088,6 +2311,192 @@ function processStep1Upload() {
   } catch (error) {
     console.error('processStep1Upload 에러:', error);
     toast('1단계 엑셀 처리 중 오류 발생: ' + error.message, true);
+  }
+}
+
+function processStep2Upload() {
+  // 사용 안 함 - upload2Click 사용
+  console.log('구버전 호출됨 - upload2Click 사용하세요');
+}
+
+// ============================================================
+// 새로운 간단한 2단계 업로드 시스템
+// ============================================================
+
+// 2단계 업로드 버튼 클릭
+function upload2Click() {
+  console.log('✅ 2단계 업로드 버튼 클릭!');
+  
+  if (!state.currentTargetId) {
+    toast('먼저 대상을 선택해주세요', true);
+    return;
+  }
+  
+  // 파일 input 만들기
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    console.log('파일 선택됨:', file.name);
+    await processStep2File(file);
+  };
+  
+  input.click();
+}
+
+// 2단계 파일 처리
+async function processStep2File(file) {
+  try {
+    console.log('=== 2단계 파일 처리 시작 ===');
+    
+    // 1. 엑셀 읽기
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws);
+    
+    console.log(`총 ${json.length}명 학생 데이터`);
+    
+    if (json.length === 0) {
+      toast('엑셀에 데이터가 없습니다', true);
+      return;
+    }
+    
+    // 2. 컬럼 확인
+    const firstRow = json[0];
+    const columns = Object.keys(firstRow);
+    console.log('컬럼:', columns);
+    
+    if (!columns.includes('성명')) {
+      toast('"성명" 컬럼이 필요합니다', true);
+      return;
+    }
+    
+    // 3. 과목 컬럼 찾기 (성명, Email, 카드번호, 강사_, 비고 제외)
+    const excludeWords = ['성명', 'email', '카드', '비고', '학년', '반', '학번', '전화', '연락'];
+    const subjectColumns = columns.filter(col => {
+      const lower = col.toLowerCase();
+      const isExcluded = excludeWords.some(word => lower.includes(word));
+      const isTeacher = col.startsWith('강사_');
+      return !isExcluded && !isTeacher;
+    });
+    
+    console.log(`과목 컬럼 ${subjectColumns.length}개:`, subjectColumns);
+    
+    if (subjectColumns.length === 0) {
+      toast('과목 컬럼을 찾을 수 없습니다', true);
+      return;
+    }
+    
+    // 4. 데이터 처리
+    const td = getCurrentTargetData();
+    const classMap = {}; // 반 정보 수집
+    const studentData = []; // 학생 정보 수집
+    
+    json.forEach(row => {
+      const studentName = String(row['성명'] || '').trim();
+      if (!studentName) return;
+      
+      const student = { name: studentName, classes: [] };
+      
+      subjectColumns.forEach(subject => {
+        const cellValue = String(row[subject] || '').trim();
+        if (!cellValue) return;
+        
+        // 반명 그대로 사용
+        const className = cellValue;
+        
+        // 강사 추출 (마지막 단어)
+        const parts = className.split(/\s+/);
+        const teacher = parts[parts.length - 1] || '';
+        
+        // 반 정보 저장
+        const key = `${subject}||${className}`;
+        if (!classMap[key]) {
+          classMap[key] = { subject, className, teacher };
+        }
+        
+        // 학생의 반 저장
+        student.classes.push({ subject, className });
+      });
+      
+      studentData.push(student);
+    });
+    
+    console.log(`반 ${Object.keys(classMap).length}개, 학생 ${studentData.length}명`);
+    
+    // 5. 반 생성
+    let newClasses = 0;
+    Object.values(classMap).forEach(item => {
+      let cls = td.classes.find(c => 
+        c.subject === item.subject && 
+        c.className === item.className
+      );
+      
+      if (!cls) {
+        cls = {
+          id: uid('c'),
+          subject: item.subject,
+          teacher: item.teacher,
+          className: item.className,
+          bookIds: [],
+          createdAt: new Date().toISOString()
+        };
+        td.classes.push(cls);
+        newClasses++;
+      }
+      
+      // 강사 디렉토리에 추가
+      if (item.teacher) ensureTeacherInDirectory(item.teacher);
+    });
+    
+    // 6. 학생 생성 및 반 배정
+    let newStudents = 0;
+    let updatedStudents = 0;
+    
+    studentData.forEach(item => {
+      let student = td.students.find(s => s.name === item.name);
+      
+      if (!student) {
+        student = {
+          id: uid('s'),
+          name: item.name,
+          classIds: [],
+          createdAt: new Date().toISOString()
+        };
+        td.students.push(student);
+        newStudents++;
+      } else {
+        updatedStudents++;
+      }
+      
+      // 반 배정
+      item.classes.forEach(({ subject, className }) => {
+        const cls = td.classes.find(c => 
+          c.subject === subject && 
+          c.className === className
+        );
+        
+        if (cls && !student.classIds.includes(cls.id)) {
+          student.classIds.push(cls.id);
+        }
+      });
+    });
+    
+    // 7. 저장
+    saveData();
+    toast(`✅ ${newClasses}개 반, ${newStudents}명 신규 학생, ${updatedStudents}명 업데이트!`, false);
+    render();
+    
+    console.log('=== 2단계 업로드 완료! ===');
+    
+  } catch (error) {
+    console.error('2단계 업로드 에러:', error);
+    toast('업로드 중 오류 발생: ' + error.message, true);
   }
 }
 
@@ -3883,7 +4292,7 @@ function renderStudentsPage() {
             <button class="btn btn-sm btn-secondary" id="downloadStep1Btn">📥 1단계 양식</button>
             <button class="btn btn-sm btn-primary" id="upload1Btn">📤 1단계 업로드</button>
             <button class="btn btn-sm btn-secondary" id="downloadStep2Btn">📥 2단계 양식</button>
-            <button class="btn btn-sm btn-primary" id="upload2Btn">📤 2단계 업로드</button>
+            <button class="btn btn-sm btn-primary" id="upload2Btn" onclick="upload2Click()">📤 2단계 업로드</button>
             <button class="btn btn-sm btn-ghost" id="addClassBtn">+ 반 추가</button>
             <button class="btn btn-sm btn-ghost" id="addStudentBtn">+ 학생 추가</button>
           </div>
@@ -10948,7 +11357,7 @@ function attachEvents() {
   if (upload1Btn) upload1Btn.onclick = () => startUploadFlow('step1');
   
   const upload2Btn = document.getElementById('upload2Btn');
-  if (upload2Btn) upload2Btn.onclick = () => startUploadFlow('step2');
+  if (upload2Btn) upload2Btn.onclick = upload2Click; // 새 업로드 시스템!
   
   const downloadStep1Btn = document.getElementById('downloadStep1Btn');
   if (downloadStep1Btn) downloadStep1Btn.onclick = downloadStep1Template;
