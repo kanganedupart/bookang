@@ -1697,8 +1697,16 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
       headers,
       rows: rows.slice(headerRowIdx + 1).filter(r => r.some(c => String(c).trim())),
       mapping: {}, // colIdx → { type: 'studentName'|'subject'|'ignore', subjectName?: string }
+      uploadStep: uploadState?.uploadStep || 'default'
     };
 
+    // STEP1 업로드는 자동 처리 (컬럼 매칭 불필요)
+    if (uploadState.uploadStep === 'step1') {
+      processStep1Upload();
+      return;
+    }
+
+    // STEP2 또는 기본 업로드는 컬럼 매칭 필요
     // 자동 추정: 학생명 컬럼은 보통 첫 번째 텍스트 컬럼
     uploadState.mapping[headers[0].idx] = { type: 'studentName' };
     // 나머지는 모두 ignore로 시작
