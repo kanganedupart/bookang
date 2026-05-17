@@ -1917,11 +1917,16 @@ function openTeacherAssignModal() {
   const classBucket = {}; // key: subjectName + '||' + className → { subject, className, count }
   uploadState.rows.forEach(row => {
     subjectCols.forEach(sc => {
-      const className = String(row[sc.colIdx] || '').trim();
-      if (!className) return;
+      const cellValue = String(row[sc.colIdx] || '').trim();
+      if (!cellValue) return;
+      
+      // 반명 추출: "정규(수)902A 국어 김종훈" → "902A"
+      const classMatch = cellValue.match(/(\d+[A-Z])/);
+      const className = classMatch ? classMatch[1] : cellValue;
+      
       const key = sc.subjectName + '||' + className;
       if (!classBucket[key]) {
-        classBucket[key] = { subject: sc.subjectName, className, count: 0 };
+        classBucket[key] = { subject: sc.subjectName, className, count: 0, rawValue: cellValue };
       }
       classBucket[key].count++;
     });
@@ -1933,13 +1938,14 @@ function openTeacherAssignModal() {
   });
 
   uploadState.classList = classes;
-  // 강사 기본값 채움: 학원 디렉토리에 있는 강사 이름이 반명에 포함되면 자동 채움 (제안)
+  // 강사 기본값 채움: 원본 값에서 강사명 추출
   classes.forEach(c => {
     if (c.teacher !== undefined) return;
-    // 디렉토리에서 매칭
-    const matched = state.teachersDirectory.find(name => c.className.includes(name));
-    c.teacher = matched || '';
-    c.isSuggested = !!matched;
+    // 원본 값에서 강사명 추출 (마지막 단어)
+    const parts = c.rawValue ? c.rawValue.split(/\s+/) : [];
+    const teacherName = parts.length > 0 ? parts[parts.length - 1] : '';
+    c.teacher = teacherName;
+    c.isSuggested = !!teacherName;
   });
 
   renderTeacherAssignModal();
@@ -1949,129 +1955,140 @@ function processStep1Upload() {
   // STEP1: 반-교재 매칭 엑셀 파싱
   // 형식: 과목 | 강사 | 반 | 교재1 | 교재비1 | 교재2 | 교재비2 | ...
   
-  const td = getCurrentTargetData();
-  const rows = uploadState.rows;
-  
-  // 헤더에서 교재 컬럼 찾기
-  const headers = uploadState.headers.map(h => h.name.toLowerCase());
-  const subjectIdx = headers.findIndex(h => h.includes('과목'));
-  const teacherIdx = headers.findIndex(h => h.includes('강사'));
-  const classIdx = headers.findIndex(h => h.includes('반'));
-  
-  if (subjectIdx === -1 || classIdx === -1) {
-    toast('엑셀에 "과목"과 "반" 컬럼이 필요합니다', true);
-    return;
-  }
-  
-  // 교재 컬럼들 찾기 (교재1, 교재2, ...)
-  const bookColIndices = [];
-  for (let i = 0; i < headers.length; i++) {
-    if (headers[i].includes('교재') && !headers[i].includes('비')) {
-      bookColIndices.push(i);
-    }
-  }
-  
-  // 반-교재 데이터 파싱
-  const classBookMap = {}; // key: subject||teacher||className → { subject, teacher, className, books: [{name, price}] }
-  
-  rows.forEach(row => {
-    const subject = String(row[subjectIdx] || '').trim();
-    const teacher = teacherIdx !== -1 ? String(row[teacherIdx] || '').trim() : '';
-    const className = String(row[classIdx] || '').trim();
+  try {
+    const td = getCurrentTargetData();
+    const rows = uploadState.rows;
     
-    if (!subject || !className) return;
-    
-    const key = `${subject}||${teacher}||${className}`;
-    
-    if (!classBookMap[key]) {
-      classBookMap[key] = {
-        subject,
-        teacher,
-        className,
-        books: []
-      };
+    if (!rows || rows.length === 0) {
+      toast('엑셀에 데이터가 없습니다', true);
+      return;
     }
     
-    // 교재들 추가
-    bookColIndices.forEach(bookIdx => {
-      const bookName = String(row[bookIdx] || '').trim();
-      if (!bookName) return;
+    // 헤더에서 교재 컬럼 찾기
+    const headers = uploadState.headers.map(h => h.name.toLowerCase());
+    const subjectIdx = headers.findIndex(h => h.includes('과목'));
+    const teacherIdx = headers.findIndex(h => h.includes('강사'));
+    const classIdx = headers.findIndex(h => h.includes('반'));
+    
+    if (subjectIdx === -1 || classIdx === -1) {
+      toast('엑셀에 "과목"과 "반" 컬럼이 필요합니다', true);
+      return;
+    }
+    
+    // 교재 컬럼들 찾기 (교재1, 교재2, ...)
+    const bookColIndices = [];
+    for (let i = 0; i < headers.length; i++) {
+      if (headers[i].includes('교재') && !headers[i].includes('비')) {
+        bookColIndices.push(i);
+      }
+    }
+    
+    // 반-교재 데이터 파싱
+    const classBookMap = {}; // key: subject||teacher||className → { subject, teacher, className, books: [{name, price}] }
+    
+    rows.forEach(row => {
+      const subject = String(row[subjectIdx] || '').trim();
+      const teacher = teacherIdx !== -1 ? String(row[teacherIdx] || '').trim() : '';
+      const className = String(row[classIdx] || '').trim();
       
-      // 교재비 찾기 (다음 컬럼)
-      const priceIdx = bookIdx + 1;
-      const priceStr = String(row[priceIdx] || '').trim();
-      const price = priceStr ? parseInt(priceStr.replace(/[^0-9]/g, '')) || null : null;
+      if (!subject || !className) return;
       
-      classBookMap[key].books.push({ name: bookName, price });
+      const key = `${subject}||${teacher}||${className}`;
+      
+      if (!classBookMap[key]) {
+        classBookMap[key] = {
+          subject,
+          teacher,
+          className,
+          books: []
+        };
+      }
+      
+      // 교재들 추가
+      bookColIndices.forEach(bookIdx => {
+        const bookName = String(row[bookIdx] || '').trim();
+        if (!bookName) return;
+        
+        // 교재비 찾기 (다음 컬럼)
+        const priceIdx = bookIdx + 1;
+        const priceStr = String(row[priceIdx] || '').trim();
+        const price = priceStr ? parseInt(priceStr.replace(/[^0-9]/g, '')) || null : null;
+        
+        classBookMap[key].books.push({ name: bookName, price });
+      });
     });
-  });
-  
-  // 반 생성 및 교재 생성
-  let newClasses = 0;
-  let newBooks = 0;
-  let totalBookAssignments = 0;
-  
-  Object.values(classBookMap).forEach(item => {
-    const classKey = `${item.subject}||${item.className}`;
     
-    // 반 찾기 또는 생성
-    let cls = td.classes.find(c => c.subject === item.subject && c.className === item.className);
+    // 반 생성 및 교재 생성
+    let newClasses = 0;
+    let newBooks = 0;
+    let totalBookAssignments = 0;
     
-    if (!cls) {
-      cls = {
-        id: uid('c'),
-        subject: item.subject,
-        teacher: item.teacher,
-        className: item.className,
-        bookIds: [],
-        createdAt: new Date().toISOString()
-      };
-      td.classes.push(cls);
-      newClasses++;
-    } else if (item.teacher && !cls.teacher) {
-      cls.teacher = item.teacher;
-    }
-    
-    // 강사 디렉토리에 추가
-    if (item.teacher) ensureTeacherInDirectory(item.teacher);
-    
-    // 교재 생성 및 연결
-    item.books.forEach(bookData => {
-      // 교재 찾기 또는 생성
-      let book = td.books.find(b => 
-        b.name === bookData.name && 
-        b.subject === item.subject &&
-        (b.teacher === item.teacher || b.teacher === '' || item.teacher === '')
-      );
+    Object.values(classBookMap).forEach(item => {
+      const classKey = `${item.subject}||${item.className}`;
       
-      if (!book) {
-        book = {
-          id: uid('b'),
-          name: bookData.name,
+      // 반 찾기 또는 생성
+      let cls = td.classes.find(c => c.subject === item.subject && c.className === item.className);
+      
+      if (!cls) {
+        cls = {
+          id: uid('c'),
           subject: item.subject,
           teacher: item.teacher,
-          price: bookData.price,
-          stock: 0,
+          className: item.className,
+          bookIds: [],
           createdAt: new Date().toISOString()
         };
-        td.books.push(book);
-        newBooks++;
-      } else if (bookData.price && !book.price) {
-        book.price = bookData.price;
+        td.classes.push(cls);
+        newClasses++;
+      } else if (item.teacher && !cls.teacher) {
+        cls.teacher = item.teacher;
       }
       
-      // bookIds에 추가 (중복 방지)
-      if (!cls.bookIds.includes(book.id)) {
-        cls.bookIds.push(book.id);
-        totalBookAssignments++;
-      }
+      // 강사 디렉토리에 추가
+      if (item.teacher) ensureTeacherInDirectory(item.teacher);
+      
+      // 교재 생성 및 연결
+      item.books.forEach(bookData => {
+        // 교재 찾기 또는 생성
+        let book = td.books.find(b => 
+          b.name === bookData.name && 
+          b.subject === item.subject &&
+          (b.teacher === item.teacher || b.teacher === '' || item.teacher === '')
+        );
+        
+        if (!book) {
+          book = {
+            id: uid('b'),
+            name: bookData.name,
+            subject: item.subject,
+            teacher: item.teacher,
+            price: bookData.price,
+            stock: 0,
+            createdAt: new Date().toISOString()
+          };
+          td.books.push(book);
+          newBooks++;
+        } else if (bookData.price && !book.price) {
+          book.price = bookData.price;
+        }
+        
+        // bookIds에 추가 (중복 방지)
+        if (!cls.bookIds.includes(book.id)) {
+          cls.bookIds.push(book.id);
+          totalBookAssignments++;
+        }
+      });
     });
-  });
-  
-  saveData();
-  closeModal();
-  toast(`✅ ${newClasses}개 반, ${newBooks}개 교재 등록 완료! (${totalBookAssignments}건 매칭)`, false);
-  renderMain();
+    
+    saveData();
+    uploadState = { uploadStep: 'default' }; // 초기화
+    toast(`✅ ${newClasses}개 반, ${newBooks}개 교재 등록 완료! (${totalBookAssignments}건 매칭)`, false);
+    render();
+    
+  } catch (error) {
+    console.error('processStep1Upload 에러:', error);
+    toast('1단계 엑셀 처리 중 오류 발생: ' + error.message, true);
+  }
 }
 
 function renderTeacherAssignModal() {
