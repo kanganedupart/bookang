@@ -2168,9 +2168,6 @@ function openTeacherAssignModal() {
     .filter(([k,m]) => m.type === 'subject')
     .map(([k,m]) => ({ colIdx: +k, subjectName: m.subjectName }));
 
-
-  });
-
   renderTeacherAssignModal();
 }
 
