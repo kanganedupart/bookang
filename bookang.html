@@ -3111,10 +3111,29 @@ function editStudent(studentId) {
         confirmText: '삭제',
         confirmStyle: 'danger',
         onConfirm: () => {
+          console.log('🗑️ [학생] 삭제:', s.name);
           td.students = td.students.filter(x => x.id !== studentId);
           saveData();
           render();
           toast('학생 삭제됨');
+        }
+      });
+    },
+    showWithdraw: true,
+    onWithdraw: () => {
+      showModal({
+        title: `'${s.name}' 학생을 퇴반시킬까요?`,
+        desc: '모든 반에서 제외됩니다. 학생 정보는 남아있어서 나중에 다시 반 배정이 가능합니다.',
+        warning: '퇴반 후에는 어떤 반에도 속하지 않습니다.',
+        confirmText: '퇴반',
+        confirmStyle: 'warning',
+        onConfirm: () => {
+          console.log('🚪 [학생] 퇴반:', s.name);
+          console.log('   - 이전 반:', s.classIds.length, '개');
+          s.classIds = [];
+          saveData();
+          render();
+          toast(`${s.name} 학생이 퇴반되었습니다`);
         }
       });
     },
@@ -3124,8 +3143,16 @@ function editStudent(studentId) {
         setError('같은 이름의 학생이 이미 있습니다.');
         return false;
       }
+      
+      const oldClasses = s.classIds.length;
+      const newClasses = Object.values(finalSelection).map(v => v.classId).filter(Boolean);
+      
+      console.log('✏️ [학생] 편집:', name);
+      console.log('   - 이전 반:', oldClasses, '개');
+      console.log('   - 수정 후:', newClasses.length, '개');
+      
       s.name = name;
-      s.classIds = Object.values(finalSelection).map(v => v.classId).filter(Boolean);
+      s.classIds = newClasses;
       saveData();
       render();
       toast('저장됨');
@@ -4063,7 +4090,7 @@ function addStudentManual() {
 }
 
 // 학생 추가/편집 공통 폼
-function showStudentForm({ title, desc, initialName, selection, showDelete, onDelete, onConfirm }) {
+function showStudentForm({ title, desc, initialName, selection, showDelete, onDelete, showWithdraw, onWithdraw, onConfirm }) {
   const td = getCurrentTargetData();
   const subjects = Object.keys(selection);
 
@@ -4096,6 +4123,7 @@ function showStudentForm({ title, desc, initialName, selection, showDelete, onDe
       <div class="modal-error" id="sfError" style="margin-top:10px;"></div>
       <div class="modal-actions">
         ${showDelete ? '<button class="btn btn-ghost btn-danger" id="sfDelete" style="margin-right:auto;">학생 삭제</button>' : ''}
+        ${showWithdraw ? '<button class="btn btn-ghost" id="sfWithdraw" style="margin-right:auto; ${showDelete ? 'margin-left:8px;' : ''}">🚪 퇴반</button>' : ''}
         <button class="btn btn-ghost" id="sfCancel">취소</button>
         <button class="btn btn-primary" id="sfConfirm">저장</button>
       </div>
@@ -4146,6 +4174,13 @@ function showStudentForm({ title, desc, initialName, selection, showDelete, onDe
     bd.querySelector('#sfDelete').onclick = () => {
       bd.remove();
       onDelete();
+    };
+  }
+  
+  if (showWithdraw && onWithdraw) {
+    bd.querySelector('#sfWithdraw').onclick = () => {
+      bd.remove();
+      onWithdraw();
     };
   }
 
@@ -8348,100 +8383,134 @@ function downloadBooks() {
 function downloadStockOverview() {
   const td = getCurrentTargetData();
   const targetName = state.targets.find(t => t.id === state.currentTargetId)?.name || '대상';
-
-  let rows = [];
-  let sheetName = '';
-
-  if (stockOverviewView === 'book') {
-    sheetName = '교재중심';
-    rows = [
-      ['📚 교재 중심 — 미배부 추적'],
-      [`대상: ${targetName}`],
-      [`다운로드: ${new Date().toLocaleString('ko-KR')}`],
-      [`필터: 과목=${stockOverviewFilter.subject || '전체'} / 강사=${stockOverviewFilter.teacher || '전체'} / 검색=${stockOverviewFilter.query || '-'}`],
-      [],
-      ['과목', '강사', '교재명', '매칭 학생', '배부', '미배부', '입고', '현재고']
-    ];
-    const filtered = td.books.filter(b => {
-      if (stockOverviewFilter.subject && b.subject !== stockOverviewFilter.subject) return false;
-      if (stockOverviewFilter.teacher && b.teacher !== stockOverviewFilter.teacher) return false;
-      if (stockOverviewFilter.query && !matchesQuery(b.name, stockOverviewFilter.query)) return false;
-      return true;
-    }).sort((a, b) => a.subject.localeCompare(b.subject) || a.teacher.localeCompare(b.teacher) || a.name.localeCompare(b.name));
-
-    filtered.forEach(b => {
-      const matched = getBookMatchedStudentCount(b.id, td);
-      const distributed = getBookDistributedStudentCount(b.id, td);
-      const stockIn = b.stockIn || 0;
-      const stock = stockIn - getDistributedCount(b.id, td);
-      rows.push([b.subject, b.teacher, b.name, matched, distributed, matched - distributed, stockIn, stock]);
-    });
-  } else if (stockOverviewView === 'class') {
-    sheetName = '반중심';
-    rows = [
-      ['🏫 반 중심 — 진행률'],
-      [`대상: ${targetName}`],
-      [`다운로드: ${new Date().toLocaleString('ko-KR')}`],
-      [`필터: 과목=${stockOverviewFilter.subject || '전체'} / 강사=${stockOverviewFilter.teacher || '전체'} / 검색=${stockOverviewFilter.query || '-'}`],
-      [],
-      ['과목', '강사', '반명', '학생', '매칭 교재', '배부 완료', '미배부', '진행률(%)']
-    ];
-    const filtered = td.classes.filter(c => c.bookIds && c.bookIds.length > 0)
-      .filter(c => {
-        if (stockOverviewFilter.subject && c.subject !== stockOverviewFilter.subject) return false;
-        if (stockOverviewFilter.teacher && c.teacher !== stockOverviewFilter.teacher) return false;
-        if (stockOverviewFilter.query && !matchesQuery(c.className, stockOverviewFilter.query)) return false;
-        return true;
-      })
-      .sort((a, b) => a.subject.localeCompare(b.subject) || (a.teacher || '').localeCompare(b.teacher || '') || a.className.localeCompare(b.className));
-
-    filtered.forEach(c => {
-      const classStudents = td.students.filter(s => s.classIds.includes(c.id));
-      const studentCount = classStudents.length;
-      const bookCount = c.bookIds.length;
-      const totalCells = studentCount * bookCount;
-      let distributedCells = 0;
-      classStudents.forEach(s => {
-        c.bookIds.forEach(bid => {
-          if (getDistStatus(td, s.id, bid) === 'distributed') distributedCells++;
-        });
-      });
-      const pct = totalCells > 0 ? Math.round(distributedCells / totalCells * 100) : 0;
-      rows.push([c.subject, c.teacher || '', c.className, studentCount, bookCount, distributedCells, totalCells - distributedCells, pct]);
-    });
-  } else {
-    sheetName = '재고중심';
-    rows = [
-      ['🧾 재고 중심 — 상세 재고 계산'],
-      [`대상: ${targetName}`],
-      [`다운로드: ${new Date().toLocaleString('ko-KR')}`],
-      [`필터: 과목=${stockOverviewFilter.subject || '전체'} / 강사=${stockOverviewFilter.teacher || '전체'} / 검색=${stockOverviewFilter.query || '-'}`],
-      ['계산식: 입고 + 추가입고 - 배부 - 추가배부 + 회수 = 현재고'],
-      [],
-      ['과목', '강사', '교재명', '입고', '추가입고', '배부', '추가배부', '회수', '현재고']
-    ];
-    const filtered = td.books.filter(b => {
-      if (stockOverviewFilter.subject && b.subject !== stockOverviewFilter.subject) return false;
-      if (stockOverviewFilter.teacher && b.teacher !== stockOverviewFilter.teacher) return false;
-      if (stockOverviewFilter.query && !matchesQuery(b.name, stockOverviewFilter.query)) return false;
-      return true;
-    }).sort((a, b) => a.subject.localeCompare(b.subject) || a.teacher.localeCompare(b.teacher) || a.name.localeCompare(b.name));
-
-    filtered.forEach(b => {
-      const stock = calculateDetailedStock(b.id, td);
-      rows.push([b.subject, b.teacher, b.name, stock.initial, stock.additional, stock.distributed, stock.additionalDist, stock.returned, stock.current]);
-    });
-  }
-
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 36 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
-
+  const stockData = prepareStockData(td);
+  
+  // 엑셀 워크북 생성
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-  const filename = `bookang_재고현황_${sheetName}_${targetName}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\\/\*\?\[\]:]/g, '_');
+  
+  // 모든 과목 추출
+  const allSubjects = [...new Set(stockData.books.map(b => b.subject))].sort();
+  
+  // 1. 전체 시트 생성
+  createStockSheet(wb, '📊 전체', stockData.books, targetName, true);
+  
+  // 2. 과목별 시트 생성
+  allSubjects.forEach(subject => {
+    const filtered = stockData.books.filter(b => b.subject === subject);
+    if (filtered.length > 0) {
+      createStockSheet(wb, subject, filtered, targetName, false);
+    }
+  });
+  
+  // 파일 다운로드
+  const filename = `재고관리_${targetName}_${new Date().toISOString().slice(0,10)}.xlsx`;
   XLSX.writeFile(wb, filename);
-  toast('재고 현황 다운로드됨');
+  toast('✅ 재고관리 엑셀 다운로드 완료!');
+}
+
+// 재고 시트 생성 함수
+function createStockSheet(wb, sheetName, books, targetName, includeSubject) {
+  const rows = [];
+  
+  // 헤더 행
+  const headers = [];
+  if (includeSubject) headers.push('과목');
+  headers.push('강사', '교재명', '입고', '추가입고', '배부', '추가배부', '회수', '현재고');
+  rows.push(headers);
+  
+  // 데이터 행
+  books.forEach(b => {
+    const stock = calculateDetailedStock(b.id, getCurrentTargetData());
+    const row = [];
+    if (includeSubject) row.push(b.subject);
+    row.push(
+      b.teacher,
+      b.name,
+      stock.initial,
+      stock.additional,
+      stock.distributed,
+      stock.additionalDist,
+      stock.returned,
+      stock.current
+    );
+    rows.push(row);
+  });
+  
+  // 시트 생성
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  
+  // 열 너비 설정
+  const colWidths = [];
+  if (includeSubject) colWidths.push({ wch: 10 });
+  colWidths.push(
+    { wch: 12 },  // 강사
+    { wch: 40 },  // 교재명
+    { wch: 10 },  // 입고
+    { wch: 12 },  // 추가입고
+    { wch: 10 },  // 배부
+    { wch: 12 },  // 추가배부
+    { wch: 10 },  // 회수
+    { wch: 12 }   // 현재고
+  );
+  ws['!cols'] = colWidths;
+  
+  // 자동 필터 설정 (A1:마지막 컬럼1)
+  const lastCol = String.fromCharCode(65 + headers.length - 1); // A, B, C...
+  ws['!autofilter'] = { ref: `A1:${lastCol}1` };
+  
+  // 헤더 스타일링
+  const headerStyle = {
+    fill: { fgColor: { rgb: "4472C4" } },
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+    alignment: { horizontal: "center", vertical: "center" },
+    border: {
+      top: { style: "thin", color: { rgb: "365F9C" } },
+      bottom: { style: "thin", color: { rgb: "365F9C" } },
+      left: { style: "thin", color: { rgb: "365F9C" } },
+      right: { style: "thin", color: { rgb: "365F9C" } }
+    }
+  };
+  
+  // 헤더에 스타일 적용
+  for (let i = 0; i < headers.length; i++) {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
+    if (!ws[cellRef]) ws[cellRef] = {};
+    ws[cellRef].s = headerStyle;
+  }
+  
+  // 데이터 행 스타일링
+  for (let r = 1; r < rows.length; r++) {
+    for (let c = 0; c < headers.length; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      if (!ws[cellRef]) continue;
+      
+      const isCurrentStock = (includeSubject && c === headers.length - 1) || (!includeSubject && c === headers.length - 1);
+      
+      ws[cellRef].s = {
+        fill: isCurrentStock 
+          ? { fgColor: { rgb: "E2EFDA" } }  // 현재고 - 초록색
+          : (r % 2 === 0 ? { fgColor: { rgb: "F2F2F2" } } : {}),  // 줄무늬
+        font: { 
+          sz: 10,
+          color: isCurrentStock ? { rgb: "375623" } : { rgb: "000000" },
+          bold: isCurrentStock
+        },
+        alignment: { 
+          horizontal: c >= (includeSubject ? 3 : 2) ? "center" : "left",
+          vertical: "center" 
+        },
+        border: {
+          top: { style: "thin", color: { rgb: "D0D0D0" } },
+          bottom: { style: "thin", color: { rgb: "D0D0D0" } },
+          left: { style: "thin", color: { rgb: "D0D0D0" } },
+          right: { style: "thin", color: { rgb: "D0D0D0" } }
+        }
+      };
+    }
+  }
+  
+  // 워크북에 시트 추가
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
 }
 
 function attachStockOverviewEvents() {
@@ -11222,8 +11291,10 @@ function attachStudentsSearchEvents() {
       downloadSingleClass(btn.dataset.downloadClassId);
     };
   });
-  
-  // 반별 명단 탭 필터 이벤트
+}
+
+// 반별 명단 탭 필터 이벤트 (별도 함수)
+function attachRosterFilterEvents() {
   const rosterSubject = document.getElementById('rosterSubjectFilter');
   if (rosterSubject) {
     rosterSubject.onchange = (e) => {
@@ -11250,24 +11321,6 @@ function attachStudentsSearchEvents() {
     rosterClass.onchange = (e) => {
       if (!state.rosterFilter) state.rosterFilter = {};
       state.rosterFilter.classId = e.target.value;
-      renderMain();
-    };
-  }
-  
-  // 재고관리 탭 필터 이벤트
-  const bookFilterSubject = document.getElementById('bookFilterSubject');
-  if (bookFilterSubject) {
-    bookFilterSubject.onchange = (e) => {
-      bookFilter.subject = e.target.value;
-      bookFilter.teacher = ''; // 과목 바꾸면 강사 초기화
-      renderMain();
-    };
-  }
-  
-  const bookFilterTeacher = document.getElementById('bookFilterTeacher');
-  if (bookFilterTeacher) {
-    bookFilterTeacher.onchange = (e) => {
-      bookFilter.teacher = e.target.value;
       renderMain();
     };
   }
@@ -11476,6 +11529,7 @@ function attachEvents() {
   // 학생 관리 탭 - 검색 이벤트
   if (activeTab === 'students') {
     attachStudentsSearchEvents();
+    attachRosterFilterEvents(); // 반별 명단 필터
   }
 
   // 조회·검색 탭 (통합 조회 = 학생별 조회)
@@ -11497,6 +11551,24 @@ function attachEvents() {
   // 재고 현황 탭 (별도 탭이지만 같은 함수 사용)
   if (activeTab === 'overview') {
     attachStockOverviewEvents();
+  }
+  
+  // 재고관리 탭 필터 이벤트
+  const bookFilterSubject = document.getElementById('bookFilterSubject');
+  if (bookFilterSubject) {
+    bookFilterSubject.onchange = (e) => {
+      bookFilter.subject = e.target.value;
+      bookFilter.teacher = ''; // 과목 바꾸면 강사 초기화
+      renderMain();
+    };
+  }
+  
+  const bookFilterTeacher = document.getElementById('bookFilterTeacher');
+  if (bookFilterTeacher) {
+    bookFilterTeacher.onchange = (e) => {
+      bookFilter.teacher = e.target.value;
+      renderMain();
+    };
   }
 }
 
