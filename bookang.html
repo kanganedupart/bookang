@@ -9897,7 +9897,12 @@ function renderStudentDetail(student, td) {
                 <tr style="${b.status === 'none' ? 'background:#FFF7E6;' : ''}">
                   <td><span class="badge badge-subject" style="font-size:10px;">${escapeHtml(b.subject)}</span></td>
                   <td><span class="badge badge-teacher" style="font-size:10px;">${escapeHtml(b.teacher)}</span></td>
-                  <td>${escapeHtml(b.name)}</td>
+                  <td>
+                    ${escapeHtml(b.name)}
+                    <span style="color:#999;font-size:11px;margin-left:8px;">
+                      ${b.price ? b.price.toLocaleString() + '원' : ''}
+                    </span>
+                  </td>
                   <td>${b.statusText}</td>
                   <td style="font-size:11px;color:var(--text-dim);">${escapeHtml(b.history)}</td>
                   <td>
