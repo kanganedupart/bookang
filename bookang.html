@@ -1041,6 +1041,40 @@ function calculateBookUnissued() {
   }
 }
 
+// Firebase에서 학생 데이터 읽기
+async function loadStudentsFromFirebase() {
+  console.log('📥 [Firebase] students 로드 시작...');
+  
+  if (!state.currentTargetId) {
+    console.warn('⚠️ currentTargetId가 없습니다.');
+    return null;
+  }
+  
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const db = firebase.database();
+      const snapshot = await db.ref(`shared/studentData/${state.currentTargetId}/students`).once('value');
+      const students = snapshot.val();
+      
+      if (students && Array.isArray(students)) {
+        console.log('✅ [Firebase] students 로드 완료:', students.length, '명');
+        console.log('   경로:', `shared/studentData/${state.currentTargetId}/students`);
+        console.log('   샘플:', students.slice(0, 3).map(s => s.name));
+        return students;
+      } else {
+        console.log('📝 [Firebase] students 데이터 없음 (빈 배열 반환)');
+        return [];
+      }
+    } else {
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
+      return null;
+    }
+  } catch (e) {
+    console.error('❌ [Firebase] students 로드 실패:', e);
+    return null;
+  }
+}
+
 // 학생 목록을 Firebase에 저장
 // Firebase 경로: shared/students
 // 형식: {"학생이름": true, ...}
@@ -1049,11 +1083,11 @@ function saveStudentsToFirebase() {
   
   const td = getCurrentTargetData();
   if (!td) {
-    // 대상이 없으면 빈 객체 저장
     console.log('📝 [Firebase] 대상 없음 - 빈 객체 저장');
     try {
       if (typeof firebase !== 'undefined' && firebase.database) {
         firebase.database().ref('shared/students').set({});
+        firebase.database().ref(`shared/studentData/${state.currentTargetId}`).set({});
       }
     } catch (e) {
       console.error('❌ [Firebase] students 저장 실패:', e);
@@ -1061,40 +1095,47 @@ function saveStudentsToFirebase() {
     return;
   }
   
-  const result = {};
-  
-  // 모든 학생을 {"이름": true} 형태로 저장
-  td.students.forEach(student => {
-    result[student.name] = true;
+  // 1. 전체 학생 배열 저장 (주 데이터)
+  console.log('📊 [Firebase] 저장할 학생 배열:', {
+    학생수: td.students.length,
+    샘플: td.students.slice(0, 3).map(s => ({ name: s.name, classIds: s.classIds.length }))
   });
   
-  console.log('📊 [Firebase] 저장할 데이터:', {
-    학생수: Object.keys(result).length,
-    샘플: Object.keys(result).slice(0, 5)
+  // 2. 환불 연동용 학생 이름 목록
+  const nameList = {};
+  td.students.forEach(student => {
+    nameList[student.name] = true;
   });
   
   // Firebase에 저장
   try {
     if (typeof firebase !== 'undefined' && firebase.database) {
-      firebase.database().ref('shared/students').set(result)
+      const db = firebase.database();
+      
+      // 전체 학생 배열 저장
+      db.ref(`shared/studentData/${state.currentTargetId}/students`).set(td.students)
         .then(() => {
-          console.log('✅ [Firebase] students 저장 완료:', Object.keys(result).length, '명');
+          console.log('✅ [Firebase] studentData 저장 완료:', td.students.length, '명');
+          console.log('   경로:', `shared/studentData/${state.currentTargetId}/students`);
         })
         .catch((error) => {
-          console.error('❌ [Firebase] students 저장 실패:', error);
-          // Firebase 실패 시 localStorage에 백업 저장
-          try {
-            localStorage.setItem('students_backup', JSON.stringify(result));
-            console.log('💾 localStorage 백업 저장 완료 (students)');
-          } catch (e) {
-            console.error('백업 저장도 실패:', e);
-          }
+          console.error('❌ [Firebase] studentData 저장 실패:', error);
         });
+      
+      // 환불 연동용 이름 목록 저장
+      db.ref('shared/students').set(nameList)
+        .then(() => {
+          console.log('✅ [Firebase] students (이름 목록) 저장 완료:', Object.keys(nameList).length, '명');
+        })
+        .catch((error) => {
+          console.error('❌ [Firebase] students (이름 목록) 저장 실패:', error);
+        });
+      
     } else {
-      console.warn('⚠️ Firebase가 초기화되지 않았습니다. students 저장을 건너뜁니다.');
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
     }
   } catch (e) {
-    console.error('❌ [Firebase] students 저장 중 오류:', e);
+    console.error('❌ [Firebase] 예외 발생:', e);
   }
 }
 
@@ -12210,8 +12251,36 @@ function handleLogin(e) {
   
   // Firebase 자동 동기화
   console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-  saveStudentsToFirebase();
-  calculateBookUnissued();
+  
+  // Firebase에서 학생 데이터 로드
+  loadStudentsFromFirebase().then(firebaseStudents => {
+    if (firebaseStudents && firebaseStudents.length > 0) {
+      const td = getCurrentTargetData();
+      if (td) {
+        console.log('📥 [병합] Firebase 데이터를 로컬에 병합');
+        console.log('   - Firebase:', firebaseStudents.length, '명');
+        console.log('   - 로컬:', td.students.length, '명');
+        
+        // Firebase 데이터로 교체
+        td.students = firebaseStudents;
+        
+        // localStorage에 백업 저장
+        saveData();
+        render();
+        
+        console.log('✅ [병합] 완료:', td.students.length, '명');
+      }
+    }
+    
+    // Firebase에 현재 상태 저장
+    saveStudentsToFirebase();
+    calculateBookUnissued();
+  }).catch(err => {
+    console.error('❌ [Firebase] 로드 중 오류:', err);
+    // Firebase 실패 시 localStorage 데이터 사용
+    saveStudentsToFirebase();
+    calculateBookUnissued();
+  });
   
   toast(`${user.name}님 환영합니다!`);
 }
@@ -12240,8 +12309,36 @@ function checkLoginStatus() {
       
       // Firebase 자동 동기화
       console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-      saveStudentsToFirebase();
-      calculateBookUnissued();
+      
+      // Firebase에서 학생 데이터 로드
+      loadStudentsFromFirebase().then(firebaseStudents => {
+        if (firebaseStudents && firebaseStudents.length > 0) {
+          const td = getCurrentTargetData();
+          if (td) {
+            console.log('📥 [병합] Firebase 데이터를 로컬에 병합');
+            console.log('   - Firebase:', firebaseStudents.length, '명');
+            console.log('   - 로컬:', td.students.length, '명');
+            
+            // Firebase 데이터로 교체
+            td.students = firebaseStudents;
+            
+            // localStorage에 백업 저장
+            saveData();
+            render();
+            
+            console.log('✅ [병합] 완료:', td.students.length, '명');
+          }
+        }
+        
+        // Firebase에 현재 상태 저장
+        saveStudentsToFirebase();
+        calculateBookUnissued();
+      }).catch(err => {
+        console.error('❌ [Firebase] 로드 중 오류:', err);
+        // Firebase 실패 시 localStorage 데이터 사용
+        saveStudentsToFirebase();
+        calculateBookUnissued();
+      });
       
       return;
     }
