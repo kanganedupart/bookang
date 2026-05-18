@@ -8380,6 +8380,64 @@ function downloadBooks() {
   toast('교재 목록이 다운로드됐습니다');
 }
 
+// 재고 상세 계산 함수
+function calculateDetailedStock(bookId, td) {
+  const book = td.books.find(b => b.id === bookId);
+  if (!book) {
+    return { 
+      initial: 0, 
+      additional: 0, 
+      distributed: 0, 
+      additionalDist: 0, 
+      returned: 0, 
+      current: 0 
+    };
+  }
+  
+  // 입고
+  const initial = book.stockIn || 0;
+  
+  // 추가입고
+  const additional = book.additionalStockIn || 0;
+  
+  // 배부 및 회수 계산
+  let distributed = 0;
+  let returned = 0;
+  
+  if (td.distributions) {
+    td.students.forEach(student => {
+      const key = `${student.id}_${bookId}`;
+      const dist = td.distributions[key];
+      if (dist) {
+        if (dist.distributed && dist.distributed.length > 0) {
+          distributed += dist.distributed.length;
+        }
+        if (dist.returned && dist.returned.length > 0) {
+          returned += dist.returned.length;
+        }
+      }
+    });
+  }
+  
+  // 추가배부 계산
+  let additionalDist = 0;
+  if (td.additionalDistributions) {
+    additionalDist = td.additionalDistributions.filter(d => d.bookId === bookId).length;
+  }
+  
+  // 현재고 = 입고 + 추가입고 - 배부 - 추가배부 + 회수
+  const current = initial + additional - distributed - additionalDist + returned;
+  
+  return {
+    initial,
+    additional,
+    distributed,
+    additionalDist,
+    returned,
+    current
+  };
+}
+
 function downloadStockOverview() {
   const td = getCurrentTargetData();
   const targetName = state.targets.find(t => t.id === state.currentTargetId)?.name || '대상';
