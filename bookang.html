@@ -8547,7 +8547,7 @@ function createStockSheet(wb, sheetName, books, targetName, includeSubject) {
       ws[cellRef].s = {
         fill: isCurrentStock 
           ? { fgColor: { rgb: "E2EFDA" } }  // 현재고 - 초록색
-          : (r % 2 === 0 ? { fgColor: { rgb: "F2F2F2" } } : {}),  // 줄무늬
+          : (r % 2 === 0 ? { fgColor: { rgb: "F2F2F2" } } : { fgColor: { rgb: "FFFFFF" } }),  // 줄무늬 (회색/흰색)
         font: { 
           sz: 10,
           color: isCurrentStock ? { rgb: "375623" } : { rgb: "000000" },
