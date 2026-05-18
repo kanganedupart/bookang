@@ -5323,6 +5323,7 @@ function renderBookGroup(g, autoExpand) {
           <thead>
             <tr>
               <th style="padding-left:16px;">교재명</th>
+              <th style="width:100px;text-align:right;padding-right:16px;">교재비</th>
               <th style="width:80px;"></th>
             </tr>
           </thead>
@@ -5330,6 +5331,9 @@ function renderBookGroup(g, autoExpand) {
             ${g.books.slice().sort((a, b) => a.name.localeCompare(b.name)).map(b => `
               <tr>
                 <td style="padding-left:16px;">${escapeHtml(b.name)}</td>
+                <td style="text-align:right;padding-right:16px;color:var(--text-dim);font-size:12px;">
+                  ${b.price ? b.price.toLocaleString() + '원' : '-'}
+                </td>
                 <td><button class="btn btn-ghost btn-sm" data-edit-book="${b.id}">편집</button></td>
               </tr>
             `).join('')}
