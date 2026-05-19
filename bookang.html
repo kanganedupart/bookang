@@ -2351,6 +2351,8 @@ function processStep1Upload() {
       
       // 교재 생성 및 연결
       item.books.forEach(bookData => {
+        console.log('📚 교재 처리:', bookData.name, '입고수량:', bookData.stockQty);
+        
         // 교재 찾기 또는 생성
         let book = td.books.find(b => 
           b.name === bookData.name && 
@@ -2372,12 +2374,15 @@ function processStep1Upload() {
           td.books.push(book);
           newBooks++;
           isNewBook = true;
+          console.log('✅ 새 교재 생성:', bookData.name);
         } else if (bookData.price && !book.price) {
           book.price = bookData.price;
+          console.log('📝 기존 교재 가격 업데이트:', bookData.name);
         }
         
         // 입고수량이 있으면 자동 입고 (첫 등록 시에만)
         if (isNewBook && bookData.stockQty > 0) {
+          console.log('📦 자동 입고 시작:', bookData.name, bookData.stockQty + '권');
           book.stock = bookData.stockQty;
           
           // 입고 이력 추가
@@ -2391,6 +2396,11 @@ function processStep1Upload() {
             author: '엑셀 업로드',
             note: '1단계 업로드 시 자동 입고'
           });
+          console.log('✅ 자동 입고 완료:', bookData.name, book.stock + '권');
+        } else if (!isNewBook) {
+          console.log('⚠️ 기존 교재라 입고 안 함:', bookData.name);
+        } else if (bookData.stockQty <= 0) {
+          console.log('⚠️ 입고수량 없음:', bookData.name);
         }
         
         // bookIds에 추가 (중복 방지)
