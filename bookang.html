@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.42.0 · 완전 최적화</span>
+  <span>bookang v0.46.1 · 배부 탭 일괄배부 완전 수정</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -1075,6 +1075,33 @@ async function loadStudentsFromFirebase() {
   }
 }
 
+// targets를 Firebase에서 로드
+async function loadTargetsFromFirebase() {
+  console.log('📥 [Firebase] targets 로드 시작...');
+  
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const db = firebase.database();
+      const snapshot = await db.ref('shared/bookangState').once('value');
+      const data = snapshot.val();
+      
+      if (data) {
+        console.log('✅ [Firebase] bookangState 로드 완료');
+        return data;
+      } else {
+        console.log('📝 [Firebase] bookangState 데이터 없음');
+        return null;
+      }
+    } else {
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
+      return null;
+    }
+  } catch (e) {
+    console.error('❌ [Firebase] targets 로드 실패:', e);
+    return null;
+  }
+}
+
 // 학생 목록을 Firebase에 저장
 // Firebase 경로: shared/students
 // 형식: {"학생이름": true, ...}
@@ -1139,6 +1166,44 @@ function saveStudentsToFirebase() {
   }
 }
 
+// targets를 Firebase에 저장
+function saveTargetsToFirebase() {
+  console.log('🔥 [Firebase] targets 저장 시작...');
+  
+  if (!state.targets || state.targets.length === 0) {
+    console.log('📝 [Firebase] targets 없음');
+    return;
+  }
+  
+  console.log('📊 [Firebase] 저장할 targets:', state.targets.length, '개');
+  
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const db = firebase.database();
+      
+      // state 전체 저장 (targets, currentTargetId, users 등)
+      const dataToSave = {
+        targets: state.targets,
+        currentTargetId: state.currentTargetId,
+        users: state.users
+      };
+      
+      db.ref('shared/bookangState').set(dataToSave)
+        .then(() => {
+          console.log('✅ [Firebase] bookangState 저장 완료');
+        })
+        .catch((error) => {
+          console.error('❌ [Firebase] bookangState 저장 실패:', error);
+        });
+      
+    } else {
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
+    }
+  } catch (e) {
+    console.error('❌ [Firebase] 예외 발생:', e);
+  }
+}
+
 function saveData() {
   console.log('💾 [저장] saveData 호출됨');
   
@@ -1158,6 +1223,7 @@ function saveData() {
     
     calculateBookUnissued(); // 교재 미배부 총액 자동 업데이트
     saveStudentsToFirebase(); // 학생 목록 자동 업데이트
+    saveTargetsToFirebase(); // targets 자동 업데이트
   } catch (e) {
     console.error('데이터 저장 실패', e);
     toast('저장 실패: localStorage를 사용할 수 없습니다', true);
@@ -1264,8 +1330,9 @@ function showConfirm(opts) {
 function getCurrentTargetData() {
   const tid = state.currentTargetId;
   if (!tid) return null;
-  if (!state.data[tid]) state.data[tid] = { classes: [], students: [], books: [] };
+  if (!state.data[tid]) state.data[tid] = { classes: [], students: [], books: [], distributions: {} };
   if (!state.data[tid].books) state.data[tid].books = [];
+  if (!state.data[tid].distributions) state.data[tid].distributions = {};
   return state.data[tid];
 }
 
@@ -5983,40 +6050,67 @@ function executeDistribution(distributionData) {
   });
   
   const td = getCurrentTargetData();
-  const currentUser = '이형빈'; // TODO: 실제 로그인 사용자
-  const timestamp = Date.now();
+  const currentUser = getCurrentUser();
+  const author = currentUser ? currentUser.username : 'system';
+  const now = new Date().toISOString();
+  let count = 0;
   
   console.log('현재 타겟 데이터:', td);
+  console.log('현재 사용자:', author);
   
   distributionData.forEach((item, index) => {
-    const distId = 'dist_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    // 일관된 키 사용 (중복 방지)
+    const distKey = item.studentId + '||' + item.bookId;
     
-    td.distributions[distId] = {
-      id: distId,
-      studentId: item.studentId,
-      bookId: item.bookId,
-      status: 'distributed',
-      distributedAt: timestamp,
-      distributedBy: currentUser,
-      type: 'regular', // 정규 배부
-      memo: ''
-    };
+    // 이미 배부되었는지 확인
+    const existing = td.distributions[distKey];
+    if (existing && existing.status === 'distributed') {
+      console.log(`이미 배부됨 (건너뜀): ${distKey}`);
+      return;
+    }
+    
+    // 새 배부 또는 재배부
+    if (!td.distributions[distKey]) {
+      td.distributions[distKey] = {
+        studentId: item.studentId,
+        bookId: item.bookId,
+        status: 'distributed',
+        at: now,
+        author: author,
+        history: []
+      };
+    } else {
+      td.distributions[distKey].status = 'distributed';
+      td.distributions[distKey].at = now;
+      td.distributions[distKey].author = author;
+    }
+    
+    // 이력 추가
+    if (!td.distributions[distKey].history) td.distributions[distKey].history = [];
+    td.distributions[distKey].history.push({
+      type: 'distribute',
+      at: now,
+      author: author,
+      bulk: true
+    });
+    
+    count++;
     
     if (index < 3) {
-      console.log(`배부 ${index + 1}:`, td.distributions[distId]);
+      console.log(`배부 ${index + 1}:`, td.distributions[distKey]);
     }
   });
   
   console.log('배부 데이터 저장 전, distributions 개수:', Object.keys(td.distributions).length);
   
-  saveTargetData(td);
+  saveData();
   
   console.log('renderMain 호출 전');
   renderMain(); // 화면 리프레시 (필터 유지됨)
   console.log('renderMain 호출 완료');
   
   // 확실한 완료 메시지
-  alert(`✅ ${distributionData.length}건 배부 완료되었습니다!`);
+  toast(`${count}건 배부 완료`);
   
   console.log('=== 배부 실행 완료 ===');
 }
@@ -9797,6 +9891,11 @@ function renderStudentDetail(student, td) {
           <div style="margin-left:auto; font-size:14px; font-weight:600; color:var(--accent-dark);">
             배부 ${distributedCount}/${totalBooks}
           </div>
+          ${distributedCount > 0 ? `
+            <button class="btn btn-secondary btn-sm" data-return-all="${student.id}" style="font-size:12px; padding:4px 10px;">
+              🔄 전체 회수
+            </button>
+          ` : ''}
           <button class="btn btn-ghost btn-sm" data-add-staff-memo="${student.id}" style="font-size:12px; padding:4px 10px;">
             📌 메모
           </button>
@@ -10643,6 +10742,118 @@ function returnFromStudent(studentId, bookId) {
   setTimeout(() => bd.querySelector('#returnMemo').focus(), 100);
 }
 
+// 학생의 모든 배부된 교재 회수
+function returnAllFromStudent(studentId) {
+  const td = getCurrentTargetData();
+  const student = td.students.find(s => s.id === studentId);
+  if (!student) {
+    toast('학생을 찾을 수 없습니다', true);
+    return;
+  }
+  
+  // 배부된 교재 목록 찾기
+  const distributedBooks = [];
+  Object.entries(td.distributions).forEach(([key, dist]) => {
+    if (dist.studentId === studentId && dist.status === 'distributed') {
+      const bookId = key.split('||')[1];
+      const book = td.books.find(b => b.id === bookId);
+      if (book) {
+        distributedBooks.push({ bookId, bookName: book.name });
+      }
+    }
+  });
+  
+  if (distributedBooks.length === 0) {
+    toast('배부된 교재가 없습니다', true);
+    return;
+  }
+  
+  // 확인 모달
+  const html = `
+    <div class="modal">
+      <div class="modal-title">🔄 전체 회수</div>
+      <div class="modal-desc">
+        <b>${escapeHtml(student.name)}</b> 학생의<br>
+        배부된 교재 <b>${distributedBooks.length}개</b>를 모두 회수합니다.
+      </div>
+      
+      <div style="margin:16px 0; max-height:150px; overflow-y:auto; background:var(--bg-soft); padding:12px; border-radius:6px;">
+        ${distributedBooks.map(b => `
+          <div style="padding:4px 0; font-size:13px;">• ${escapeHtml(b.bookName)}</div>
+        `).join('')}
+      </div>
+      
+      <div style="margin:16px 0;">
+        <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">회수 사유 <span style="color:var(--danger);">* 필수</span></label>
+        <textarea id="returnAllMemo" class="modal-input" placeholder="예: 결석, 반 이동, 퇴반 등" rows="2"></textarea>
+      </div>
+      
+      <div class="modal-error" id="returnAllError"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="returnAllCancel">취소</button>
+        <button class="btn btn-primary" id="returnAllConfirm">전체 회수</button>
+      </div>
+    </div>
+  `;
+  
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = html;
+  document.body.appendChild(bd);
+  
+  bd.querySelector('#returnAllCancel').onclick = () => bd.remove();
+  bd.addEventListener('click', e => { if (e.target === bd) bd.remove(); });
+  
+  bd.querySelector('#returnAllConfirm').onclick = () => {
+    const memo = bd.querySelector('#returnAllMemo').value.trim();
+    const errorEl = bd.querySelector('#returnAllError');
+    
+    if (!memo) {
+      errorEl.textContent = '회수 사유를 입력하세요';
+      return;
+    }
+    
+    const now = new Date().toISOString();
+    let count = 0;
+    
+    // 모든 교재 회수
+    distributedBooks.forEach(({ bookId, bookName }) => {
+      const distKey = studentId + '||' + bookId;
+      const dist = td.distributions[distKey];
+      
+      if (dist && dist.status === 'distributed') {
+        const book = td.books.find(b => b.id === bookId);
+        const stockBefore = book ? getCurrentStock(book, td) : 0;
+        const stockAfter = stockBefore + 1;
+        
+        dist.status = 'returned';
+        dist.at = now;
+        dist.author = state.currentUser;
+        
+        if (!dist.history) dist.history = [];
+        dist.history.push({
+          type: 'return',
+          at: now,
+          author: state.currentUser,
+          memo: memo,
+          stockBefore,
+          stockAfter,
+          bulk: true  // 일괄 회수 표시
+        });
+        
+        count++;
+      }
+    });
+    
+    saveData();
+    bd.remove();
+    renderMain();
+    toast(`${count}개 교재 회수 완료`);
+  };
+  
+  setTimeout(() => bd.querySelector('#returnAllMemo').focus(), 100);
+}
+
 // 추가 배부 모달
 function showAdditionalDistributeModal(studentId, bookId) {
   const td = getCurrentTargetData();
@@ -11264,6 +11475,14 @@ function attachSearchPageEvents() {
     };
   });
   
+  // 전체 회수
+  document.querySelectorAll('[data-return-all]').forEach(btn => {
+    btn.onclick = () => {
+      const studentId = btn.dataset.returnAll;
+      returnAllFromStudent(studentId);
+    };
+  });
+  
   // 미배부 삭제
   document.querySelectorAll('[data-delete-undistributed]').forEach(btn => {
     btn.onclick = () => {
@@ -11665,6 +11884,7 @@ function attachEvents() {
   // 학생 조회 탭 - 자동완성 검색
   if (activeTab === 'student-search') {
     attachStudentSearchPageEvents();
+    attachSearchPageEvents();  // 버튼 이벤트 연결
   }
 
   // 교재 관리 탭
@@ -12278,6 +12498,28 @@ function handleLogin(e) {
   // Firebase 자동 동기화
   console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
   
+  // Firebase에서 targets 로드
+  loadTargetsFromFirebase().then(firebaseState => {
+    if (firebaseState) {
+      if (firebaseState.targets) {
+        console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
+        state.targets = firebaseState.targets;
+      }
+      if (firebaseState.currentTargetId) {
+        state.currentTargetId = firebaseState.currentTargetId;
+      }
+      if (firebaseState.users) {
+        state.users = firebaseState.users;
+      }
+      
+      // localStorage에 백업 저장
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      render();
+    }
+  }).catch(err => {
+    console.error('❌ [Firebase] targets 로드 중 오류:', err);
+  });
+  
   // Firebase에서 학생 데이터 로드
   loadStudentsFromFirebase().then(firebaseStudents => {
     if (firebaseStudents && firebaseStudents.length > 0) {
@@ -12335,6 +12577,28 @@ function checkLoginStatus() {
       
       // Firebase 자동 동기화
       console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+      
+      // Firebase에서 targets 로드
+      loadTargetsFromFirebase().then(firebaseState => {
+        if (firebaseState) {
+          if (firebaseState.targets) {
+            console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
+            state.targets = firebaseState.targets;
+          }
+          if (firebaseState.currentTargetId) {
+            state.currentTargetId = firebaseState.currentTargetId;
+          }
+          if (firebaseState.users) {
+            state.users = firebaseState.users;
+          }
+          
+          // localStorage에 백업 저장
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          render();
+        }
+      }).catch(err => {
+        console.error('❌ [Firebase] targets 로드 중 오류:', err);
+      });
       
       // Firebase에서 학생 데이터 로드
       loadStudentsFromFirebase().then(firebaseStudents => {
