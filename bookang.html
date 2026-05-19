@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.33.0 · distributions Firebase 저장</span>
+  <span>bookang v0.33.1 · distributions 로드 수정</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -12604,33 +12604,45 @@ function checkLoginStatus() {
       // Firebase 자동 동기화
       console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
       
-      // Firebase에서 학생 데이터 로드
-      loadStudentsFromFirebase().then(firebaseStudents => {
+      // Firebase에서 학생 + 배부 데이터 로드
+      Promise.all([
+        loadStudentsFromFirebase(),
+        loadDistributionsFromFirebase()
+      ]).then(([firebaseStudents, firebaseDistributions]) => {
+        const td = getCurrentTargetData();
+        if (!td) return;
+        
+        // 학생 데이터 병합
         if (firebaseStudents && firebaseStudents.length > 0) {
-          const td = getCurrentTargetData();
-          if (td) {
-            console.log('📥 [병합] Firebase 데이터를 로컬에 병합');
-            console.log('   - Firebase:', firebaseStudents.length, '명');
-            console.log('   - 로컬:', td.students.length, '명');
-            
-            // Firebase 데이터로 교체
-            td.students = firebaseStudents;
-            
-            // localStorage에 백업 저장
-            saveData();
-            render();
-            
-            console.log('✅ [병합] 완료:', td.students.length, '명');
-          }
+          console.log('📥 [병합] Firebase 학생 데이터를 로컬에 병합');
+          console.log('   - Firebase:', firebaseStudents.length, '명');
+          console.log('   - 로컬:', td.students.length, '명');
+          td.students = firebaseStudents;
         }
+        
+        // 배부 데이터 병합
+        if (firebaseDistributions) {
+          console.log('📥 [병합] Firebase 배부 데이터를 로컬에 병합');
+          console.log('   - Firebase:', Object.keys(firebaseDistributions).length, '건');
+          console.log('   - 로컬:', Object.keys(td.distributions || {}).length, '건');
+          td.distributions = firebaseDistributions;
+        }
+        
+        // localStorage에 백업 저장 (distributions 제외)
+        saveData();
+        render();
+        
+        console.log('✅ [병합] 완료:', td.students.length, '명,', Object.keys(td.distributions || {}).length, '건 배부');
         
         // Firebase에 현재 상태 저장
         saveStudentsToFirebase();
+        saveDistributionsToFirebase();
         calculateBookUnissued();
       }).catch(err => {
         console.error('❌ [Firebase] 로드 중 오류:', err);
         // Firebase 실패 시 localStorage 데이터 사용
         saveStudentsToFirebase();
+        saveDistributionsToFirebase();
         calculateBookUnissued();
       });
       
