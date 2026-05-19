@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.46.1 · 배부 탭 일괄배부 완전 수정</span>
+  <span>bookang v0.48.0 · 배부/회수 키 통일, 입고 수량 확인 추가</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -1208,26 +1208,28 @@ function saveData() {
   console.log('💾 [저장] saveData 호출됨');
   
   if (!storageAvailable) {
-    console.warn('localStorage 사용 불가 - 데이터가 저장되지 않습니다');
-    return;
-  }
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    updateDataInfo();
-    
-    console.log('📊 [저장] 현재 대상:', state.currentTargetId);
-    const td = getCurrentTargetData();
-    if (td) {
-      console.log('📊 [저장] 학생 수:', td.students.length);
+    console.warn('localStorage 사용 불가 - Firebase만 사용합니다');
+  } else {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      updateDataInfo();
+      console.log('✅ [저장] localStorage 저장 완료');
+    } catch (e) {
+      console.error('❌ [저장] localStorage 저장 실패:', e);
+      console.warn('⚠️ localStorage 용량 초과 - Firebase만 사용합니다');
+      // localStorage 실패해도 계속 진행
     }
-    
-    calculateBookUnissued(); // 교재 미배부 총액 자동 업데이트
-    saveStudentsToFirebase(); // 학생 목록 자동 업데이트
-    saveTargetsToFirebase(); // targets 자동 업데이트
-  } catch (e) {
-    console.error('데이터 저장 실패', e);
-    toast('저장 실패: localStorage를 사용할 수 없습니다', true);
   }
+  
+  console.log('📊 [저장] 현재 대상:', state.currentTargetId);
+  const td = getCurrentTargetData();
+  if (td) {
+    console.log('📊 [저장] 학생 수:', td.students.length);
+  }
+  
+  calculateBookUnissued(); // 교재 미배부 총액 자동 업데이트
+  saveStudentsToFirebase(); // 학생 목록 자동 업데이트
+  saveTargetsToFirebase(); // targets 자동 업데이트
 }
 
 let state = loadData();
@@ -5297,6 +5299,7 @@ function renderBooksPage() {
       </div>
     ` : `
       ${renderMatchingSection()}
+      ${renderDistributionSection(getCurrentTargetData())}
     `}
   `;
 }
@@ -6053,21 +6056,13 @@ function executeDistribution(distributionData) {
   const currentUser = getCurrentUser();
   const author = currentUser ? currentUser.username : 'system';
   const now = new Date().toISOString();
-  let count = 0;
   
   console.log('현재 타겟 데이터:', td);
   console.log('현재 사용자:', author);
   
   distributionData.forEach((item, index) => {
-    // 일관된 키 사용 (중복 방지)
+    // 일관된 키 사용 (회수할 때와 동일한 키)
     const distKey = item.studentId + '||' + item.bookId;
-    
-    // 이미 배부되었는지 확인
-    const existing = td.distributions[distKey];
-    if (existing && existing.status === 'distributed') {
-      console.log(`이미 배부됨 (건너뜀): ${distKey}`);
-      return;
-    }
     
     // 새 배부 또는 재배부
     if (!td.distributions[distKey]) {
@@ -6090,11 +6085,8 @@ function executeDistribution(distributionData) {
     td.distributions[distKey].history.push({
       type: 'distribute',
       at: now,
-      author: author,
-      bulk: true
+      author: author
     });
-    
-    count++;
     
     if (index < 3) {
       console.log(`배부 ${index + 1}:`, td.distributions[distKey]);
@@ -6110,7 +6102,7 @@ function executeDistribution(distributionData) {
   console.log('renderMain 호출 완료');
   
   // 확실한 완료 메시지
-  toast(`${count}건 배부 완료`);
+  alert(`✅ ${distributionData.length}건 배부 완료되었습니다!`);
   
   console.log('=== 배부 실행 완료 ===');
 }
@@ -9808,7 +9800,19 @@ function renderStudentDetail(student, td) {
     
     const distKey = student.id + '||' + bookId;
     const dist = td.distributions[distKey];
-    const status = dist ? dist.status : 'none';
+    
+    // 재고 확인 (입고 수량)
+    const stockIn = book.stockIn || 0;
+    
+    // 실제 상태 판단
+    let status;
+    if (stockIn === 0) {
+      // 입고가 안 된 경우 -> 항상 미배부
+      status = 'none';
+    } else {
+      // 입고된 경우 -> distributions 상태 확인
+      status = dist ? dist.status : 'none';
+    }
     
     // 이력 (마지막 액션)
     let history = '';
@@ -12067,6 +12071,9 @@ function attachBooksPageEvents() {
 
   const patternBtn = document.getElementById('patternBookBtn');
   if (patternBtn) patternBtn.onclick = showPatternBookForm;
+  
+  // 배부 이벤트 (match 탭에서 사용)
+  attachDistributionEvents();
 
   // 필터
   const subjFilter = document.getElementById('bookFilterSubject');
