@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.32.0 · 입고수량 자동화</span>
+  <span>bookang v0.32.1 · 일괄배부 수정</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -6067,7 +6067,7 @@ function executeDistribution(distributionData) {
   
   console.log('배부 데이터 저장 전, distributions 개수:', Object.keys(td.distributions).length);
   
-  saveTargetData(td);
+  saveData();
   
   console.log('renderMain 호출 전');
   renderMain(); // 화면 리프레시 (필터 유지됨)
@@ -6565,7 +6565,7 @@ function executeReturn(studentIds, bookId, reason, memo) {
     }
   });
   
-  saveTargetData(td);
+  saveData();
   renderMain(); // 필터 유지
   
   alert(`✅ ${studentIds.length}건 회수 완료되었습니다!`);
@@ -12330,7 +12330,7 @@ function generateTestData() {
     });
   });
   
-  saveTargetData(td);
+  saveData();
   alert('✅ 테스트 데이터 생성 완료!\n\n강사 2명, 반 6개, 학생 180명');
   renderMain();
 }
