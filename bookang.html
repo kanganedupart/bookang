@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.26.1 · 3단계 (안정화)</span>
+  <span>bookang v0.32.0 · 입고수량 자동화</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -1823,17 +1823,17 @@ function downloadTemplate() {
 function downloadStep1Template() {
   const classBookData = [
     // 헤더
-    ['과목', '강사', '반', '교재1', '교재비1', '교재2', '교재비2', '교재3', '교재비3', '교재4', '교재비4', '교재5', '교재비5'],
+    ['과목', '강사', '반', '교재1', '교재비1', '입고수량1', '교재2', '교재비2', '입고수량2', '교재3', '교재비3', '입고수량3', '교재4', '교재비4', '입고수량4', '교재5', '교재비5', '입고수량5'],
     // 예시 행
-    ['수학', '전종현', '301A', '인사이트', '35000', '3점특강', '28000', '', '', '', '', '', ''],
-    ['영어', '김춘근', '401B', '영어교재', '32000', '', '', '', '', '', '', '', ''],
-    ['공통', '공통', '공통', '주간깨기 1주', '2000', '주간깨기 2주', '2000', '주간깨기 3주', '2000', '주간깨기 4주', '2000', '주간깨기 5주', '2000'],
+    ['수학', '전종현', '301A', '인사이트', '35000', '100', '3점특강', '28000', '', '', '', '', '', '', '', '', '', ''],
+    ['영어', '김춘근', '401B', '영어교재', '32000', '50', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['공통', '공통', '공통', '주간깨기 1주', '2000', '660', '주간깨기 2주', '2000', '', '주간깨기 3주', '2000', '', '주간깨기 4주', '2000', '', '주간깨기 5주', '2000', ''],
     // 빈 행 5개
-    ['', '', '', '', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
   ];
   
   const ws = XLSX.utils.aoa_to_sheet(classBookData);
@@ -1843,14 +1843,19 @@ function downloadStep1Template() {
     { wch: 12 },  // 반
     { wch: 24 },  // 교재1
     { wch: 10 },  // 교재비1
+    { wch: 10 },  // 입고수량1
     { wch: 24 },  // 교재2
     { wch: 10 },  // 교재비2
+    { wch: 10 },  // 입고수량2
     { wch: 24 },  // 교재3
     { wch: 10 },  // 교재비3
+    { wch: 10 },  // 입고수량3
     { wch: 24 },  // 교재4
     { wch: 10 },  // 교재비4
+    { wch: 10 },  // 입고수량4
     { wch: 24 },  // 교재5
     { wch: 10 },  // 교재비5
+    { wch: 10 },  // 입고수량5
   ];
   
   const wb = XLSX.utils.book_new();
@@ -1861,12 +1866,18 @@ function downloadStep1Template() {
     ['📘 1단계: 반교재매칭 양식 사용 안내'],
     [],
     ['1. 각 반의 정보를 한 행에 입력합니다.'],
-    ['2. 과목: 수학, 영어, 국어, 탐구1, 탐구2 등'],
+    ['2. 과목: 수학, 영어, 국어, 탐구 등 (탐구1, 탐구2는 "탐구"로 통일)'],
     ['3. 강사: 담당 강사명'],
     ['4. 반: 반 이름 (예: 301A, 401B)'],
     ['5. 교재1~5: 해당 반에서 사용하는 교재명 (최대 5개)'],
     ['6. 교재비1~5: 각 교재의 가격 (숫자만)'],
-    ['7. 교재가 5개 미만이면 나머지 칸은 비워두세요.'],
+    ['7. 입고수량1~5: 교재 입고 수량 (선택사항, 비우면 입고 전 상태)'],
+    ['8. 교재가 5개 미만이면 나머지 칸은 비워두세요.'],
+    [],
+    ['💡 입고수량 사용 안내:'],
+    ['   - 같은 교재가 여러 행에 있으면 첫 번째 행의 입고수량만 사용됩니다.'],
+    ['   - 입고수량이 있으면 업로드 시 자동으로 재고에 반영됩니다.'],
+    ['   - 입고수량을 비우면 교재만 등록되고 재고는 0으로 유지됩니다.'],
     [],
     ['💡 이 파일을 [📤 1단계 업로드] 버튼으로 업로드하면'],
     ['   반, 교재, 반-교재 매칭이 자동으로 생성됩니다.'],
@@ -2300,7 +2311,12 @@ function processStep1Upload() {
         const priceStr = String(row[priceIdx] || '').trim();
         const price = priceStr ? parseInt(priceStr.replace(/[^0-9]/g, '')) || null : null;
         
-        classBookMap[key].books.push({ name: bookName, price });
+        // 입고수량 찾기 (교재비 다음 컬럼)
+        const qtyIdx = bookIdx + 2;
+        const qtyStr = String(row[qtyIdx] || '').trim();
+        const stockQty = qtyStr ? parseInt(qtyStr.replace(/[^0-9]/g, '')) || 0 : 0;
+        
+        classBookMap[key].books.push({ name: bookName, price, stockQty });
       });
     });
     
@@ -2342,6 +2358,7 @@ function processStep1Upload() {
           (b.teacher === item.teacher || b.teacher === '' || item.teacher === '')
         );
         
+        let isNewBook = false;
         if (!book) {
           book = {
             id: uid('b'),
@@ -2354,8 +2371,26 @@ function processStep1Upload() {
           };
           td.books.push(book);
           newBooks++;
+          isNewBook = true;
         } else if (bookData.price && !book.price) {
           book.price = bookData.price;
+        }
+        
+        // 입고수량이 있으면 자동 입고 (첫 등록 시에만)
+        if (isNewBook && bookData.stockQty > 0) {
+          book.stock = bookData.stockQty;
+          
+          // 입고 이력 추가
+          if (!td.stockHistory) td.stockHistory = [];
+          td.stockHistory.push({
+            id: uid('sh'),
+            bookId: book.id,
+            type: 'in',
+            qty: bookData.stockQty,
+            at: new Date().toISOString(),
+            author: '엑셀 업로드',
+            note: '1단계 업로드 시 자동 입고'
+          });
         }
         
         // bookIds에 추가 (중복 방지)
@@ -2466,9 +2501,15 @@ async function processStep2File(file) {
       
       const student = { name: studentName, classes: [] };
       
-      subjectColumns.forEach(subject => {
-        const cellValue = String(row[subject] || '').trim();
+      subjectColumns.forEach(subjectCol => {
+        const cellValue = String(row[subjectCol] || '').trim();
         if (!cellValue) return;
+        
+        // 탐구1, 탐구2 → 탐구로 통합
+        let subject = subjectCol;
+        if (subject === '탐구1' || subject === '탐구2') {
+          subject = '탐구';
+        }
         
         // 반명 그대로 사용
         const className = cellValue;
@@ -9173,21 +9214,28 @@ function attachStockPageEvents() {
   const searchInput = document.getElementById('stockSearchInput');
   if (searchInput) {
     let composing = false;
-    searchInput.addEventListener('compositionstart', () => { composing = true; });
+    
+    searchInput.addEventListener('compositionstart', () => { 
+      composing = true; 
+    });
+    
     searchInput.addEventListener('compositionend', (e) => {
       composing = false;
       stockFilter.query = e.target.value;
       renderMain();
     });
+    
     searchInput.addEventListener('input', (e) => {
-      // 한글 조합 중이 아니거나, 영문/숫자/기호는 바로 처리
-      if (!composing || /^[a-zA-Z0-9 ]*$/.test(e.target.value)) {
+      if (!composing) {
         stockFilter.query = e.target.value;
         renderMain();
       }
     });
+    
     // 포커스 시 composing 초기화
-    searchInput.addEventListener('focus', () => { composing = false; });
+    searchInput.addEventListener('focus', () => { 
+      composing = false; 
+    });
   }
 
   const filterReset = document.getElementById('stockFilterResetBtn');
@@ -9340,7 +9388,11 @@ function showStockHistory() {
   // 작성자 옵션
   const allAuthors = [...new Set(history.map(h => h.author || '미설정'))].sort();
   const allSubjects = [...new Set(history.map(h => bookMap[h.bookId]?.subject).filter(Boolean))].sort();
-  const allTeachers = [...new Set(history.map(h => bookMap[h.bookId]?.teacher).filter(Boolean))].sort();
+  
+  // 과목이 선택되면 해당 과목의 강사만 표시
+  const allTeachers = stockHistoryFilter.subject
+    ? [...new Set(history.map(h => bookMap[h.bookId]).filter(b => b && b.subject === stockHistoryFilter.subject).map(b => b.teacher).filter(Boolean))].sort()
+    : [...new Set(history.map(h => bookMap[h.bookId]?.teacher).filter(Boolean))].sort();
 
   // 필터 적용
   function filterHistory() {
