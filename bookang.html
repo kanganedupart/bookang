@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.41.0 · 완전판 (안정화)</span>
+  <span>bookang v0.42.0 · 완전 최적화</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -5858,11 +5858,9 @@ function handleBulkDistribute() {
     bookIdsToProcess.forEach(bookId => {
       students.forEach(student => {
         // 이미 배부된 학생은 제외
-        const alreadyDistributed = Object.values(td.distributions).some(d => 
-          d.studentId === student.id && 
-          d.bookId === bookId && 
-          d.status === 'distributed'
-        );
+        const distKey = student.id + '||' + bookId;
+        const alreadyDistributed = td.distributions[distKey] && 
+          td.distributions[distKey].status === 'distributed';
         
         if (!alreadyDistributed) {
           distributionData.push({
@@ -6090,20 +6088,16 @@ function renderReturnSection(td) {
           
           // 배부된 학생 수 계산
           const distributedCount = students.filter(s => {
-            return Object.values(td.distributions).some(d => 
-              d.studentId === s.id && 
-              d.bookId === bookId && 
-              d.status === 'distributed'
-            );
+            const distKey = s.id + '||' + bookId;
+            const dist = td.distributions[distKey];
+            return dist && dist.status === 'distributed';
           }).length;
           
           // 회수된 학생 수 계산
           const returnedCount = students.filter(s => {
-            return Object.values(td.distributions).some(d => 
-              d.studentId === s.id && 
-              d.bookId === bookId && 
-              d.status === 'returned'
-            );
+            const distKey = s.id + '||' + bookId;
+            const dist = td.distributions[distKey];
+            return dist && dist.status === 'returned';
           }).length;
           
           group.classes.push({
@@ -6270,11 +6264,9 @@ function showReturnStudentModal(classId, bookId) {
   
   // 배부 상태 확인
   const studentsWithStatus = students.map(s => {
-    const distributed = Object.values(td.distributions).some(d =>
-      d.studentId === s.id &&
-      d.bookId === bookId &&
-      d.status === 'distributed'
-    );
+    const distKey = s.id + '||' + bookId;
+    const dist = td.distributions[distKey];
+    const distributed = dist && dist.status === 'distributed';
     return { ...s, canReturn: distributed };
   });
   
@@ -6599,11 +6591,9 @@ function handleBulkReturn() {
     bookIdsToProcess.forEach(bookId => {
       students.forEach(student => {
         // 현재 배부 상태인 학생만
-        const isDistributed = Object.values(td.distributions).some(d => 
-          d.studentId === student.id && 
-          d.bookId === bookId && 
-          d.status === 'distributed'
-        );
+        const distKey = student.id + '||' + bookId;
+        const dist = td.distributions[distKey];
+        const isDistributed = dist && dist.status === 'distributed';
         
         if (isDistributed) {
           returnData.push({
