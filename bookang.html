@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.32.2 · 전체 일괄배부 추가</span>
+  <span>bookang v0.33.0 · distributions Firebase 저장</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -1042,6 +1042,38 @@ function calculateBookUnissued() {
 }
 
 // Firebase에서 학생 데이터 읽기
+async function loadDistributionsFromFirebase() {
+  console.log('📥 [Firebase] distributions 로드 시작...');
+  
+  if (!state.currentTargetId) {
+    console.warn('⚠️ currentTargetId가 없습니다.');
+    return null;
+  }
+  
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const db = firebase.database();
+      const snapshot = await db.ref(`shared/distributionData/${state.currentTargetId}/distributions`).once('value');
+      const distributions = snapshot.val();
+      
+      if (distributions) {
+        console.log('✅ [Firebase] distributions 로드 완료:', Object.keys(distributions).length, '건');
+        console.log('   경로:', `shared/distributionData/${state.currentTargetId}/distributions`);
+        return distributions;
+      } else {
+        console.log('📝 [Firebase] distributions 데이터 없음 (빈 객체 반환)');
+        return {};
+      }
+    } else {
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
+      return null;
+    }
+  } catch (e) {
+    console.error('❌ [Firebase] distributions 로드 실패:', e);
+    return null;
+  }
+}
+
 async function loadStudentsFromFirebase() {
   console.log('📥 [Firebase] students 로드 시작...');
   
@@ -1078,6 +1110,40 @@ async function loadStudentsFromFirebase() {
 // 학생 목록을 Firebase에 저장
 // Firebase 경로: shared/students
 // 형식: {"학생이름": true, ...}
+function saveDistributionsToFirebase() {
+  console.log('🔥 [Firebase] distributions 저장 시작...');
+  
+  const td = getCurrentTargetData();
+  if (!td) {
+    console.log('📝 [Firebase] 대상 없음 - distributions 저장 스킵');
+    return;
+  }
+  
+  const distributions = td.distributions || {};
+  console.log('📊 [Firebase] 저장할 배부 데이터:', Object.keys(distributions).length, '건');
+  
+  // Firebase에 저장
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const db = firebase.database();
+      
+      db.ref(`shared/distributionData/${state.currentTargetId}/distributions`).set(distributions)
+        .then(() => {
+          console.log('✅ [Firebase] distributions 저장 완료:', Object.keys(distributions).length, '건');
+          console.log('   경로:', `shared/distributionData/${state.currentTargetId}/distributions`);
+        })
+        .catch((error) => {
+          console.error('❌ [Firebase] distributions 저장 실패:', error);
+        });
+      
+    } else {
+      console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
+    }
+  } catch (e) {
+    console.error('❌ [Firebase] 예외 발생:', e);
+  }
+}
+
 function saveStudentsToFirebase() {
   console.log('🔥 [Firebase] students 저장 시작...');
   
@@ -1147,20 +1213,34 @@ function saveData() {
     return;
   }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // distributions를 제외한 state 복사
+    const stateToSave = { ...state };
+    if (stateToSave.data) {
+      stateToSave.data = {};
+      Object.keys(state.data).forEach(targetId => {
+        stateToSave.data[targetId] = { ...state.data[targetId] };
+        // distributions는 Firebase에만 저장 (localStorage 용량 문제 해결)
+        delete stateToSave.data[targetId].distributions;
+      });
+    }
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    console.log('✅ [저장] localStorage 저장 완료 (distributions 제외)');
     updateDataInfo();
     
     console.log('📊 [저장] 현재 대상:', state.currentTargetId);
     const td = getCurrentTargetData();
     if (td) {
       console.log('📊 [저장] 학생 수:', td.students.length);
+      console.log('📊 [저장] 배부 건수:', Object.keys(td.distributions || {}).length);
     }
     
     calculateBookUnissued(); // 교재 미배부 총액 자동 업데이트
     saveStudentsToFirebase(); // 학생 목록 자동 업데이트
+    saveDistributionsToFirebase(); // 배부 데이터 Firebase 저장
   } catch (e) {
     console.error('데이터 저장 실패', e);
-    toast('저장 실패: localStorage를 사용할 수 없습니다', true);
+    toast('저장 실패: ' + e.message, true);
   }
 }
 
@@ -12455,32 +12535,44 @@ function handleLogin(e) {
   console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
   
   // Firebase에서 학생 데이터 로드
-  loadStudentsFromFirebase().then(firebaseStudents => {
+  Promise.all([
+    loadStudentsFromFirebase(),
+    loadDistributionsFromFirebase()
+  ]).then(([firebaseStudents, firebaseDistributions]) => {
+    const td = getCurrentTargetData();
+    if (!td) return;
+    
+    // 학생 데이터 병합
     if (firebaseStudents && firebaseStudents.length > 0) {
-      const td = getCurrentTargetData();
-      if (td) {
-        console.log('📥 [병합] Firebase 데이터를 로컬에 병합');
-        console.log('   - Firebase:', firebaseStudents.length, '명');
-        console.log('   - 로컬:', td.students.length, '명');
-        
-        // Firebase 데이터로 교체
-        td.students = firebaseStudents;
-        
-        // localStorage에 백업 저장
-        saveData();
-        render();
-        
-        console.log('✅ [병합] 완료:', td.students.length, '명');
-      }
+      console.log('📥 [병합] Firebase 학생 데이터를 로컬에 병합');
+      console.log('   - Firebase:', firebaseStudents.length, '명');
+      console.log('   - 로컬:', td.students.length, '명');
+      td.students = firebaseStudents;
     }
+    
+    // 배부 데이터 병합
+    if (firebaseDistributions) {
+      console.log('📥 [병합] Firebase 배부 데이터를 로컬에 병합');
+      console.log('   - Firebase:', Object.keys(firebaseDistributions).length, '건');
+      console.log('   - 로컬:', Object.keys(td.distributions || {}).length, '건');
+      td.distributions = firebaseDistributions;
+    }
+    
+    // localStorage에 백업 저장 (distributions 제외)
+    saveData();
+    render();
+    
+    console.log('✅ [병합] 완료:', td.students.length, '명,', Object.keys(td.distributions || {}).length, '건 배부');
     
     // Firebase에 현재 상태 저장
     saveStudentsToFirebase();
+    saveDistributionsToFirebase();
     calculateBookUnissued();
   }).catch(err => {
     console.error('❌ [Firebase] 로드 중 오류:', err);
     // Firebase 실패 시 localStorage 데이터 사용
     saveStudentsToFirebase();
+    saveDistributionsToFirebase();
     calculateBookUnissued();
   });
   
