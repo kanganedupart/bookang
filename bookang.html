@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.35.0 · Firebase 전용 배부 이력</span>
+  <span>bookang v0.37.0 · 완전 수정 (안정화)</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -1207,39 +1207,6 @@ function saveStudentsToFirebase() {
 }
 
 // 오래된 배부 데이터 자동 정리
-function cleanOldDistributions(td) {
-  if (!td.distributions) return;
-  
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  
-  let cleaned = 0;
-  Object.keys(td.distributions).forEach(distId => {
-    const dist = td.distributions[distId];
-    const distDate = new Date(dist.at);
-    
-    // 30일 이상 된 배부 데이터 삭제
-    if (dist.status === 'distributed' && distDate < thirtyDaysAgo) {
-      delete td.distributions[distId];
-      cleaned++;
-    }
-    
-    // 90일 이상 된 회수 데이터 삭제
-    if (dist.status === 'returned' && dist.returnedAt) {
-      const returnDate = new Date(dist.returnedAt);
-      if (returnDate < ninetyDaysAgo) {
-        delete td.distributions[distId];
-        cleaned++;
-      }
-    }
-  });
-  
-  if (cleaned > 0) {
-    console.log(`🧹 [정리] ${cleaned}건의 오래된 배부 데이터 정리 완료`);
-  }
-}
-
 function saveData() {
   console.log('💾 [저장] saveData 호출됨');
   
@@ -1248,18 +1215,24 @@ function saveData() {
     return;
   }
   
-  // 저장 전 오래된 데이터 자동 정리
-  const td = getCurrentTargetData();
-  if (td) {
-    cleanOldDistributions(td);
-  }
-  
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    console.log('✅ [저장] localStorage 저장 완료');
+    // distributions를 제외한 데이터만 localStorage에 저장
+    const stateToSave = { ...state };
+    if (stateToSave.data) {
+      stateToSave.data = {};
+      Object.keys(state.data).forEach(targetId => {
+        stateToSave.data[targetId] = { ...state.data[targetId] };
+        // distributions는 Firebase에만 저장 (영구 보존)
+        delete stateToSave.data[targetId].distributions;
+      });
+    }
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    console.log('✅ [저장] localStorage 저장 완료 (distributions 제외)');
     updateDataInfo();
     
     console.log('📊 [저장] 현재 대상:', state.currentTargetId);
+    const td = getCurrentTargetData();
     if (td) {
       console.log('📊 [저장] 학생 수:', td.students.length);
       console.log('📊 [저장] 배부 건수:', Object.keys(td.distributions || {}).length);
@@ -1267,43 +1240,10 @@ function saveData() {
     
     calculateBookUnissued();
     saveStudentsToFirebase();
-    saveDistributionsToFirebase();
+    saveDistributionsToFirebase(); // 배부 이력은 Firebase에 영구 저장
   } catch (e) {
     console.error('데이터 저장 실패', e);
-    
-    // 용량 초과 시 강제 정리 후 재시도
-    if (e.name === 'QuotaExceededError') {
-      console.warn('⚠️ localStorage 용량 초과 - 강제 정리 시작');
-      
-      // 7일 이상 된 배부 데이터 삭제
-      if (td) {
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        let forceCleaned = 0;
-        Object.keys(td.distributions || {}).forEach(distId => {
-          const dist = td.distributions[distId];
-          const distDate = new Date(dist.at);
-          if (distDate < sevenDaysAgo) {
-            delete td.distributions[distId];
-            forceCleaned++;
-          }
-        });
-        console.log(`🧹 [강제정리] ${forceCleaned}건 정리 완료`);
-      }
-      
-      // 재시도
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        console.log('✅ [저장] 강제 정리 후 저장 완료');
-        toast('⚠️ 오래된 데이터를 정리하여 저장했습니다', false);
-      } catch (e2) {
-        // 그래도 실패 시 Firebase만 사용
-        console.error('❌ 강제 정리 후에도 저장 실패');
-        saveDistributionsToFirebase();
-        toast('❌ 저장 실패 - 클라우드에만 백업됩니다', true);
-      }
-    } else {
-      toast('저장 실패: ' + e.message, true);
-    }
+    toast('저장 실패: ' + e.message, true);
   }
 }
 
@@ -6186,31 +6126,52 @@ function executeDistribution(distributionData) {
   });
   
   const td = getCurrentTargetData();
-  const currentUser = '이형빈'; // TODO: 실제 로그인 사용자
-  const timestamp = Date.now();
+  const currentUser = state.currentUser || '이형빈';
+  const timestamp = new Date().toISOString();
   
   console.log('현재 타겟 데이터:', td);
   
+  let newCount = 0;
+  let updateCount = 0;
+  
   distributionData.forEach((item, index) => {
-    const distId = 'dist_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    // 일관된 key 사용 (studentId||bookId)
+    const distKey = item.studentId + '||' + item.bookId;
     
-    td.distributions[distId] = {
-      id: distId,
-      studentId: item.studentId,
-      bookId: item.bookId,
-      status: 'distributed',
-      distributedAt: timestamp,
-      distributedBy: currentUser,
-      type: 'regular', // 정규 배부
-      memo: ''
-    };
+    // 중복 체크
+    if (!td.distributions[distKey]) {
+      // 새로운 배부
+      td.distributions[distKey] = {
+        studentId: item.studentId,
+        bookId: item.bookId,
+        status: 'distributed',
+        at: timestamp,
+        author: currentUser,
+        history: []
+      };
+      newCount++;
+    } else {
+      // 기존 배부 업데이트 (재배부)
+      td.distributions[distKey].status = 'distributed';
+      td.distributions[distKey].at = timestamp;
+      td.distributions[distKey].author = currentUser;
+      updateCount++;
+    }
+    
+    // 이력 추가
+    td.distributions[distKey].history.push({
+      action: 'distributed',
+      at: timestamp,
+      by: currentUser
+    });
     
     if (index < 3) {
-      console.log(`배부 ${index + 1}:`, td.distributions[distId]);
+      console.log(`배부 ${index + 1}:`, td.distributions[distKey]);
     }
   });
   
-  console.log('배부 데이터 저장 전, distributions 개수:', Object.keys(td.distributions).length);
+  console.log('배부 데이터 저장 전, distributions 개수:', Object.keys(td.distributions || {}).length);
+  console.log(`신규 배부: ${newCount}건, 재배부: ${updateCount}건`);
   
   saveData();
   
@@ -12698,7 +12659,7 @@ function checkLoginStatus() {
         saveData();
         render();
         
-        console.log('✅ [병합] 완료:', td.students.length, '명,', Object.keys(td.distributions).length, '건 배부');
+        console.log('✅ [병합] 완료:', td.students.length, '명,', Object.keys(td.distributions || {}).length, '건 배부');
         
         // Firebase에 현재 상태 저장
         saveStudentsToFirebase();
