@@ -851,7 +851,7 @@
 </div>
 
 <footer>
-  <span>bookang v0.48.0 · 배부/회수 키 통일, 입고 수량 확인 추가</span>
+  <span>bookang v0.49.0 · Firebase 완전 동기화 (books, classes, distributions 포함)</span>
   <span id="dataInfo"></span>
 </footer>
 </div>
@@ -893,8 +893,9 @@ function getDefault() {
       // 초기 관리자 계정
       {
         id: 'admin',
+        username: 'admin',
         name: '관리자',
-        password: hashPassword('3500'),
+        password: '3500',  // 테스트용 평문 저장
         role: 'admin' // admin, staff, accounting
       }
     ],
@@ -928,7 +929,7 @@ function loadData() {
     if (!parsed.targets) parsed.targets = [];
     if (!parsed.teachersDirectory) parsed.teachersDirectory = [];
     if (!parsed.data) parsed.data = {};
-    if (!parsed.currentUser) parsed.currentUser = '이형빈';
+    if (!parsed.currentUser) parsed.currentUser = 'admin';
     // 마이그레이션
     Object.values(parsed.data).forEach(td => {
       if (!td.books) td.books = [];
@@ -1181,20 +1182,34 @@ function saveTargetsToFirebase() {
     if (typeof firebase !== 'undefined' && firebase.database) {
       const db = firebase.database();
       
-      // state 전체 저장 (targets, currentTargetId, users 등)
-      const dataToSave = {
+      // 1. state 메타데이터 저장 (targets, currentTargetId, users)
+      const metaData = {
         targets: state.targets,
         currentTargetId: state.currentTargetId,
         users: state.users
       };
       
-      db.ref('shared/bookangState').set(dataToSave)
+      db.ref('shared/bookangState').set(metaData)
         .then(() => {
           console.log('✅ [Firebase] bookangState 저장 완료');
         })
         .catch((error) => {
           console.error('❌ [Firebase] bookangState 저장 실패:', error);
         });
+      
+      // 2. 각 target의 실제 데이터 저장 (books, classes, distributions 포함)
+      state.targets.forEach(target => {
+        const targetData = state.data[target.id];
+        if (targetData) {
+          db.ref(`shared/targetData/${target.id}`).set(targetData)
+            .then(() => {
+              console.log(`✅ [Firebase] targetData/${target.id} 저장 완료`);
+            })
+            .catch((error) => {
+              console.error(`❌ [Firebase] targetData/${target.id} 저장 실패:`, error);
+            });
+        }
+      });
       
     } else {
       console.warn('⚠️ Firebase가 초기화되지 않았습니다.');
@@ -4089,6 +4104,240 @@ function handleBookFileUpload(file) {
   });
 }
 
+// ===== 3단계: 교재 가격 & 재고 관리 =====
+
+// 3단계 양식 다운로드 (1단계 데이터에서 교재 추출)
+function download3rdStepTemplate() {
+  if (!state.currentTargetId) {
+    toast('대상을 먼저 선택하세요', true);
+    return;
+  }
+
+  const td = getCurrentTargetData();
+  if (!td.classes || td.classes.length === 0) {
+    toast('1단계(반-교재 매칭)를 먼저 업로드하세요', true);
+    return;
+  }
+
+  console.log('=== 3단계 양식 생성 시작 ===');
+
+  // 모든 반에서 교재 추출
+  const booksMap = new Map(); // key: 과목|강사|교재명, value: { 과목, 강사, 교재명 }
+
+  td.classes.forEach(cls => {
+    const subject = cls.subject || '';
+    const teacher = cls.teacher || '';
+
+    if (cls.bookIds && cls.bookIds.length > 0) {
+      cls.bookIds.forEach(bookId => {
+        const book = td.books.find(b => b.id === bookId);
+        if (book) {
+          const key = `${subject}|${teacher}|${book.name}`;
+          if (!booksMap.has(key)) {
+            booksMap.set(key, {
+              과목: subject,
+              강사: teacher,
+              교재명: book.name
+            });
+          }
+        }
+      });
+    }
+  });
+
+  if (booksMap.size === 0) {
+    toast('1단계에 교재가 없습니다. 먼저 반-교재 매칭을 업로드하세요.', true);
+    return;
+  }
+
+  // Map을 배열로 변환하고 정렬
+  const booksArray = Array.from(booksMap.values());
+  booksArray.sort((a, b) => {
+    if (a.과목 !== b.과목) return a.과목.localeCompare(b.과목, 'ko');
+    if (a.강사 !== b.강사) return a.강사.localeCompare(b.강사, 'ko');
+    return a.교재명.localeCompare(b.교재명, 'ko');
+  });
+
+  console.log(`✅ 추출된 교재 수: ${booksArray.length}개`);
+
+  // Array of Arrays 방식으로 엑셀 데이터 생성
+  const aoa = [
+    ['과목', '강사', '교재명', '교재비', '입고수량']  // 헤더
+  ];
+  
+  // 데이터 행 추가
+  booksArray.forEach(b => {
+    aoa.push([
+      b.과목,
+      b.강사,
+      b.교재명,
+      '',  // 교재비 빈칸
+      ''   // 입고수량 빈칸
+    ]);
+  });
+
+  // 엑셀 생성 (aoa_to_sheet 사용)
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet');
+
+  // 파일명
+  const targetName = state.targets.find(t => t.id === state.currentTargetId)?.name || 'unknown';
+  const filename = `3단계_교재정보_양식_${targetName}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\\/\*\?\[\]:]/g, '_');
+
+  // 다운로드
+  XLSX.writeFile(wb, filename);
+
+  toast(`✅ 3단계 양식 다운로드 완료 (${booksArray.length}개 교재)`, false);
+  console.log('=== 3단계 양식 다운로드 완료 ===');
+}
+
+// 3단계 파일 업로드 시작
+function start3rdStepUpload() {
+  if (!state.currentTargetId) {
+    toast('대상을 먼저 선택하세요', true);
+    return;
+  }
+
+  const td = getCurrentTargetData();
+  if (!td.classes || td.classes.length === 0) {
+    toast('1단계(반-교재 매칭)를 먼저 업로드하세요', true);
+    return;
+  }
+  if (!td.books || td.books.length === 0) {
+    toast('교재가 없습니다. 1단계를 먼저 업로드하세요.', true);
+    return;
+  }
+
+  // 파일 선택 트리거
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) handle3rdStepUpload(file);
+  };
+  input.click();
+}
+
+// 3단계 파일 처리
+function handle3rdStepUpload(file) {
+  console.log('=== 3단계 파일 업로드 시작 ===');
+
+  file.arrayBuffer().then(buf => {
+    try {
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      if (rows.length < 2) {
+        toast('엑셀에 데이터가 없습니다', true);
+        return;
+      }
+
+      // 헤더 찾기
+      let headerRowIdx = 0;
+      for (let i = 0; i < Math.min(5, rows.length); i++) {
+        if (rows[i].some(c => String(c).trim())) {
+          headerRowIdx = i;
+          break;
+        }
+      }
+
+      const headers = rows[headerRowIdx].map(h => String(h || '').trim().toLowerCase());
+
+      // 컬럼 매칭
+      const findCol = (...keys) => {
+        for (let i = 0; i < headers.length; i++) {
+          if (keys.some(k => headers[i].includes(k.toLowerCase()))) return i;
+        }
+        return -1;
+      };
+
+      const colSubject = findCol('과목', 'subject');
+      const colTeacher = findCol('강사', 'teacher');
+      const colName = findCol('교재명', '교재 명', '교재', 'book');
+      const colPrice = findCol('교재비', '가격', 'price');
+      const colStock = findCol('입고수량', '입고', 'stock', '수량');
+
+      if (colSubject < 0 || colTeacher < 0 || colName < 0) {
+        toast('필수 컬럼(과목/강사/교재명)을 찾을 수 없습니다', true);
+        return;
+      }
+
+      console.log('컬럼 매칭:', { colSubject, colTeacher, colName, colPrice, colStock });
+
+      const td = getCurrentTargetData();
+      let updatedCount = 0;
+      let notFoundCount = 0;
+
+      // 데이터 처리
+      for (let i = headerRowIdx + 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row.some(c => String(c).trim())) continue;
+
+        const subject = String(row[colSubject] || '').trim();
+        const teacher = String(row[colTeacher] || '').trim();
+        const bookName = String(row[colName] || '').trim();
+        const price = colPrice >= 0 ? (parseFloat(row[colPrice]) || 0) : 0;
+        const stockIn = colStock >= 0 ? (parseFloat(row[colStock]) || 0) : 0;
+
+        if (!bookName) continue;
+
+        // 교재 찾기
+        const book = td.books.find(b => 
+          b.name === bookName &&
+          b.subject === subject &&
+          b.teacher === teacher
+        );
+
+        if (book) {
+          // 교재비 업데이트
+          if (price > 0) {
+            book.price = price;
+          }
+
+          // 입고수량 업데이트 (기존 + 신규)
+          if (stockIn > 0) {
+            book.stockIn = (book.stockIn || 0) + stockIn;
+            
+            // 입고 이력 추가
+            if (!td.stockHistory) td.stockHistory = [];
+            td.stockHistory.push({
+              id: generateId(),
+              timestamp: Date.now(),
+              bookId: book.id,
+              bookName: book.name,
+              quantity: stockIn,
+              type: 'in',
+              note: '3단계 엑셀 업로드'
+            });
+          }
+
+          updatedCount++;
+        } else {
+          console.warn(`교재를 찾을 수 없음: ${subject} | ${teacher} | ${bookName}`);
+          notFoundCount++;
+        }
+      }
+
+      if (updatedCount > 0) {
+        saveData();
+        render();
+        toast(`✅ ${updatedCount}개 교재 정보 업데이트 완료${notFoundCount > 0 ? ` (${notFoundCount}개 미매칭)` : ''}`, false);
+        console.log('=== 3단계 업로드 완료 ===');
+        console.log(`업데이트: ${updatedCount}개, 미매칭: ${notFoundCount}개`);
+      } else {
+        toast('업데이트된 교재가 없습니다. 교재명을 확인하세요.', true);
+      }
+
+    } catch (err) {
+      console.error(err);
+      toast('엑셀 파일을 읽을 수 없습니다: ' + err.message, true);
+    }
+  });
+}
+
 function openBookUploadPreview(rows) {
   const td = getCurrentTargetData();
 
@@ -4349,12 +4598,12 @@ function renderSubjectCard(subj, sel, teachers, td) {
 // ============================================================
 // RENDER
 // ============================================================
-let activeTab = 'search'; // 메인 탭
+let activeTab = 'student-search'; // 메인 탭 (HTML data-tab과 일치)
 let subTabs = {
-  search: 'student',     // 학생조회, 반별조회, 교재별조회
-  students: 'list',      // 반 목록, 반별 명단
-  books: 'list',         // 교재 목록, 반 매칭
-  stock: 'in'            // 입고 관리, 배부/회수
+  'student-search': 'student',  // 학생조회, 반별조회, 교재별조회
+  students: 'list',             // 반 목록, 반별 명단
+  books: 'list',                // 교재 목록, 반 매칭
+  stock: 'in'                   // 입고 관리, 배부/회수
   // overview: 서브탭 없음
 };
 
@@ -4380,11 +4629,35 @@ let studentSearchFilter = {
 };
 
 function render() {
-  renderCurrentTargetSelect();
-  updateCurrentUserDisplay();
-  renderMain();
-  updateDataInfo();
-  attachEvents(); // 이벤트 재연결
+  try {
+    renderCurrentTargetSelect();
+  } catch (err) {
+    console.error('❌ renderCurrentTargetSelect 에러:', err);
+  }
+  
+  try {
+    updateCurrentUserDisplay();
+  } catch (err) {
+    console.error('❌ updateCurrentUserDisplay 에러:', err);
+  }
+  
+  try {
+    renderMain();
+  } catch (err) {
+    console.error('❌ renderMain 에러:', err);
+  }
+  
+  try {
+    updateDataInfo();
+  } catch (err) {
+    console.error('❌ updateDataInfo 에러:', err);
+  }
+  
+  try {
+    attachEvents(); // 이벤트 재연결
+  } catch (err) {
+    console.error('❌ attachEvents 에러:', err);
+  }
 }
 
 function renderCurrentTargetSelect() {
@@ -4415,6 +4688,69 @@ function renderMain() {
   // 회수 탭 체크박스 초기화
   if (activeTab === 'stock' && subTabs.stock === 'return') {
     setTimeout(() => initReturnCheckboxes(), 0);
+  }
+  
+  // 이력 탭 필터 이벤트
+  if (activeTab === 'stock' && subTabs.stock === 'history') {
+    const typeFilter = document.getElementById('historyTypeFilter');
+    const dateFrom = document.getElementById('historyDateFrom');
+    const dateTo = document.getElementById('historyDateTo');
+    const query = document.getElementById('historyQuery');
+    const exitedOnly = document.getElementById('historyExitedOnly');
+    const searchBtn = document.getElementById('historySearchBtn');
+    const resetBtn = document.getElementById('historyResetBtn');
+    
+    // 조회 버튼 클릭
+    if (searchBtn) {
+      searchBtn.onclick = () => {
+        if (typeFilter) historyFilter.type = typeFilter.value;
+        if (dateFrom) historyFilter.dateFrom = dateFrom.value;
+        if (dateTo) historyFilter.dateTo = dateTo.value;
+        if (query) historyFilter.query = query.value;
+        if (exitedOnly) historyFilter.exitedOnly = exitedOnly.checked;
+        renderMain();
+      };
+    }
+    
+    // 초기화 버튼 클릭
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        historyFilter = { type: '', dateFrom: '', dateTo: '', query: '', exitedOnly: false };
+        renderMain();
+      };
+    }
+    
+    // 엔터키로도 조회
+    [dateFrom, dateTo, query].forEach(el => {
+      if (el) {
+        el.onkeypress = (e) => {
+          if (e.key === 'Enter') {
+            if (searchBtn) searchBtn.click();
+          }
+        };
+      }
+    });
+    
+    // 타입 변경은 즉시 반영
+    if (typeFilter) {
+      typeFilter.onchange = () => {
+        historyFilter.type = typeFilter.value;
+        renderMain();
+      };
+    }
+    
+    // 퇴반생만 체크박스도 즉시 반영
+    if (exitedOnly) {
+      exitedOnly.onchange = () => {
+        historyFilter.exitedOnly = exitedOnly.checked;
+        renderMain();
+      };
+    }
+  }
+  
+  // 학생 조회 드롭다운 이벤트
+  if (activeTab === 'student-search') {
+    attachStudentSearchPageEvents();
   }
 }
 
@@ -4820,7 +5156,7 @@ function renderClassTable() {
             <th>반명</th>
             <th style="width: 140px;">강사</th>
             <th style="width: 80px;">학생수</th>
-            <th style="width: 70px;"></th>
+            <th style="width: 140px;"></th>
           </tr>
         </thead>
         <tbody>
@@ -4834,7 +5170,11 @@ function renderClassTable() {
                   <td>${escapeHtml(c.className)}</td>
                   <td>${c.teacher ? `<span class="badge badge-teacher">${escapeHtml(c.teacher)}</span>` : '<span style="color:var(--text-faint);font-size:11px;">미입력</span>'}</td>
                   <td>${count}명</td>
-                  <td><button class="btn btn-ghost btn-sm" data-edit-class="${c.id}">편집</button></td>
+                  <td style="display:flex;gap:4px;">
+                    <button class="btn btn-primary btn-sm" data-distribute-class="${c.id}" style="font-size:11px;padding:4px 8px;">📦 배부</button>
+                    <button class="btn btn-secondary btn-sm" data-return-class="${c.id}" style="font-size:11px;padding:4px 8px;">♻️ 회수</button>
+                    <button class="btn btn-ghost btn-sm" data-edit-class="${c.id}">편집</button>
+                  </td>
                 </tr>
               `;
             }).join('')}
@@ -4901,6 +5241,22 @@ function updateStudentTableOnly() {
   }
 }
 function attachEditButtons() {
+  // 반별 배부 버튼
+  document.querySelectorAll('[data-distribute-class]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      bulkDistributeClass(btn.dataset.distributeClass);
+    };
+  });
+
+  // 반별 회수 버튼
+  document.querySelectorAll('[data-return-class]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      bulkReturnClass(btn.dataset.returnClass);
+    };
+  });
+
   document.querySelectorAll('[data-edit-class]').forEach(btn => {
     btn.onclick = (e) => { e.stopPropagation(); editClass(btn.dataset.editClass); };
   });
@@ -5270,6 +5626,26 @@ function renderBooksPage() {
               <button class="btn btn-primary" id="addBookBtn">+ 교재 추가</button>
             </div>
           </div>
+        </div>
+
+        ${books.length > 0 ? `
+        <div class="section">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <div class="section-title">📦 3단계: 교재 가격 & 재고 관리</div>
+              <div class="section-desc">
+                <strong>순서:</strong> 1단계(반-교재 매칭) → 2단계(학생 명단) → 
+                <span style="color:var(--accent-dark);font-weight:600;">3단계(교재비, 입고수량)</span><br>
+                💡 3단계 양식을 다운로드하면 1단계에 입력한 교재 목록이 자동으로 들어있습니다. 교재비와 입고수량만 입력하세요!
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-accent" id="download3rdStepBtn">📥 3단계 양식 다운로드</button>
+              <button class="btn btn-primary" id="upload3rdStepBtn">📤 3단계 파일 업로드</button>
+            </div>
+          </div>
+        </div>
+        ` : ''}
 
           ${books.length > 0 ? `
             <div class="result-stats" style="grid-template-columns: repeat(3, 1fr);">
@@ -5399,7 +5775,7 @@ function renderBookGroup(g, autoExpand) {
             <tr>
               <th style="padding-left:16px;">교재명</th>
               <th style="width:100px;text-align:right;padding-right:16px;">교재비</th>
-              <th style="width:80px;"></th>
+              <th style="width:150px;"></th>
             </tr>
           </thead>
           <tbody>
@@ -5409,7 +5785,11 @@ function renderBookGroup(g, autoExpand) {
                 <td style="text-align:right;padding-right:16px;color:var(--text-dim);font-size:12px;">
                   ${b.price ? b.price.toLocaleString() + '원' : '-'}
                 </td>
-                <td><button class="btn btn-ghost btn-sm" data-edit-book="${b.id}">편집</button></td>
+                <td style="display:flex;gap:4px;">
+                  <button class="btn btn-primary btn-sm" data-distribute-book="${b.id}" style="font-size:11px;padding:4px 8px;">📦 배부</button>
+                  <button class="btn btn-secondary btn-sm" data-return-book="${b.id}" style="font-size:11px;padding:4px 8px;">♻️ 회수</button>
+                  <button class="btn btn-ghost btn-sm" data-edit-book="${b.id}">편집</button>
+                </td>
               </tr>
             `).join('')}
           </tbody>
@@ -5428,6 +5808,13 @@ let stockFilter = {
   teacher: '',
   status: 'not_in', // 초기값: 미입고
   query: ''
+};
+let historyFilter = {
+  type: '', // 전체, stock_in, distribute, return, additional_distribute, class_change, staff_memo
+  dateFrom: '',
+  dateTo: '',
+  query: '', // 학생/교재/담당자 검색
+  exitedOnly: false // 퇴반생만 보기
 };
 let pendingStockIn = {}; // bookId → qty (저장 전 임시)
 
@@ -5524,15 +5911,18 @@ function renderStockPage() {
     ${renderSubTabs('stock', [
       { key: 'in', label: '입고' },
       { key: 'dist', label: '배부' },
-      { key: 'return', label: '회수' }
+      { key: 'return', label: '회수' },
+      { key: 'history', label: '📋 이력' }
     ])}
 
     ${currentSub === 'in' ? `
       ${renderStockInSection(td)}
     ` : currentSub === 'dist' ? `
       ${renderDistributionStatus(td)}
-    ` : `
+    ` : currentSub === 'return' ? `
       ${renderReturnSection(td)}
+    ` : `
+      ${renderHistorySection(td)}
     `}
   `;
 }
@@ -6205,7 +6595,12 @@ function renderReturnSection(td) {
   
   return `
     <div class="section">
-      <h3 style="margin:0 0 20px 0;">회수</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin:0 0 20px 0;">
+        <h3 style="margin:0;">회수</h3>
+        <button class="btn btn-danger" id="absentStudentReturnBtn" style="font-size:13px; padding:8px 16px;">
+          👥 결석자 일괄 회수
+        </button>
+      </div>
       
       <!-- 조건 검색 -->
       <div style="background:white; border:1px solid #e5e7eb; border-radius:8px; padding:16px; margin-bottom:16px;">
@@ -6330,6 +6725,235 @@ function renderReturnSection(td) {
           </tbody>
         </table>
       </div>
+    </div>
+  `;
+}
+
+// 이력 섹션
+function renderHistorySection(td) {
+  // 모든 이력 수집
+  const allHistory = [];
+  
+  // 1. 입고 이력
+  if (td.stockHistory && td.stockHistory.length > 0) {
+    td.stockHistory.forEach(h => {
+      const book = td.books.find(b => b.id === h.bookId);
+      if (book) {
+        allHistory.push({
+          type: 'stock_in',
+          typeLabel: '📥 입고',
+          at: h.at,
+          author: h.author || '시스템',
+          bookId: h.bookId,
+          bookName: book.name,
+          subject: book.subject,
+          teacher: book.teacher,
+          qty: h.qty,
+          studentName: '-',
+          detail: `+${h.qty}권`
+        });
+      }
+    });
+  }
+  
+  // 2. 배부/회수/추가배부 이력
+  Object.entries(td.distributions || {}).forEach(([key, dist]) => {
+    const book = td.books.find(b => b.id === dist.bookId);
+    const student = td.students.find(s => s.id === dist.studentId);
+    
+    if (book && student && dist.history && dist.history.length > 0) {
+      dist.history.forEach(h => {
+        let typeLabel, detail;
+        
+        if (h.type === 'distribute') {
+          typeLabel = '📦 배부';
+          detail = h.bulk ? '(일괄배부)' : '';
+        } else if (h.type === 'return') {
+          typeLabel = '♻️ 회수';
+          detail = h.reason || '';
+        } else if (h.type === 'additional_distribute') {
+          typeLabel = '➕ 추가배부';
+          detail = h.paid ? (h.paymentCompleted ? '(유료-결제완료)' : '(유료-결제대기)') : '(무료)';
+        } else if (h.type === 'delete') {
+          typeLabel = '🗑️ 삭제';
+          detail = h.note || '';
+        } else if (h.type === 'delete_undistributed') {
+          typeLabel = '🗑️ 미배부삭제';
+          detail = h.memo || '';
+        } else if (h.type === 'staff_memo') {
+          typeLabel = '📝 메모';
+          detail = h.note || '';
+        } else if (h.type === 'class_change_create') {
+          typeLabel = '🔄 반이동';
+          detail = h.note || '';
+        } else if (h.type === 'class_transfer') {
+          typeLabel = '🔄 반변경';
+          detail = h.note || '';
+        } else {
+          typeLabel = h.type;
+          detail = '';
+        }
+        
+        allHistory.push({
+          type: h.type,
+          typeLabel: typeLabel,
+          at: h.at,
+          author: h.author || '시스템',
+          bookId: dist.bookId,
+          bookName: book.name,
+          subject: book.subject,
+          teacher: book.teacher,
+          studentId: dist.studentId,
+          studentName: student.name,
+          detail: detail
+        });
+      });
+    }
+  });
+  
+  // 시간순 정렬 (최신 우선)
+  allHistory.sort((a, b) => {
+    if (!a.at || !b.at) return 0;
+    return String(b.at).localeCompare(String(a.at));
+  });
+  
+  // 필터 적용
+  const filteredHistory = allHistory.filter(h => {
+    // 타입 필터
+    if (historyFilter.type && h.type !== historyFilter.type) return false;
+    
+    // 날짜 필터
+    if (historyFilter.dateFrom) {
+      const hDate = new Date(h.at).toISOString().split('T')[0];
+      if (hDate < historyFilter.dateFrom) return false;
+    }
+    if (historyFilter.dateTo) {
+      const hDate = new Date(h.at).toISOString().split('T')[0];
+      if (hDate > historyFilter.dateTo) return false;
+    }
+    
+    // 검색어 필터
+    if (historyFilter.query) {
+      const q = historyFilter.query.toLowerCase();
+      const searchStr = `${h.studentName} ${h.bookName} ${h.author}`.toLowerCase();
+      if (!searchStr.includes(q)) return false;
+    }
+    
+    // 퇴반생 필터
+    if (historyFilter.exitedOnly) {
+      const student = td.students.find(s => s.id === h.studentId);
+      if (!student || !student.exitedClasses || student.exitedClasses.length === 0) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+  
+  return `
+    <div class="section">
+      <div class="section-head">
+        <div class="section-title-wrap">
+          <div class="section-title">📋 입출고 이력</div>
+          <div class="section-desc">모든 입고, 배부, 회수, 추가배부, 반이동 이력을 확인할 수 있습니다. 재고 오차를 추적하거나 환불 근거를 확인할 때 활용하세요.</div>
+        </div>
+      </div>
+      
+      <!-- 필터 -->
+      <div style="background:white; border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
+        <div style="display:grid; grid-template-columns:180px 160px 160px 1fr 100px 100px; gap:12px; align-items:end;">
+          <div>
+            <label style="display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px;">이력 타입</label>
+            <select id="historyTypeFilter" class="modal-input" style="padding:6px 10px; font-size:13px;">
+              <option value="">전체</option>
+              <option value="stock_in" ${historyFilter.type === 'stock_in' ? 'selected' : ''}>📥 입고</option>
+              <option value="distribute" ${historyFilter.type === 'distribute' ? 'selected' : ''}>📦 배부</option>
+              <option value="return" ${historyFilter.type === 'return' ? 'selected' : ''}>♻️ 회수</option>
+              <option value="additional_distribute" ${historyFilter.type === 'additional_distribute' ? 'selected' : ''}>➕ 추가배부</option>
+              <option value="class_change_create" ${historyFilter.type === 'class_change_create' ? 'selected' : ''}>🔄 반이동</option>
+              <option value="staff_memo" ${historyFilter.type === 'staff_memo' ? 'selected' : ''}>📝 메모</option>
+              <option value="delete" ${historyFilter.type === 'delete' ? 'selected' : ''}>🗑️ 삭제</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px;">시작일</label>
+            <input type="date" id="historyDateFrom" class="modal-input" value="${historyFilter.dateFrom}" style="padding:6px 10px; font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px;">종료일</label>
+            <input type="date" id="historyDateTo" class="modal-input" value="${historyFilter.dateTo}" style="padding:6px 10px; font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px;">검색 (학생/교재/담당자)</label>
+            <input type="text" id="historyQuery" class="modal-input" placeholder="검색어 입력" value="${historyFilter.query}" style="padding:6px 10px; font-size:13px;">
+          </div>
+          <div>
+            <button class="btn btn-primary btn-sm" id="historySearchBtn" style="width:100%; padding:8px 10px;">
+              🔍 조회
+            </button>
+          </div>
+          <div>
+            <button class="btn btn-ghost btn-sm" id="historyResetBtn" style="width:100%; padding:8px 10px;">
+              ↻ 초기화
+            </button>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:flex; align-items:center; gap:12px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="historyExitedOnly" ${historyFilter.exitedOnly ? 'checked' : ''}>
+            퇴반생만
+          </label>
+        </div>
+      </div>
+      
+      <div style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">
+        전체 ${allHistory.length}건 / 필터 결과 <strong style="color:var(--accent-dark);">${filteredHistory.length}건</strong>
+      </div>
+      
+      ${filteredHistory.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-state-text">조건에 맞는 이력이 없습니다</div>
+        </div>
+      ` : `
+        <div style="background:white; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+          <div style="display:grid; grid-template-columns:140px 100px 120px 1fr 1fr 120px 200px; gap:12px; padding:12px 16px; background:var(--bg-soft); font-size:12px; font-weight:600; color:var(--text-dim); border-bottom:1px solid var(--border);">
+            <div>날짜/시간</div>
+            <div>행동</div>
+            <div>학생</div>
+            <div>과목</div>
+            <div>교재</div>
+            <div>담당자</div>
+            <div>상세</div>
+          </div>
+          <div style="max-height:600px; overflow-y:auto;">
+            ${filteredHistory.slice(0, 200).map(h => {
+              const date = new Date(h.at);
+              const dateStr = date.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+              const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+              
+              return `
+                <div style="display:grid; grid-template-columns:140px 100px 120px 1fr 1fr 120px 200px; gap:12px; padding:10px 16px; border-bottom:1px solid var(--border-light); align-items:center; font-size:13px;">
+                  <div style="color:var(--text-dim);">
+                    <div style="font-size:12px;">${dateStr}</div>
+                    <div style="font-size:11px; color:var(--text-faint);">${timeStr}</div>
+                  </div>
+                  <div style="font-weight:600;">${h.typeLabel}</div>
+                  <div style="font-weight:500;">${escapeHtml(h.studentName)}</div>
+                  <div><span class="badge badge-subject" style="font-size:10px;">${escapeHtml(h.subject)}</span></div>
+                  <div style="font-size:12px; color:var(--text-dim);">${escapeHtml(h.bookName)}</div>
+                  <div style="font-size:12px; color:var(--text-dim);">${escapeHtml(h.author)}</div>
+                  <div style="font-size:12px; color:var(--text-dim);">${escapeHtml(h.detail)}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          ${allHistory.length > 200 ? `
+            <div style="padding:12px 16px; text-align:center; font-size:12px; color:var(--text-dim); background:var(--bg-soft); border-top:1px solid var(--border);">
+              최근 200개만 표시됩니다 (전체 ${allHistory.length}개)
+            </div>
+          ` : ''}
+        </div>
+      `}
     </div>
   `;
 }
@@ -6512,6 +7136,311 @@ function showReturnStudentModal(classId, bookId) {
   };
 }
 
+// 결석자 일괄 회수 모달
+function showAbsentStudentReturnModal() {
+  const td = getCurrentTargetData();
+  
+  // 배부된 교재가 있는 학생만
+  const allStudents = td.students.filter(s => {
+    return Object.entries(td.distributions || {}).some(([key, dist]) => {
+      return dist.studentId === s.id && dist.status === 'distributed';
+    });
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (allStudents.length === 0) {
+    toast('배부된 교재가 있는 학생이 없습니다.', true);
+    return;
+  }
+  
+  // 필터 상태
+  let selectedSubject = '';
+  let selectedTeacher = '';
+  let selectedClass = '';
+  let selectedStudentIds = [];
+  
+  // 과목, 강사 목록
+  const subjects = [...new Set(td.classes.map(c => c.subject))].sort();
+  
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:10000;';
+  
+  const modalContent = document.createElement('div');
+  modalContent.style.cssText = 'background:white; border-radius:12px; padding:24px; width:800px; max-height:85vh; display:flex; flex-direction:column;';
+  
+  function getFilteredClasses() {
+    return td.classes.filter(c => {
+      if (selectedSubject && c.subject !== selectedSubject) return false;
+      if (selectedTeacher && c.teacher !== selectedTeacher) return false;
+      return true;
+    }).sort((a, b) => a.subject.localeCompare(b.subject) || a.className.localeCompare(b.className));
+  }
+  
+  function getFilteredStudents() {
+    return allStudents.filter(s => {
+      if (selectedClass) {
+        return s.classIds.includes(selectedClass);
+      }
+      if (selectedTeacher || selectedSubject) {
+        // 과목/강사 선택 시 해당하는 반의 학생만
+        return s.classIds.some(cid => {
+          const cls = td.classes.find(c => c.id === cid);
+          if (!cls) return false;
+          if (selectedSubject && cls.subject !== selectedSubject) return false;
+          if (selectedTeacher && cls.teacher !== selectedTeacher) return false;
+          return true;
+        });
+      }
+      return true;
+    });
+  }
+  
+  function render() {
+    const teachers = selectedSubject 
+      ? [...new Set(td.classes.filter(c => c.subject === selectedSubject).map(c => c.teacher).filter(Boolean))].sort()
+      : [...new Set(td.classes.map(c => c.teacher).filter(Boolean))].sort();
+    
+    const classes = getFilteredClasses();
+    const filteredStudents = getFilteredStudents();
+    
+    modalContent.innerHTML = `
+      <h3 style="margin:0 0 8px 0; font-size:18px;">결석자 일괄 회수</h3>
+      <div style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">
+        결석한 학생들을 선택하면, 선택한 학생들의 <strong>모든 배부된 교재</strong>를 일괄 회수합니다.
+      </div>
+      
+      <!-- 필터 -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-bottom:16px;">
+        <div>
+          <label style="font-size:12px; font-weight:600; color:var(--text-dim); display:block; margin-bottom:4px;">과목</label>
+          <select id="subjectFilter" class="modal-input">
+            <option value="">전체 과목</option>
+            ${subjects.map(s => `<option value="${escapeHtml(s)}" ${selectedSubject === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px; font-weight:600; color:var(--text-dim); display:block; margin-bottom:4px;">강사</label>
+          <select id="teacherFilter" class="modal-input" ${!selectedSubject ? 'disabled' : ''}>
+            <option value="">전체 강사</option>
+            ${teachers.map(t => `<option value="${escapeHtml(t)}" ${selectedTeacher === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px; font-weight:600; color:var(--text-dim); display:block; margin-bottom:4px;">반</label>
+          <select id="classFilter" class="modal-input" ${!selectedSubject ? 'disabled' : ''}>
+            <option value="">전체 반</option>
+            ${classes.map(c => {
+              const studentsInClass = allStudents.filter(s => s.classIds.includes(c.id));
+              return `<option value="${c.id}" ${selectedClass === c.id ? 'selected' : ''}>${escapeHtml(c.className)} (${studentsInClass.length}명)</option>`;
+            }).join('')}
+          </select>
+        </div>
+      </div>
+      
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; flex:1; overflow:hidden;">
+        <!-- 학생 목록 -->
+        <div style="display:flex; flex-direction:column; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+          <div style="padding:12px; background:var(--bg-soft); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <label style="font-size:13px; font-weight:600;">
+              <input type="checkbox" id="selectAllStudents" style="margin-right:6px;">
+              전체 선택
+            </label>
+            <span style="font-size:12px; color:var(--text-dim);">${filteredStudents.length}명 표시</span>
+          </div>
+          <div style="flex:1; overflow-y:auto; padding:8px;">
+            ${filteredStudents.length === 0 ? `
+              <div style="text-align:center; padding:40px 20px; color:var(--text-dim);">
+                ${selectedClass || selectedTeacher || selectedSubject ? '조건에 맞는 학생이 없습니다' : '학생이 없습니다'}
+              </div>
+            ` : filteredStudents.map(s => {
+              const distributedBooks = Object.entries(td.distributions || {}).filter(([key, dist]) => {
+                return dist.studentId === s.id && dist.status === 'distributed';
+              }).length;
+              
+              const isSelected = selectedStudentIds.includes(s.id);
+              
+              return `
+                <label style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--border-light); cursor:pointer; ${isSelected ? 'background:var(--accent-light);' : ''}">
+                  <input type="checkbox" class="student-checkbox" data-student-id="${s.id}" ${isSelected ? 'checked' : ''} style="margin-right:10px;">
+                  <div style="flex:1;">
+                    <div style="font-size:13px; font-weight:500;">${escapeHtml(s.name)}</div>
+                    <div style="font-size:11px; color:var(--text-dim);">배부: ${distributedBooks}권</div>
+                  </div>
+                </label>
+              `;
+            }).join('')}
+          </div>
+        </div>
+        
+        <!-- 선택된 학생 -->
+        <div style="display:flex; flex-direction:column; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+          <div style="padding:12px; background:var(--accent-light); border-bottom:1px solid var(--border);">
+            <div style="font-size:13px; font-weight:600;">선택된 학생 (${selectedStudentIds.length}명)</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">회수할 학생들을 확인하세요</div>
+          </div>
+          <div id="selectedStudentsList" style="flex:1; overflow-y:auto; padding:8px;">
+            ${selectedStudentIds.length === 0 ? `
+              <div style="text-align:center; padding:40px 20px; color:var(--text-dim);">
+                왼쪽에서 학생을 선택하세요
+              </div>
+            ` : selectedStudentIds.map(sid => {
+              const student = allStudents.find(s => s.id === sid);
+              if (!student) return '';
+              
+              const distributedBooks = Object.entries(td.distributions || {}).filter(([key, dist]) => {
+                return dist.studentId === sid && dist.status === 'distributed';
+              }).length;
+              
+              return `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:8px; border-bottom:1px solid var(--border-light);">
+                  <div>
+                    <div style="font-size:13px; font-weight:500;">${escapeHtml(student.name)}</div>
+                    <div style="font-size:11px; color:var(--text-dim);">배부: ${distributedBooks}권</div>
+                  </div>
+                  <button class="btn btn-ghost btn-sm remove-student-btn" data-student-id="${sid}" style="padding:4px 8px; font-size:11px;">제거</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button class="btn btn-ghost" id="cancelBtn" style="flex:1;">취소</button>
+        <button class="btn btn-danger" id="confirmBtn" style="flex:2;" ${selectedStudentIds.length === 0 ? 'disabled' : ''}>
+          선택한 ${selectedStudentIds.length}명 회수
+        </button>
+      </div>
+    `;
+    
+    attachEvents();
+  }
+  
+  function attachEvents() {
+    // 필터 이벤트
+    const subjectFilter = modalContent.querySelector('#subjectFilter');
+    const teacherFilter = modalContent.querySelector('#teacherFilter');
+    const classFilter = modalContent.querySelector('#classFilter');
+    
+    subjectFilter.onchange = () => {
+      selectedSubject = subjectFilter.value;
+      selectedTeacher = '';
+      selectedClass = '';
+      render();
+    };
+    
+    teacherFilter.onchange = () => {
+      selectedTeacher = teacherFilter.value;
+      selectedClass = '';
+      render();
+    };
+    
+    classFilter.onchange = () => {
+      selectedClass = classFilter.value;
+      render();
+    };
+    
+    // 전체 선택
+    const selectAllCheckbox = modalContent.querySelector('#selectAllStudents');
+    if (selectAllCheckbox) {
+      selectAllCheckbox.onclick = () => {
+        const filteredStudents = getFilteredStudents();
+        if (selectAllCheckbox.checked) {
+          filteredStudents.forEach(s => {
+            if (!selectedStudentIds.includes(s.id)) {
+              selectedStudentIds.push(s.id);
+            }
+          });
+        } else {
+          filteredStudents.forEach(s => {
+            const idx = selectedStudentIds.indexOf(s.id);
+            if (idx > -1) selectedStudentIds.splice(idx, 1);
+          });
+        }
+        render();
+      };
+    }
+    
+    // 학생 체크박스
+    modalContent.querySelectorAll('.student-checkbox').forEach(cb => {
+      cb.onclick = (e) => {
+        e.stopPropagation();
+        const studentId = cb.dataset.studentId;
+        if (cb.checked) {
+          if (!selectedStudentIds.includes(studentId)) {
+            selectedStudentIds.push(studentId);
+          }
+        } else {
+          const idx = selectedStudentIds.indexOf(studentId);
+          if (idx > -1) selectedStudentIds.splice(idx, 1);
+        }
+        render();
+      };
+    });
+    
+    // 제거 버튼
+    modalContent.querySelectorAll('.remove-student-btn').forEach(btn => {
+      btn.onclick = () => {
+        const studentId = btn.dataset.studentId;
+        const idx = selectedStudentIds.indexOf(studentId);
+        if (idx > -1) selectedStudentIds.splice(idx, 1);
+        render();
+      };
+    });
+    
+    // 취소
+    modalContent.querySelector('#cancelBtn').onclick = () => {
+      modal.remove();
+    };
+    
+    // 확인
+    modalContent.querySelector('#confirmBtn').onclick = () => {
+      if (selectedStudentIds.length === 0) {
+        toast('학생을 선택해주세요', true);
+        return;
+      }
+      
+      // 회수 처리
+      let totalReturned = 0;
+      const now = Date.now();
+      
+      selectedStudentIds.forEach(studentId => {
+        Object.entries(td.distributions || {}).forEach(([key, dist]) => {
+          if (dist.studentId === studentId && dist.status === 'distributed') {
+            const book = td.books.find(b => b.id === dist.bookId);
+            if (book) {
+              dist.status = 'returned';
+              dist.at = now;
+              dist.author = state.currentUser;
+              
+              dist.history.push({
+                type: 'return',
+                at: now,
+                author: state.currentUser,
+                bulk: true,
+                reason: '결석자 회수'
+              });
+              
+              book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+              totalReturned++;
+            }
+          }
+        });
+      });
+      
+      saveData();
+      modal.remove();
+      renderMain();
+      
+      toast(`✅ ${selectedStudentIds.length}명의 학생에게서 총 ${totalReturned}권 회수 완료`);
+    };
+  }
+  
+  modal.appendChild(modalContent);
+  document.body.appendChild(modal);
+  
+  render();
+}
+
 // 회수 최종 확인 모달
 function showReturnConfirmModal(studentIds, classId, bookId, className, bookName, reason, memo) {
   const modal = document.createElement('div');
@@ -6568,7 +7497,7 @@ function showReturnConfirmModal(studentIds, classId, bookId, className, bookName
 function executeReturn(studentIds, bookId, reason, memo) {
   const td = getCurrentTargetData();
   const timestamp = Date.now();
-  const currentUser = '이형빈'; // TODO: 실제 로그인 사용자
+  const book = td.books.find(b => b.id === bookId);
   
   studentIds.forEach(studentId => {
     // distributions에서 해당 배부 찾아서 상태 변경
@@ -6581,9 +7510,14 @@ function executeReturn(studentIds, bookId, reason, memo) {
     if (dist) {
       dist.status = 'returned';
       dist.returnedAt = timestamp;
-      dist.returnedBy = currentUser;
+      dist.returnedBy = state.currentUser;
       dist.returnReason = reason;
       dist.returnMemo = memo;
+      
+      // 재고 업데이트
+      if (book) {
+        book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+      }
     }
   });
   
@@ -8893,65 +9827,88 @@ function bulkDistributeClass(classId) {
   const c = td.classes.find(x => x.id === classId);
   if (!c || !c.bookIds || c.bookIds.length === 0) return;
   
-  const students = td.students.filter(s => s.classIds.includes(classId));
+  // 퇴반생 제외
+  const students = td.students.filter(s => {
+    // 반에 소속되어 있고
+    if (!s.classIds.includes(classId)) return false;
+    // 퇴반하지 않은 학생만
+    if (s.exitedClasses && s.exitedClasses.some(e => e.classId === classId)) return false;
+    return true;
+  });
+  
   if (students.length === 0) {
-    toast('학생이 없는 반입니다', true);
+    toast('배부 대상 학생이 없습니다', true);
     return;
   }
   
-  let totalNeeded = 0;
-  let totalAvailable = 0;
+  // 교재별 재고 검증
+  const shortageBooks = [];
+  const bookInfo = [];
   
   c.bookIds.forEach(bookId => {
     const book = td.books.find(b => b.id === bookId);
     if (!book) return;
     
-    const stockIn = book.stockIn || 0;
-    const distributed = getDistributedCount(bookId, td);
-    const available = stockIn - distributed;
+    const available = (book.stockIn || 0) - (book.stockOut || 0);
     
-    students.forEach(s => {
-      const status = getDistStatus(td, s.id, bookId);
-      if (status !== 'distributed') {
-        totalNeeded++;
-        if (available > 0) totalAvailable++;
-      }
-    });
+    // 미배부 학생 수 계산
+    const needCount = students.filter(s => {
+      const distKey = s.id + '||' + bookId;
+      const dist = td.distributions[distKey];
+      return !dist || dist.status !== 'distributed';
+    }).length;
+    
+    bookInfo.push({ book, available, needCount });
+    
+    if (available < needCount) {
+      shortageBooks.push({
+        name: book.name,
+        shortage: needCount - available,
+        available: available,
+        need: needCount
+      });
+    }
   });
   
-  if (totalNeeded === 0) {
-    toast('이미 모두 배부되었습니다', true);
+  // 재고 부족 시 배부 중단
+  if (shortageBooks.length > 0) {
+    const shortageList = shortageBooks.map(s => 
+      `• ${s.name}: ${s.shortage}권 부족 (재고 ${s.available}권, 필요 ${s.need}권)`
+    ).join('\n');
+    
+    showAlert({
+      title: '⚠️ 재고 부족',
+      message: `다음 교재의 재고가 부족합니다:\n\n${shortageList}\n\n전원 배부가 불가능하여 배부를 중단합니다.\n먼저 입고를 진행하세요.`
+    });
     return;
   }
   
-  if (totalAvailable === 0) {
-    toast('재고가 부족하여 배부할 수 없습니다', true);
+  const totalNeed = bookInfo.reduce((sum, info) => sum + info.needCount, 0);
+  
+  if (totalNeed === 0) {
+    toast('이미 모두 배부되었습니다', true);
     return;
   }
   
   showConfirm({
     title: '반별 일괄 배부',
-    message: `${c.className} 반에 매칭된 교재를 모든 학생에게 일괄 배부합니다.\n\n배부 가능: ${totalAvailable}건\n재고 부족: ${totalNeeded - totalAvailable}건\n\n계속하시겠습니까?`,
+    message: `${c.className} 반에 매칭된 교재를 모든 학생에게 일괄 배부합니다.\n\n배부 대상: ${totalNeed}건\n✅ 재고가 충분합니다.\n\n계속하시겠습니까?`,
     confirmText: '배부',
     onConfirm: () => {
-      const now = new Date().toISOString();
+      const now = Date.now();
       let count = 0;
       
       c.bookIds.forEach(bookId => {
         const book = td.books.find(b => b.id === bookId);
         if (!book) return;
         
-        const stockIn = book.stockIn || 0;
-        const distributed = getDistributedCount(bookId, td);
-        const available = stockIn - distributed;
-        
-        if (available <= 0) return;
-        
         students.forEach(s => {
-          const status = getDistStatus(td, s.id, bookId);
-          if (status === 'distributed') return;
-          
           const distKey = s.id + '||' + bookId;
+          const dist = td.distributions[distKey];
+          
+          // 이미 배부된 경우 스킵
+          if (dist && dist.status === 'distributed') return;
+          
           if (!td.distributions[distKey]) {
             td.distributions[distKey] = {
               studentId: s.id,
@@ -8971,16 +9928,219 @@ function bulkDistributeClass(classId) {
             type: 'distribute',
             at: now,
             author: state.currentUser,
-            bulk: true
+            bulk: true,
+            note: `반별 배부`
           });
           
+          // 재고 업데이트
+          book.stockOut = (book.stockOut || 0) + 1;
           count++;
         });
       });
       
       saveData();
       renderMain();
-      toast(`${c.className} ${count}건 일괄 배부 완료`);
+      toast(`✅ ${c.className} ${count}건 배부 완료`);
+      return true;
+    }
+  });
+}
+
+// 교재별 배부 (교재 목록에서 호출)
+function distributeByBook(bookId) {
+  const td = getCurrentTargetData();
+  const book = td.books.find(b => b.id === bookId);
+  if (!book) return;
+
+  console.log('=== 교재별 배부 시작 ===', book.name);
+
+  // 이 교재를 받을 학생 찾기
+  const eligibleStudents = [];
+  
+  td.students.forEach(s => {
+    s.classIds.forEach(classId => {
+      const cls = td.classes.find(c => c.id === classId);
+      if (cls && cls.bookIds && cls.bookIds.includes(bookId)) {
+        const distKey = s.id + '||' + bookId;
+        const dist = td.distributions[distKey];
+        
+        // 미배부 학생만
+        if (!dist || dist.status === 'pending') {
+          eligibleStudents.push({ student: s, classId, dist });
+        }
+      }
+    });
+  });
+
+  if (eligibleStudents.length === 0) {
+    toast(`'${book.name}' 교재를 받을 미배부 학생이 없습니다.`, true);
+    return;
+  }
+
+  // 재고 확인
+  const available = (book.stockIn || 0) - (book.stockOut || 0);
+  
+  // 재고 부족 시 배부 중단
+  if (available < eligibleStudents.length) {
+    const shortage = eligibleStudents.length - available;
+    showAlert({
+      title: '⚠️ 재고 부족',
+      message: `재고가 ${shortage}권 부족합니다.\n\n미배부 학생: ${eligibleStudents.length}명\n현재 재고: ${available}권\n\n전원 배부가 불가능하여 배부를 중단합니다.\n먼저 입고를 진행하세요.`
+    });
+    return;
+  }
+  
+  showConfirmModal({
+    title: `'${book.name}' 교재 일괄 배부`,
+    message: `이 교재를 받을 미배부 학생에게 일괄 배부합니다.\n\n미배부 학생: ${eligibleStudents.length}명\n현재 재고: ${available}권\n\n✅ 재고가 충분합니다.\n\n계속하시겠습니까?`,
+    onConfirm: () => {
+      let count = 0;
+      const now = Date.now();
+
+      eligibleStudents.forEach(({ student, classId, dist }) => {
+        const distKey = student.id + '||' + bookId;
+        
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = {
+            studentId: student.id,
+            bookId: bookId,
+            status: 'distributed',
+            at: now,
+            author: state.currentUser,
+            history: []
+          };
+        } else {
+          td.distributions[distKey].status = 'distributed';
+          td.distributions[distKey].at = now;
+          td.distributions[distKey].author = state.currentUser;
+        }
+
+        td.distributions[distKey].history.push({
+          type: 'distribute',
+          at: now,
+          author: state.currentUser,
+          bulk: true,
+          note: `교재별 배부`
+        });
+
+        book.stockOut = (book.stockOut || 0) + 1;
+        count++;
+      });
+
+      saveData();
+      renderMain();
+      toast(`✅ '${book.name}' ${count}명 배부 완료`);
+
+      return true;
+    }
+  });
+}
+
+// 입고 후 바로 배부 (입고 탭에서 호출)
+function distributeAfterStockIn(bookId) {
+  const td = getCurrentTargetData();
+  const book = td.books.find(b => b.id === bookId);
+  if (!book) return;
+
+  console.log('=== 입고 후 배부 시작 ===', book.name);
+
+  // 이 교재를 받을 미배부 학생 찾기
+  const eligibleStudents = [];
+  
+  td.students.forEach(s => {
+    s.classIds.forEach(classId => {
+      const cls = td.classes.find(c => c.id === classId);
+      if (cls && cls.bookIds && cls.bookIds.includes(bookId)) {
+        const distKey = s.id + '||' + bookId;
+        const dist = td.distributions[distKey];
+        
+        if (!dist || dist.status === 'pending') {
+          eligibleStudents.push({ student: s, classId, dist });
+        }
+      }
+    });
+  });
+
+  if (eligibleStudents.length === 0) {
+    toast(`'${book.name}' 교재를 받을 미배부 학생이 없습니다.`, false);
+    return;
+  }
+
+  const available = (book.stockIn || 0) - (book.stockOut || 0);
+  
+  showConfirmModal({
+    title: `입고 완료 → 즉시 배부`,
+    message: `'${book.name}' 입고가 완료되었습니다.\n미배부 학생에게 바로 배부하시겠습니까?\n\n미배부 학생: ${eligibleStudents.length}명\n현재 재고: ${available}권\n\n${available < eligibleStudents.length ? `⚠️ 재고가 ${eligibleStudents.length - available}권 부족합니다.` : ''}`,
+    onConfirm: () => {
+      distributeByBook(bookId);
+      return true;
+    }
+  });
+}
+
+// 교재별 회수 (교재 목록에서 호출)
+function returnByBook(bookId) {
+  const td = getCurrentTargetData();
+  const book = td.books.find(b => b.id === bookId);
+  if (!book) return;
+
+  console.log('=== 교재별 회수 시작 ===', book.name);
+
+  // 이 교재를 받은 학생 찾기 (배부된 상태만)
+  const eligibleStudents = [];
+  
+  td.students.forEach(s => {
+    s.classIds.forEach(classId => {
+      const cls = td.classes.find(c => c.id === classId);
+      if (cls && cls.bookIds && cls.bookIds.includes(bookId)) {
+        const distKey = s.id + '||' + bookId;
+        const dist = td.distributions[distKey];
+        
+        // 배부된 학생만
+        if (dist && dist.status === 'distributed') {
+          eligibleStudents.push({ student: s, classId, dist });
+        }
+      }
+    });
+  });
+
+  if (eligibleStudents.length === 0) {
+    toast(`'${book.name}' 교재를 배부받은 학생이 없습니다.`, true);
+    return;
+  }
+
+  showConfirmModal({
+    title: `'${book.name}' 교재 일괄 회수`,
+    message: `이 교재를 배부받은 학생에게서 일괄 회수합니다.\n\n배부된 학생: ${eligibleStudents.length}명\n\n계속하시겠습니까?`,
+    onConfirm: () => {
+      let count = 0;
+      const now = Date.now();
+
+      eligibleStudents.forEach(({ student, classId, dist }) => {
+        const distKey = student.id + '||' + bookId;
+        
+        if (td.distributions[distKey] && td.distributions[distKey].status === 'distributed') {
+          td.distributions[distKey].status = 'returned';
+          td.distributions[distKey].at = now;
+          td.distributions[distKey].author = state.currentUser;
+
+          td.distributions[distKey].history.push({
+            type: 'return',
+            at: now,
+            author: state.currentUser,
+            bulk: true,
+            reason: `교재별 회수`
+          });
+
+          book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+          count++;
+        }
+      });
+
+      saveData();
+      renderMain();
+      toast(`✅ '${book.name}' ${count}명에게서 회수 완료`);
+
       return true;
     }
   });
@@ -9021,6 +10181,8 @@ function bulkReturnClass(classId) {
       let count = 0;
       
       c.bookIds.forEach(bookId => {
+        const book = td.books.find(b => b.id === bookId);
+        
         students.forEach(s => {
           const status = getDistStatus(td, s.id, bookId);
           if (status !== 'distributed') return;
@@ -9038,6 +10200,11 @@ function bulkReturnClass(classId) {
             author: state.currentUser,
             bulk: true
           });
+          
+          // 재고 업데이트
+          if (book) {
+            book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+          }
           
           count++;
         });
@@ -9113,6 +10280,11 @@ function showFirstStockModal(bookId) {
     bd.remove();
     renderMain();
     toast(`${book.name} ${qty}권 입고 완료`);
+    
+    // 입고 완료 후 배부 확인
+    setTimeout(() => {
+      distributeAfterStockIn(bookId);
+    }, 500);
   };
   
   // Enter 키로 확인
@@ -9230,6 +10402,10 @@ function attachStockPageEvents() {
 
   // 재고 현황
   attachStockOverviewEvents();
+  
+  // 결석자 일괄 회수
+  const absentBtn = document.getElementById('absentStudentReturnBtn');
+  if (absentBtn) absentBtn.onclick = showAbsentStudentReturnModal;
   
   // 결제완료 (조회 > 결제대기)
   document.querySelectorAll('[data-complete-payment]').forEach(btn => {
@@ -9784,13 +10960,14 @@ function renderStudentDetail(student, td) {
   
   // 직원 메모만 분리 (중요 메모)
   const staffMemos = allHistory.filter(h => h.type === 'staff_memo');
-  const recentStaffMemos = staffMemos.slice(0, 2);
+  const recentStaffMemos = staffMemos.slice(0, 3);
   
-  // 결제대기 추출
+  // 결제대기 추출 (취소되지 않은 것만)
   const unpaidPayments = allHistory.filter(h => 
     h.type === 'additional_distribute' && 
     h.paid === true && 
-    h.paymentCompleted !== true
+    h.paymentCompleted !== true &&
+    !h.cancelled
   );
   
   // 교재 리스트
@@ -9851,26 +11028,30 @@ function renderStudentDetail(student, td) {
     return a.subject.localeCompare(b.subject) || a.teacher.localeCompare(b.teacher) || a.name.localeCompare(b.name);
   });
   
-  // 필터 옵션 (과목 → 강사 → 반 연동)
-  const subjects = [...new Set(td.classes.map(c => c.subject))].sort();
+  // 필터 옵션: 학생의 반만
+  const subjects = [...new Set(studentClasses.map(c => c.subject))].sort();
   
-  // 과목 선택 시: 해당 과목의 강사만
-  const teachers = studentSearchFilter.subject
-    ? [...new Set(td.classes.filter(c => c.subject === studentSearchFilter.subject).map(c => c.teacher).filter(Boolean))].sort()
-    : [...new Set(td.classes.map(c => c.teacher).filter(Boolean))].sort();
+  // 과목이 선택되면, 그 과목의 강사/반만
+  const filteredBySubject = studentSearchFilter.subject 
+    ? studentClasses.filter(c => c.subject === studentSearchFilter.subject)
+    : studentClasses;
   
-  // 과목+강사 선택 시: 해당 조합의 반만
-  const classes = td.classes.filter(c => 
-    (!studentSearchFilter.subject || c.subject === studentSearchFilter.subject) &&
-    (!studentSearchFilter.teacher || c.teacher === studentSearchFilter.teacher)
-  );
+  const teachers = [...new Set(filteredBySubject.map(c => c.teacher).filter(Boolean))].sort();
   
-  // 필터 검증 (선택한 강사가 현재 과목에 없으면 초기화)
+  // 강사가 선택되면, 그 강사의 반만
+  const filteredByTeacher = studentSearchFilter.teacher
+    ? filteredBySubject.filter(c => c.teacher === studentSearchFilter.teacher)
+    : filteredBySubject;
+  
+  const classes = filteredByTeacher;
+  
+  // 필터 검증
+  if (studentSearchFilter.subject && !subjects.includes(studentSearchFilter.subject)) {
+    studentSearchFilter.subject = '';
+  }
   if (studentSearchFilter.teacher && !teachers.includes(studentSearchFilter.teacher)) {
     studentSearchFilter.teacher = '';
   }
-  
-  // 필터 검증 (선택한 반이 현재 과목+강사에 없으면 초기화)
   if (studentSearchFilter.classId && !classes.some(c => c.id === studentSearchFilter.classId)) {
     studentSearchFilter.classId = '';
   }
@@ -9884,25 +11065,53 @@ function renderStudentDetail(student, td) {
     <!-- 학생 정보 -->
     <div class="section">
       <div style="background:var(--accent-light); border-radius:10px; padding:14px 16px; margin-bottom:16px;">
-        <div style="display:flex; align-items:baseline; gap:12px;">
-          <div style="font-size:18px; font-weight:700;">${escapeHtml(student.name)}</div>
-          <div style="font-size:13px; color:var(--text-dim);">
-            ${studentClasses.length > 0 
-              ? studentClasses.map(c => `<span class="badge badge-subject" style="font-size:11px;">${escapeHtml(c.subject)}</span> ${escapeHtml(c.className)}`).join(', ')
-              : '소속 반 없음'
-            }
+        <!-- 첫 줄: 이름 + 버튼들 -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size:18px; font-weight:700;">${escapeHtml(student.name)}</div>
+            <div style="font-size:14px; font-weight:600; color:var(--accent-dark);">
+              배부 ${distributedCount}/${totalBooks}
+            </div>
           </div>
-          <div style="margin-left:auto; font-size:14px; font-weight:600; color:var(--accent-dark);">
-            배부 ${distributedCount}/${totalBooks}
-          </div>
-          ${distributedCount > 0 ? `
-            <button class="btn btn-secondary btn-sm" data-return-all="${student.id}" style="font-size:12px; padding:4px 10px;">
-              🔄 전체 회수
+          <div style="display:flex; align-items:center; gap:6px;">
+            ${notDistCount > 0 ? `
+              <button class="btn btn-primary btn-sm" data-bulk-distribute="${student.id}" style="font-size:12px; padding:4px 10px;">
+                📦 일괄 배부
+              </button>
+            ` : ''}
+            ${distributedCount > 0 ? `
+              <button class="btn btn-secondary btn-sm" data-return-all="${student.id}" style="font-size:12px; padding:4px 10px;">
+                ♻️ 전체 회수
+              </button>
+            ` : ''}
+            <button class="btn btn-accent btn-sm" data-change-class="${student.id}" style="font-size:12px; padding:4px 10px;">
+              🔀 반 변경
             </button>
+            ${studentClasses.length > 0 ? `
+              <button class="btn btn-danger btn-sm" data-exit-class="${student.id}" style="font-size:12px; padding:4px 10px;">
+                🚪 퇴반
+              </button>
+            ` : ''}
+            <button class="btn btn-ghost btn-sm" data-add-staff-memo="${student.id}" style="font-size:12px; padding:4px 10px;">
+              📌 메모
+            </button>
+          </div>
+        </div>
+        <!-- 둘째 줄: 반 정보 -->
+        <div style="font-size:13px; color:var(--text-dim);">
+          ${studentClasses.length > 0 
+            ? studentClasses.map(c => `<span class="badge badge-subject" style="font-size:11px;">${escapeHtml(c.subject)}</span> ${escapeHtml(c.className)}`).join(', ')
+            : '소속 반 없음'
+          }
+          ${student.exitedClasses && student.exitedClasses.length > 0 ? `
+            <span style="margin-left:8px;">
+              ${student.exitedClasses.map(e => {
+                const exitClass = td.classes.find(c => c.id === e.classId);
+                const exitDate = new Date(e.exitedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+                return `<span class="badge" style="font-size:11px;background:#FCEEEE;color:#B84545;border:1px solid #F5A9A9;">🚪 퇴반: ${exitClass ? escapeHtml(exitClass.className) : '알 수 없음'} (${exitDate})</span>`;
+              }).join(' ')}
+            </span>
           ` : ''}
-          <button class="btn btn-ghost btn-sm" data-add-staff-memo="${student.id}" style="font-size:12px; padding:4px 10px;">
-            📌 메모
-          </button>
         </div>
       </div>
       
@@ -9947,17 +11156,25 @@ function renderStudentDetail(student, td) {
             ${recentStaffMemos.map(h => {
               const date = new Date(h.at);
               const dateStr = date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+              const canDelete = h.author === state.currentUser;
               return `
                 <div style="padding:8px; background:white; border-radius:6px; border-left:3px solid #F0CA6F;">
-                  <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
-                    <span style="font-size:11px; color:var(--text-faint);">${dateStr}</span>
-                    <span style="font-size:11px; color:var(--text-dim);">${escapeHtml(h.author)}</span>
+                  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="font-size:11px; color:var(--text-faint);">${dateStr}</span>
+                      <span style="font-size:11px; color:var(--text-dim);">${escapeHtml(h.author)}</span>
+                    </div>
+                    ${canDelete ? `
+                      <button class="btn btn-ghost btn-sm" data-delete-memo="${h.bookId}" data-memo-at="${h.at}" style="font-size:10px; padding:2px 6px; color:var(--danger);">
+                        삭제
+                      </button>
+                    ` : ''}
                   </div>
                   <div style="font-size:13px; color:var(--text);">${escapeHtml(h.memo)}</div>
                 </div>
               `;
             }).join('')}
-            ${staffMemos.length > 2 ? `
+            ${staffMemos.length > 3 ? `
               <button class="btn btn-ghost btn-sm" data-show-all-history="${student.id}" style="font-size:12px; margin-top:4px;">
                 전체 메모 보기 (${staffMemos.length}개)
               </button>
@@ -10177,7 +11394,7 @@ function renderSearchPage() {
 
   const td = getCurrentTargetData();
   const currentName = state.targets.find(t => t.id === state.currentTargetId)?.name;
-  const currentSub = subTabs.search;
+  const currentSub = subTabs['student-search'];
 
   return `
     <div class="page-header">
@@ -10185,7 +11402,7 @@ function renderSearchPage() {
       <div class="page-subtitle">현재 대상: <b style="color:var(--accent-dark)">${escapeHtml(currentName)}</b></div>
     </div>
 
-    ${renderSubTabs('search', [
+    ${renderSubTabs('student-search', [
       { key: 'student', label: '👤 학생조회' },
       { key: 'class', label: '👥 반별조회' },
       { key: 'book', label: '📖 교재별조회' },
@@ -10634,8 +11851,15 @@ function distributeToStudent(studentId, bookId) {
   const book = td.books.find(b => b.id === bookId);
   if (!student || !book) return;
   
+  // 재고 확인
+  const available = (book.stockIn || 0) - (book.stockOut || 0);
+  if (available <= 0) {
+    toast(`⚠️ '${book.name}' 재고가 부족합니다`, true);
+    return;
+  }
+  
   const distKey = studentId + '||' + bookId;
-  const now = new Date().toISOString();
+  const now = Date.now();
   
   if (!td.distributions[distKey]) {
     td.distributions[distKey] = {
@@ -10658,9 +11882,12 @@ function distributeToStudent(studentId, bookId) {
     author: state.currentUser
   });
   
+  // 재고 업데이트
+  book.stockOut = (book.stockOut || 0) + 1;
+  
   saveData();
   renderMain();
-  toast(`${book.name} 배부 완료`);
+  toast(`✅ ${book.name} 배부 완료`);
 }
 
 // 학생으로부터 교재 회수
@@ -10737,10 +11964,13 @@ function returnFromStudent(studentId, bookId) {
       stockAfter
     });
     
+    // 재고 업데이트
+    book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+    
     saveData();
     bd.remove();
     renderMain();
-    toast(`${book.name} 회수 완료`);
+    toast(`✅ ${book.name} 회수 완료`);
   };
   
   setTimeout(() => bd.querySelector('#returnMemo').focus(), 100);
@@ -10845,6 +12075,11 @@ function returnAllFromStudent(studentId) {
           bulk: true  // 일괄 회수 표시
         });
         
+        // 재고 업데이트
+        if (book) {
+          book.stockOut = Math.max(0, (book.stockOut || 0) - 1);
+        }
+        
         count++;
       }
     });
@@ -10856,6 +12091,110 @@ function returnAllFromStudent(studentId) {
   };
   
   setTimeout(() => bd.querySelector('#returnAllMemo').focus(), 100);
+}
+
+// 학생의 모든 미배부 교재 일괄 배부
+function bulkDistributeStudent(studentId) {
+  const td = getCurrentTargetData();
+  const student = td.students.find(s => s.id === studentId);
+  if (!student) {
+    toast('학생을 찾을 수 없습니다', true);
+    return;
+  }
+  
+  // 학생의 반에서 모든 교재 찾기
+  const studentClasses = td.classes.filter(c => student.classIds.includes(c.id));
+  const allBookIds = new Set();
+  studentClasses.forEach(c => {
+    if (c.bookIds) c.bookIds.forEach(bid => allBookIds.add(bid));
+  });
+  
+  // 미배부 교재만 필터링
+  const undistributedBooks = [];
+  Array.from(allBookIds).forEach(bookId => {
+    const book = td.books.find(b => b.id === bookId);
+    if (!book) return;
+    
+    const distKey = studentId + '||' + bookId;
+    const dist = td.distributions[distKey];
+    
+    // 미배부이거나 distribution이 없는 경우
+    if (!dist || dist.status === 'none' || dist.status === 'pending') {
+      undistributedBooks.push({ bookId, bookName: book.name, book });
+    }
+  });
+  
+  if (undistributedBooks.length === 0) {
+    toast('미배부 교재가 없습니다', true);
+    return;
+  }
+  
+  // 재고 검증
+  const shortageBooks = [];
+  undistributedBooks.forEach(({ book, bookName }) => {
+    const available = (book.stockIn || 0) - (book.stockOut || 0);
+    if (available <= 0) {
+      shortageBooks.push({ name: bookName, available });
+    }
+  });
+  
+  if (shortageBooks.length > 0) {
+    const shortageList = shortageBooks.map(s => 
+      `• ${s.name} (재고 ${s.available}권)`
+    ).join('\n');
+    
+    showAlert({
+      title: '⚠️ 재고 부족',
+      message: `다음 교재의 재고가 부족합니다:\n\n${shortageList}\n\n전체 배부가 불가능하여 배부를 중단합니다.\n먼저 입고를 진행하세요.`
+    });
+    return;
+  }
+  
+  // 확인 모달
+  showConfirm({
+    title: '📦 일괄 배부',
+    message: `${escapeHtml(student.name)} 학생에게\n미배부 교재 ${undistributedBooks.length}개를 일괄 배부합니다.\n\n✅ 재고가 충분합니다.\n\n계속하시겠습니까?`,
+    confirmText: '배부',
+    onConfirm: () => {
+      const now = Date.now();
+      let count = 0;
+      
+      undistributedBooks.forEach(({ bookId, book }) => {
+        const distKey = studentId + '||' + bookId;
+        
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = {
+            studentId,
+            bookId,
+            status: 'distributed',
+            at: now,
+            author: state.currentUser,
+            history: []
+          };
+        } else {
+          td.distributions[distKey].status = 'distributed';
+          td.distributions[distKey].at = now;
+          td.distributions[distKey].author = state.currentUser;
+        }
+        
+        td.distributions[distKey].history.push({
+          type: 'distribute',
+          at: now,
+          author: state.currentUser,
+          bulk: true,
+          note: '학생 일괄 배부'
+        });
+        
+        // 재고 업데이트
+        book.stockOut = (book.stockOut || 0) + 1;
+        count++;
+      });
+      
+      saveData();
+      renderMain();
+      toast(`✅ ${count}개 교재 배부 완료`);
+    }
+  });
 }
 
 // 추가 배부 모달
@@ -10921,6 +12260,11 @@ function showAdditionalDistributeModal(studentId, bookId) {
     const stockBefore = book ? getCurrentStock(book, td) : 0;
     const stockAfter = stockBefore - 1;
     
+    // 재고 업데이트
+    if (book) {
+      book.stockOut = (book.stockOut || 0) + 1;
+    }
+    
     // 추가 배부 이력 기록
     if (!td.distributions[distKey].history) td.distributions[distKey].history = [];
     td.distributions[distKey].history.push({
@@ -10961,16 +12305,41 @@ function cancelHistory(studentId, bookId, historyAt) {
   const book = td.books.find(b => b.id === bookId);
   const student = td.students.find(s => s.id === studentId);
   
+  // 취소 시 재고 변화 계산
+  let stockChange = 0;
+  let actionName = '';
+  
+  if (historyItem.type === 'distribute' || historyItem.type === 'additional_distribute') {
+    // 배부 취소 → 재고 복원 (나간 걸 다시 가져옴)
+    stockChange = -1;
+    actionName = historyItem.type === 'distribute' ? '배부' : '추가배부';
+  } else if (historyItem.type === 'return') {
+    // 회수 취소 → 다시 나간 걸로 (돌려받은 걸 다시 내보냄)
+    stockChange = +1;
+    actionName = '회수';
+  } else {
+    // staff_memo 등은 재고 영향 없음
+    actionName = '작업';
+  }
+  
+  const currentStock = (book.stockIn || 0) - (book.stockOut || 0);
+  const afterStock = currentStock - stockChange;
+  
   showConfirm({
-    title: '이력 취소',
-    message: `${historyItem.type === 'distribute' ? '배부' : historyItem.type === 'return' ? '회수' : '추가배부'} 이력을 취소하시겠습니까?\n\n학생: ${student?.name || '알 수 없음'}\n교재: ${book?.name || '알 수 없음'}\n\n취소 시 이전 상태로 복원됩니다.`,
+    title: `${actionName} 취소`,
+    message: `${actionName} 이력을 취소하시겠습니까?\n\n학생: ${student?.name || '알 수 없음'}\n교재: ${book?.name || '알 수 없음'}\n\n${stockChange !== 0 ? `⚠️ 재고 변화:\n현재: ${currentStock}권 → 취소 후: ${afterStock}권\n` : ''}취소 시 이전 상태로 복원됩니다.`,
     confirmText: '취소하기',
     cancelText: '닫기',
     onConfirm: () => {
-      // 이력 삭제가 아니라 취소 표시!
+      // 이력 취소 표시
       historyItem.cancelled = true;
       historyItem.cancelledAt = new Date().toISOString();
       historyItem.cancelledBy = state.currentUser;
+      
+      // 재고 복원
+      if (stockChange !== 0 && book) {
+        book.stockOut = Math.max(0, (book.stockOut || 0) + stockChange);
+      }
       
       // 상태 업데이트: 취소되지 않은 마지막 이력으로
       const activeHistory = dist.history.filter(h => !h.cancelled);
@@ -10991,7 +12360,7 @@ function cancelHistory(studentId, bookId, historyAt) {
       
       saveData();
       renderMain();
-      toast('이력이 취소되었습니다');
+      toast(`✅ ${actionName} 취소 완료${stockChange !== 0 ? ` (재고 ${afterStock}권)` : ''}`);
     }
   });
 }
@@ -11078,6 +12447,981 @@ function addStaffMemo(studentId) {
   };
   
   setTimeout(() => bd.querySelector('#staffMemoContent').focus(), 100);
+}
+
+// 반 변경 모달
+function showChangeClassModal(studentId) {
+  const td = getCurrentTargetData();
+  const student = td.students.find(s => s.id === studentId);
+  if (!student) return;
+
+  const currentClasses = td.classes.filter(c => student.classIds.includes(c.id));
+  
+  // 상태 변수
+  let fromClassId = '';
+  let toClassId = '';
+  let fromActions = {}; // { bookId: 'none'|'delete' }
+  let toActions = {}; // { bookId: 'none'|'delete'|'free'|'paid' }
+  let fromSubjectFilter = ''; // 출발반 과목 필터
+  let fromTeacherFilter = ''; // 출발반 강사 필터
+  let toSubjectFilter = ''; // 도착반 과목 필터
+  let toTeacherFilter = ''; // 도착반 강사 필터
+  
+  // 헬퍼: 반의 미배부 교재 목록
+  function getClassPendingBooks(classId) {
+    const cls = td.classes.find(c => c.id === classId);
+    if (!cls || !cls.bookIds) return [];
+    
+    return cls.bookIds.map(bookId => {
+      const book = td.books.find(b => b.id === bookId);
+      if (!book) return null;
+      
+      const distKey = student.id + '||' + bookId;
+      const dist = td.distributions[distKey];
+      const status = dist ? dist.status : 'none';
+      
+      // 미배부만 반환
+      if (status === 'none' && book.stockIn > 0) {
+        return book;
+      }
+      return null;
+    }).filter(Boolean);
+  }
+  
+  // 모달 생성
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-lg draggable-modal';
+  modal.style.cssText = 'background:white;border-radius:12px;max-width:900px;width:90%;max-height:85vh;display:flex;flex-direction:column;';
+  
+  function render() {
+    const fromBooks = fromClassId ? getClassPendingBooks(fromClassId) : [];
+    const toBooks = toClassId ? getClassPendingBooks(toClassId) : [];
+    
+    // 기본값 설정
+    fromBooks.forEach(b => {
+      if (!fromActions[b.id]) fromActions[b.id] = 'none';
+    });
+    toBooks.forEach(b => {
+      if (!toActions[b.id]) toActions[b.id] = 'none';
+    });
+    
+    modal.innerHTML = `
+      <div class="modal-title drag-handle" style="cursor:move;">
+        반 변경
+        <span style="font-size:11px;font-weight:400;color:var(--text-faint);float:right;">⋮⋮ 드래그</span>
+        <button onclick="this.closest('.modal-backdrop').remove()" style="position:absolute;right:16px;top:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-dim);">×</button>
+      </div>
+      
+      <div class="modal-body" style="flex:1;overflow-y:auto;padding:20px;">
+        <div style="font-size:13px;color:var(--text-dim);margin-bottom:20px;">
+          <strong>${escapeHtml(student.name)}</strong> 학생의 반을 변경합니다.
+        </div>
+        
+        <!-- 1️⃣ 출발반 선택 -->
+        <div style="margin-bottom:16px;padding:16px;background:var(--bg-soft);border-radius:8px;">
+          <label style="font-size:14px;font-weight:600;display:block;margin-bottom:10px;">
+            1️⃣ 어느 반에서 이동하나요? (출발 반)
+          </label>
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">과목</label>
+              <select id="fromSubjectFilter" class="modal-input" style="font-size:13px;">
+                <option value="">전체</option>
+                ${[...new Set(currentClasses.map(c => c.subject))].sort().map(subject => `
+                  <option value="${escapeHtml(subject)}" ${fromSubjectFilter === subject ? 'selected' : ''}>${escapeHtml(subject)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">강사</label>
+              <select id="fromTeacherFilter" class="modal-input" style="font-size:13px;">
+                <option value="">전체</option>
+                ${[...new Set(
+                  currentClasses
+                    .filter(c => !fromSubjectFilter || c.subject === fromSubjectFilter)
+                    .map(c => c.teacher)
+                    .filter(Boolean)
+                )].sort().map(teacher => `
+                  <option value="${escapeHtml(teacher)}" ${fromTeacherFilter === teacher ? 'selected' : ''}>${escapeHtml(teacher)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">반</label>
+              <select id="fromClassSelect" class="modal-input" style="font-size:13px;">
+                <option value="">선택하세요</option>
+                ${currentClasses
+                  .filter(c => !fromSubjectFilter || c.subject === fromSubjectFilter)
+                  .filter(c => !fromTeacherFilter || c.teacher === fromTeacherFilter)
+                  .map(c => `
+                  <option value="${c.id}" ${fromClassId === c.id ? 'selected' : ''}>
+                    ${escapeHtml(c.className)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 2️⃣ 도착반 선택 -->
+        <div style="margin-bottom:20px;padding:16px;background:var(--bg-soft);border-radius:8px;">
+          <label style="font-size:14px;font-weight:600;display:block;margin-bottom:10px;">
+            2️⃣ 어느 반으로 이동하나요? (도착 반)
+          </label>
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">과목</label>
+              <select id="toSubjectFilter" class="modal-input" style="font-size:13px;">
+                <option value="">전체</option>
+                ${[...new Set(td.classes.map(c => c.subject))].sort().map(subject => `
+                  <option value="${escapeHtml(subject)}" ${toSubjectFilter === subject ? 'selected' : ''}>${escapeHtml(subject)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">강사</label>
+              <select id="toTeacherFilter" class="modal-input" style="font-size:13px;">
+                <option value="">전체</option>
+                ${[...new Set(
+                  td.classes
+                    .filter(c => !toSubjectFilter || c.subject === toSubjectFilter)
+                    .map(c => c.teacher)
+                    .filter(Boolean)
+                )].sort().map(teacher => `
+                  <option value="${escapeHtml(teacher)}" ${toTeacherFilter === teacher ? 'selected' : ''}>${escapeHtml(teacher)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">반</label>
+              <select id="toClassSelect" class="modal-input" style="font-size:13px;">
+                <option value="">선택하세요</option>
+                ${td.classes
+                  .filter(c => !student.classIds.includes(c.id))
+                  .filter(c => !toSubjectFilter || c.subject === toSubjectFilter)
+                  .filter(c => !toTeacherFilter || c.teacher === toTeacherFilter)
+                  .map(c => `
+                  <option value="${c.id}" ${toClassId === c.id ? 'selected' : ''}>
+                    ${escapeHtml(c.className)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        ${fromClassId && fromBooks.length > 0 ? `
+          <!-- 📦 출발반 미배부 -->
+          <div style="margin-bottom:16px;padding:16px;border:1px solid var(--border);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <span style="font-size:15px;font-weight:600;">📦 출발반 미배부 처리</span>
+              <span style="font-size:13px;color:var(--text-dim);">(${fromBooks.length}건)</span>
+            </div>
+            
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">
+              ※ 선택 안 하면 미배부 그대로 유지 (나중에 환불/배부 가능)
+            </div>
+            
+            ${fromBooks.map(book => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border-light);">
+                <div style="font-size:14px;flex:1;">${escapeHtml(book.name)}</div>
+                <div style="display:flex;gap:12px;">
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="from_${book.id}" value="none" ${fromActions[book.id] === 'none' ? 'checked' : ''}>
+                    미배부
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="from_${book.id}" value="delete" ${fromActions[book.id] === 'delete' ? 'checked' : ''}>
+                    삭제
+                  </label>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        
+        ${toClassId && toBooks.length > 0 ? `
+          <!-- 📦 도착반 미배부 -->
+          <div style="margin-bottom:16px;padding:16px;border:1px solid var(--border);border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <span style="font-size:15px;font-weight:600;">📦 도착반 미배부 처리</span>
+              <span style="font-size:13px;color:var(--text-dim);">(${toBooks.length}건)</span>
+            </div>
+            
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">
+              ※ 선택 안 하면 미배부 그대로 유지
+            </div>
+            
+            ${toBooks.map(book => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border-light);">
+                <div style="font-size:14px;flex:1;">${escapeHtml(book.name)}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="to_${book.id}" value="none" ${toActions[book.id] === 'none' ? 'checked' : ''}>
+                    미배부
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="to_${book.id}" value="delete" ${toActions[book.id] === 'delete' ? 'checked' : ''}>
+                    삭제
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="to_${book.id}" value="free" ${toActions[book.id] === 'free' ? 'checked' : ''}>
+                    무료
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                    <input type="radio" name="to_${book.id}" value="paid" ${toActions[book.id] === 'paid' ? 'checked' : ''}>
+                    유료
+                  </label>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        
+        ${(fromClassId && fromBooks.length > 0) || (toClassId && toBooks.length > 0) ? `
+          <div style="padding:12px;background:#E6F1FB;border-radius:6px;font-size:13px;line-height:1.6;">
+            <div><strong>미배부:</strong> 나중에 환불 또는 배부 가능</div>
+            <div><strong>삭제:</strong> 포기 (환불 없음)</div>
+            <div><strong>무료:</strong> 맞바꿈 (환불 없음)</div>
+            <div><strong>유료:</strong> 추가 결제</div>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="this.closest('.modal-backdrop').remove()">취소</button>
+        <button class="btn btn-primary" id="confirmBtn" ${!fromClassId || !toClassId ? 'disabled' : ''}>
+          반 변경 완료
+        </button>
+      </div>
+    `;
+    
+    attachEvents();
+  }
+  
+  function attachEvents() {
+    // 출발반 필터 이벤트
+    const fromSubjectFilterEl = modal.querySelector('#fromSubjectFilter');
+    if (fromSubjectFilterEl) {
+      fromSubjectFilterEl.onchange = (e) => {
+        fromSubjectFilter = e.target.value;
+        fromTeacherFilter = ''; // 과목 변경 시 강사도 초기화
+        fromClassId = ''; // 반도 초기화
+        render();
+      };
+    }
+    
+    const fromTeacherFilterEl = modal.querySelector('#fromTeacherFilter');
+    if (fromTeacherFilterEl) {
+      fromTeacherFilterEl.onchange = (e) => {
+        fromTeacherFilter = e.target.value;
+        fromClassId = ''; // 강사 변경 시 반 초기화
+        render();
+      };
+    }
+    
+    modal.querySelector('#fromClassSelect').onchange = (e) => {
+      fromClassId = e.target.value;
+      render();
+    };
+    
+    // 도착반 필터 이벤트
+    const toSubjectFilterEl = modal.querySelector('#toSubjectFilter');
+    if (toSubjectFilterEl) {
+      toSubjectFilterEl.onchange = (e) => {
+        toSubjectFilter = e.target.value;
+        toTeacherFilter = ''; // 과목 변경 시 강사도 초기화
+        toClassId = ''; // 반도 초기화
+        render();
+      };
+    }
+    
+    const toTeacherFilterEl = modal.querySelector('#toTeacherFilter');
+    if (toTeacherFilterEl) {
+      toTeacherFilterEl.onchange = (e) => {
+        toTeacherFilter = e.target.value;
+        toClassId = ''; // 강사 변경 시 반 초기화
+        render();
+      };
+    }
+    
+    modal.querySelector('#toClassSelect').onchange = (e) => {
+      toClassId = e.target.value;
+      render();
+    };
+    
+    // 라디오 버튼 이벤트
+    modal.querySelectorAll('input[type="radio"]').forEach(radio => {
+      radio.onchange = () => {
+        const name = radio.name;
+        const value = radio.value;
+        if (name.startsWith('from_')) {
+          const bookId = name.replace('from_', '');
+          fromActions[bookId] = value;
+        } else if (name.startsWith('to_')) {
+          const bookId = name.replace('to_', '');
+          toActions[bookId] = value;
+        }
+      };
+    });
+    
+    const confirmBtn = modal.querySelector('#confirmBtn');
+    if (confirmBtn && !confirmBtn.disabled) {
+      confirmBtn.onclick = () => {
+        saveClassChange();
+      };
+    }
+  }
+  
+  function saveClassChange() {
+    if (!fromClassId || !toClassId) {
+      toast('출발 반과 도착 반을 모두 선택하세요', true);
+      return;
+    }
+    
+    const now = new Date().toISOString();
+    
+    // 출발반 처리
+    Object.entries(fromActions).forEach(([bookId, action]) => {
+      const distKey = student.id + '||' + bookId;
+      
+      if (action === 'delete') {
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = { studentId: student.id, bookId, status: 'none', history: [] };
+        }
+        td.distributions[distKey].history.push({
+          type: 'delete_undistributed',
+          at: now,
+          author: state.currentUser,
+          memo: '반이동 시 삭제'
+        });
+      }
+    });
+    
+    // 도착반 처리
+    Object.entries(toActions).forEach(([bookId, action]) => {
+      const distKey = student.id + '||' + bookId;
+      const book = td.books.find(b => b.id === bookId);
+      
+      if (action === 'delete') {
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = { studentId: student.id, bookId, status: 'none', history: [] };
+        }
+        td.distributions[distKey].history.push({
+          type: 'delete_undistributed',
+          at: now,
+          author: state.currentUser,
+          memo: '반이동 시 삭제'
+        });
+      } else if (action === 'free' || action === 'paid') {
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = { studentId: student.id, bookId, status: 'distributed', at: now, author: state.currentUser, history: [] };
+        } else {
+          td.distributions[distKey].status = 'distributed';
+          td.distributions[distKey].at = now;
+          td.distributions[distKey].author = state.currentUser;
+        }
+        
+        td.distributions[distKey].history.push({
+          type: 'additional_distribute',
+          at: now,
+          author: state.currentUser,
+          paid: action === 'paid',
+          paymentCompleted: false,
+          note: `반이동 시 처리 (${action === 'paid' ? '유료' : '무료'})`
+        });
+        
+        // 재고 업데이트
+        if (book) {
+          book.stockOut = (book.stockOut || 0) + 1;
+        }
+      }
+    });
+    
+    // 반 변경
+    const fromIndex = student.classIds.indexOf(fromClassId);
+    if (fromIndex > -1) {
+      student.classIds.splice(fromIndex, 1);
+    }
+    if (!student.classIds.includes(toClassId)) {
+      student.classIds.push(toClassId);
+    }
+    
+    saveData();
+    backdrop.remove();
+    renderMain();
+    toast('✅ 반 변경 완료!');
+  }
+  
+  // 초기 렌더링
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  render();
+  makeDraggable(modal);
+}
+
+/*
+// 사용하지 않는 첫 번째 구 버전 함수 - 주석 처리
+function processClassChange_old1(student, fromClass, toClass, modal) {
+  // 필터 상태
+  let selectedFromClass = '';
+  let selectedFromSubject = '';
+  let selectedFromTeacher = '';
+  let selectedSubject = '';
+  let selectedTeacher = '';
+  
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:10000;';
+  
+  const modalContent = document.createElement('div');
+  modalContent.style.cssText = 'background:white; border-radius:12px; padding:24px; width:900px; max-height:85vh; display:flex; flex-direction:column; overflow-y:auto;';
+  
+  function render() {
+    // 출발 반 필터용
+    const fromSubjects = [...new Set(currentClasses.map(c => c.subject))].sort();
+    const fromTeachers = selectedFromSubject
+      ? [...new Set(currentClasses.filter(c => c.subject === selectedFromSubject).map(c => c.teacher).filter(Boolean))].sort()
+      : [...new Set(currentClasses.map(c => c.teacher).filter(Boolean))].sort();
+    
+    const filteredFromClasses = currentClasses.filter(c => {
+      if (selectedFromSubject && c.subject !== selectedFromSubject) return false;
+      if (selectedFromTeacher && c.teacher !== selectedFromTeacher) return false;
+      return true;
+    }).sort((a, b) => a.subject.localeCompare(b.subject) || a.className.localeCompare(b.className));
+    
+    // 도착 반 필터용
+    const subjects = [...new Set(td.classes.map(c => c.subject))].sort();
+    const teachers = selectedSubject
+      ? [...new Set(td.classes.filter(c => c.subject === selectedSubject).map(c => c.teacher).filter(Boolean))].sort()
+      : [...new Set(td.classes.map(c => c.teacher).filter(Boolean))].sort();
+    
+    const filteredClasses = td.classes.filter(c => {
+      if (student.classIds.includes(c.id)) return false; // 이미 소속된 반 제외
+      if (selectedSubject && c.subject !== selectedSubject) return false;
+      if (selectedTeacher && c.teacher !== selectedTeacher) return false;
+      return true;
+    }).sort((a, b) => a.subject.localeCompare(b.subject) || a.className.localeCompare(b.className));
+    
+    modalContent.innerHTML = `
+      <h3 style="margin:0 0 8px 0; font-size:18px;">반 변경</h3>
+      <div style="font-size:13px; color:var(--text-dim); margin-bottom:20px;">
+        ${escapeHtml(student.name)} 학생의 반을 변경합니다.
+      </div>
+      
+      <!-- 출발 반 선택 -->
+      <div style="margin-bottom:20px; padding:16px; background:var(--bg-soft); border-radius:8px;">
+        <label style="font-size:13px; font-weight:600; display:block; margin-bottom:12px;">
+          1️⃣ 어느 반에서 이동하나요? (출발 반)
+        </label>
+        
+        <div style="display:grid; grid-template-columns: 1fr 1fr 2fr; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">과목</label>
+            <select id="fromSubjectFilter" class="modal-input" style="font-size:13px; padding:6px;">
+              <option value="">전체</option>
+              ${fromSubjects.map(s => `<option value="${escapeHtml(s)}" ${selectedFromSubject === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">강사</label>
+            <select id="fromTeacherFilter" class="modal-input" style="font-size:13px; padding:6px;" ${!selectedFromSubject ? 'disabled' : ''}>
+              <option value="">전체</option>
+              ${fromTeachers.map(t => `<option value="${escapeHtml(t)}" ${selectedFromTeacher === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">반 (${filteredFromClasses.length}개)</label>
+            <select id="fromClassSelect" class="modal-input" style="font-size:13px; padding:6px;">
+              <option value="">선택하세요</option>
+              ${filteredFromClasses.map(c => `
+                <option value="${c.id}" ${selectedFromClass === c.id ? 'selected' : ''}>
+                  ${escapeHtml(c.subject)} - ${escapeHtml(c.className)} (${escapeHtml(c.teacher || '강사 미지정')})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+        
+        ${selectedFromClass ? `
+          <div style="font-size:11px; color:var(--text-dim); margin-top:8px;">
+            ✅ 이 반의 미배부 교재만 처리됩니다
+          </div>
+        ` : ''}
+      </div>
+      
+      <!-- 도착 반 선택 -->
+      <div style="margin-bottom:20px; padding:16px; background:var(--bg-soft); border-radius:8px;">
+        <label style="font-size:13px; font-weight:600; display:block; margin-bottom:12px;">
+          2️⃣ 어느 반으로 이동하나요? (도착 반)
+        </label>
+        
+        <div style="display:grid; grid-template-columns: 1fr 1fr 2fr; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">과목</label>
+            <select id="subjectFilter" class="modal-input" style="font-size:13px; padding:6px;">
+              <option value="">전체</option>
+              ${subjects.map(s => `<option value="${escapeHtml(s)}" ${selectedSubject === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">강사</label>
+            <select id="teacherFilter" class="modal-input" style="font-size:13px; padding:6px;" ${!selectedSubject ? 'disabled' : ''}>
+              <option value="">전체</option>
+              ${teachers.map(t => `<option value="${escapeHtml(t)}" ${selectedTeacher === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">반 (${filteredClasses.length}개)</label>
+            <select id="toClassSelect" class="modal-input" style="font-size:13px; padding:6px;">
+              <option value="">선택하세요</option>
+              ${filteredClasses.map(c => `
+                <option value="${c.id}">
+                  ${escapeHtml(c.subject)} - ${escapeHtml(c.className)} (${escapeHtml(c.teacher || '강사 미지정')})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 안내 -->
+      <div style="background:#F0F9FF; border:1px solid #BAE6FD; padding:12px; border-radius:8px; font-size:12px; margin-bottom:20px;">
+        <div style="font-weight:600; margin-bottom:6px; color:#0369A1;">✅ 자동 처리:</div>
+        <div style="color:#0C4A6E;">• 도착 반 교재 → 미배부 자동 생성</div>
+        <div style="color:#0C4A6E;">• 이미 배부된 교재 → 유지</div>
+        ${selectedFromClass ? `
+          <div style="margin-top:8px; font-weight:600; color:#0369A1;">💡 출발 반 미배부가 있으면:</div>
+          <div style="color:#0C4A6E;">• 삭제 / 유료 배부 / 무료 배부 선택</div>
+        ` : ''}
+      </div>
+      
+      <div class="modal-error" id="changeClassError"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="changeClassCancel" style="flex:1;">취소</button>
+        <button class="btn btn-primary" id="changeClassConfirm" style="flex:1;">반 변경</button>
+      </div>
+    `;
+    
+    attachEvents();
+  }
+  
+  function attachEvents() {
+    const fromSubjectFilter = modalContent.querySelector('#fromSubjectFilter');
+    const fromTeacherFilter = modalContent.querySelector('#fromTeacherFilter');
+    const fromClassSelect = modalContent.querySelector('#fromClassSelect');
+    const subjectFilter = modalContent.querySelector('#subjectFilter');
+    const teacherFilter = modalContent.querySelector('#teacherFilter');
+    const toClassSelect = modalContent.querySelector('#toClassSelect');
+    const errorDiv = modalContent.querySelector('#changeClassError');
+    
+    fromSubjectFilter.onchange = () => {
+      selectedFromSubject = fromSubjectFilter.value;
+      selectedFromTeacher = '';
+      selectedFromClass = '';
+      render();
+    };
+    
+    fromTeacherFilter.onchange = () => {
+      selectedFromTeacher = fromTeacherFilter.value;
+      selectedFromClass = '';
+      render();
+    };
+    
+    fromClassSelect.onchange = () => {
+      selectedFromClass = fromClassSelect.value;
+      render();
+    };
+    
+    subjectFilter.onchange = () => {
+      selectedSubject = subjectFilter.value;
+      selectedTeacher = '';
+      render();
+    };
+    
+    teacherFilter.onchange = () => {
+      selectedTeacher = teacherFilter.value;
+      render();
+    };
+    
+    modalContent.querySelector('#changeClassCancel').onclick = () => {
+      modal.remove();
+    };
+    
+    modalContent.querySelector('#changeClassConfirm').onclick = () => {
+      const fromClassId = fromClassSelect.value;
+      const toClassId = toClassSelect.value;
+      
+      if (!fromClassId) {
+        errorDiv.textContent = '출발 반을 선택하세요';
+        return;
+      }
+      
+      if (!toClassId) {
+        errorDiv.textContent = '도착 반을 선택하세요';
+        return;
+      }
+      
+      const fromClass = td.classes.find(c => c.id === fromClassId);
+      const toClass = td.classes.find(c => c.id === toClassId);
+      
+      if (!fromClass || !toClass) return;
+      
+      // 반 변경 처리
+      processClassChange(student, fromClass, toClass, modal);
+    };
+  }
+  
+  modal.appendChild(modalContent);
+  document.body.appendChild(modal);
+  
+  render();
+}
+*/
+
+/*
+// 사용하지 않는 구 버전 함수 - 주석 처리
+// 반 변경 처리
+function processClassChange_old(student, fromClass, toClass, modal) {
+  const td = getCurrentTargetData();
+  const now = Date.now();
+  
+  // 1. 출발 반의 미배부만 확인
+  const oldPendingBooks = [];
+  if (fromClass && fromClass.bookIds) {
+    fromClass.bookIds.forEach(bookId => {
+      const distKey = student.id + '||' + bookId;
+      const dist = td.distributions[distKey];
+      if (!dist || dist.status === 'pending') {
+        const book = td.books.find(b => b.id === bookId);
+        if (book) {
+          oldPendingBooks.push({
+            book: book,
+            oldClass: fromClass,
+            distKey: distKey
+          });
+        }
+      }
+    });
+  }
+  
+  // 2. 도착 반 교재 → 미배부 자동 생성
+  if (toClass.bookIds && toClass.bookIds.length > 0) {
+    toClass.bookIds.forEach(bookId => {
+      const distKey = student.id + '||' + bookId;
+      if (!td.distributions[distKey]) {
+        td.distributions[distKey] = {
+          studentId: student.id,
+          bookId: bookId,
+          status: 'pending',
+          at: now,
+          author: state.currentUser,
+          history: [{
+            type: 'class_change_create',
+            at: now,
+            author: state.currentUser,
+            note: `반이동으로 미배부 생성 (${fromClass.subject} ${fromClass.className} → ${toClass.subject} ${toClass.className})`
+          }]
+        };
+      }
+    });
+  }
+  
+  // 3. 학생의 반 목록 업데이트
+  // 출발 반에서 제거
+  const fromIndex = student.classIds.indexOf(fromClass.id);
+  if (fromIndex > -1) {
+    student.classIds.splice(fromIndex, 1);
+  }
+  
+  // 도착 반에 추가
+  if (!student.classIds.includes(toClass.id)) {
+    student.classIds.push(toClass.id);
+  }
+  
+  // 4. 이력 기록
+  student.classChangeHistory = student.classChangeHistory || [];
+  student.classChangeHistory.push({
+    at: now,
+    author: state.currentUser,
+    fromClass: {
+      id: fromClass.id,
+      subject: fromClass.subject,
+      className: fromClass.className
+    },
+    toClass: {
+      id: toClass.id,
+      subject: toClass.subject,
+      className: toClass.className
+    }
+  });
+  
+  saveData();
+  modal.remove();
+  
+  // 5. 출발 반 미배부 처리 모달 (있으면)
+  if (oldPendingBooks.length > 0) {
+    showOldPendingBooksModal(student, fromClass, oldPendingBooks);
+  } else {
+    renderMain();
+    toast(`✅ 반 변경 완료: ${toClass.subject} ${toClass.className}`);
+  }
+}
+*/
+
+// 이전 반 미배부 처리 모달 - 사용하지 않음
+/*
+function showOldPendingBooksModal_old(student, fromClass, oldPendingBooks) {
+  const td = getCurrentTargetData();
+  
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:10000;';
+  
+  const modalContent = document.createElement('div');
+  modalContent.style.cssText = 'background:white; border-radius:12px; padding:24px; width:700px; max-height:85vh; display:flex; flex-direction:column; overflow-y:auto;';
+  
+  modalContent.innerHTML = `
+    <h3 style="margin:0 0 8px 0; font-size:18px;">출발 반 미배부 처리</h3>
+    <div style="font-size:13px; color:var(--text-dim); margin-bottom:20px;">
+      ${escapeHtml(student.name)} 학생에게 <strong>${escapeHtml(fromClass.subject)} ${escapeHtml(fromClass.className)}</strong>의 미배부 교재가 ${oldPendingBooks.length}권 있습니다.<br>
+      각 교재를 어떻게 처리할지 선택하세요.
+    </div>
+    
+    <div style="margin-bottom:20px; max-height:500px; overflow-y:auto;">
+      ${oldPendingBooks.map((item, idx) => `
+        <div style="border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px;">
+          <div style="font-weight:600; font-size:14px; margin-bottom:10px;">
+            ${escapeHtml(item.book.name)}
+            <span style="font-size:11px; color:var(--text-dim); font-weight:normal;">
+              (${escapeHtml(item.oldClass.subject)} ${escapeHtml(item.oldClass.className)})
+            </span>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm pending-action-btn" data-idx="${idx}" data-action="delete" style="flex:1;">
+              🗑️ 삭제 (무료 제공)
+            </button>
+            <button class="btn btn-secondary btn-sm pending-action-btn" data-idx="${idx}" data-action="paid" style="flex:1;">
+              💰 유료 배부
+            </button>
+            <button class="btn btn-accent btn-sm pending-action-btn" data-idx="${idx}" data-action="free" style="flex:1;">
+              🆓 무료 배부
+            </button>
+          </div>
+          <div id="action-result-${idx}" style="margin-top:8px; font-size:12px; color:var(--text-dim);"></div>
+        </div>
+      `).join('')}
+    </div>
+    
+    <div style="background:#FFF7ED; border:1px solid #FED7AA; padding:12px; border-radius:8px; font-size:12px; margin-bottom:20px;">
+      <strong>💡 참고:</strong> 모든 교재를 처리해야 완료할 수 있습니다.
+    </div>
+    
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-primary" id="completePendingBtn" disabled style="flex:1;">
+        처리 완료
+      </button>
+    </div>
+  `;
+  
+  modal.appendChild(modalContent);
+  document.body.appendChild(modal);
+  
+  const decisions = new Array(oldPendingBooks.length).fill(null);
+  
+  // 버튼 이벤트
+  modalContent.querySelectorAll('.pending-action-btn').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx);
+      const action = btn.dataset.action;
+      const item = oldPendingBooks[idx];
+      
+      decisions[idx] = action;
+      
+      // 버튼 상태 업데이트
+      const container = btn.parentElement;
+      container.querySelectorAll('.pending-action-btn').forEach(b => {
+        b.classList.remove('btn-primary');
+        b.classList.add(b.dataset.action === action ? 'btn-primary' : 'btn-ghost', 'btn-sm');
+        if (b.dataset.action !== action) {
+          b.classList.remove('btn-secondary', 'btn-accent');
+        }
+      });
+      
+      // 결과 표시
+      const resultDiv = modalContent.querySelector(`#action-result-${idx}`);
+      if (action === 'delete') {
+        resultDiv.textContent = '✅ 삭제 처리됨 (프린트 제공 또는 무료)';
+        resultDiv.style.color = 'var(--text-dim)';
+      } else if (action === 'paid') {
+        resultDiv.textContent = '✅ 유료 배부 (결제대기로 이동)';
+        resultDiv.style.color = '#D97706';
+      } else {
+        resultDiv.textContent = '✅ 무료 배부';
+        resultDiv.style.color = '#059669';
+      }
+      
+      // 모두 처리했는지 확인
+      const allDecided = decisions.every(d => d !== null);
+      modalContent.querySelector('#completePendingBtn').disabled = !allDecided;
+    };
+  });
+  
+  // 완료 버튼
+  modalContent.querySelector('#completePendingBtn').onclick = () => {
+    const now = Date.now();
+    
+    oldPendingBooks.forEach((item, idx) => {
+      const action = decisions[idx];
+      const distKey = item.distKey;
+      
+      if (action === 'delete') {
+        // 미배부 삭제
+        if (td.distributions[distKey]) {
+          delete td.distributions[distKey];
+        }
+      } else if (action === 'paid' || action === 'free') {
+        // 배부 처리
+        if (!td.distributions[distKey]) {
+          td.distributions[distKey] = {
+            studentId: student.id,
+            bookId: item.book.id,
+            status: 'distributed',
+            at: now,
+            author: state.currentUser,
+            history: []
+          };
+        } else {
+          td.distributions[distKey].status = 'distributed';
+          td.distributions[distKey].at = now;
+          td.distributions[distKey].author = state.currentUser;
+        }
+        
+        td.distributions[distKey].history.push({
+          type: 'additional_distribute',
+          at: now,
+          author: state.currentUser,
+          paid: action === 'paid',
+          paymentCompleted: false,
+          note: `반이동 시 처리 (${action === 'paid' ? '유료' : '무료'})`
+        });
+        
+        item.book.stockOut = (item.book.stockOut || 0) + 1;
+      }
+    });
+    
+    saveData();
+    modal.remove();
+    renderMain();
+    toast(`✅ 반 변경 완료! 출발 반 미배부 ${oldPendingBooks.length}권 처리됨`);
+  };
+}
+*/
+
+// 퇴반 처리
+function showExitClassModal(studentId) {
+  const td = getCurrentTargetData();
+  const student = td.students.find(s => s.id === studentId);
+  if (!student) return;
+  
+  const currentClasses = td.classes.filter(c => student.classIds.includes(c.id));
+  
+  if (currentClasses.length === 0) {
+    toast('학생이 소속된 반이 없습니다', true);
+    return;
+  }
+  
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal draggable-modal';
+  modal.innerHTML = `
+    <div class="modal-title drag-handle" style="cursor:move;">
+      전체 퇴반 처리
+      <span style="font-size:11px;font-weight:400;color:var(--text-faint);float:right;">⋮⋮ 드래그</span>
+      <button onclick="this.closest('.modal-backdrop').remove()" style="position:absolute;right:16px;top:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-dim);">×</button>
+    </div>
+    
+    <div class="modal-body">
+      <div style="font-size:14px;margin-bottom:16px;">
+        <strong>${escapeHtml(student.name)}</strong> 학생을 <strong style="color:var(--danger);">모든 반에서</strong> 퇴반 처리합니다.
+      </div>
+      
+      <div style="margin-bottom:16px;padding:12px;background:var(--bg-soft);border-radius:6px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">퇴반할 반 목록 (${currentClasses.length}개)</div>
+        ${currentClasses.map(c => `
+          <div style="font-size:13px;padding:4px 0;">• ${escapeHtml(c.subject)} - ${escapeHtml(c.className)} (${escapeHtml(c.teacher || '강사 미지정')})</div>
+        `).join('')}
+      </div>
+      
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">
+          퇴반 사유 <span style="color:var(--danger);">*</span>
+        </label>
+        <textarea id="exitReason" class="modal-input" placeholder="예: 학원 이동, 개인 사정" rows="3"></textarea>
+      </div>
+      
+      <div style="padding:12px;background:#FCEEEE;border:1px solid #F5C4B3;border-radius:6px;font-size:13px;line-height:1.6;">
+        <strong>⚠️ 주의사항:</strong><br>
+        • 모든 반에서 퇴반 처리됩니다<br>
+        • 일괄배부 대상에서 제외됩니다<br>
+        • 과거 이력은 그대로 보존됩니다<br>
+        • 미배부 교재는 환불 처리해야 합니다
+      </div>
+      
+      <div class="modal-error" id="exitError"></div>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="this.closest('.modal-backdrop').remove()">취소</button>
+      <button class="btn btn-danger" id="exitConfirm">전체 퇴반 처리</button>
+    </div>
+  `;
+  
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  makeDraggable(modal);
+  
+  modal.querySelector('#exitConfirm').onclick = () => {
+    const reason = modal.querySelector('#exitReason').value.trim();
+    const errorEl = modal.querySelector('#exitError');
+    
+    if (!reason) {
+      errorEl.textContent = '퇴반 사유를 입력하세요';
+      return;
+    }
+    
+    // 전체 퇴반 처리
+    const now = new Date().toISOString();
+    
+    if (!student.exitedClasses) {
+      student.exitedClasses = [];
+    }
+    
+    // 모든 반을 exitedClasses에 추가
+    student.classIds.forEach(classId => {
+      student.exitedClasses.push({
+        classId: classId,
+        exitedAt: now,
+        reason: reason,
+        author: state.currentUser
+      });
+    });
+    
+    // 모든 반에서 제거
+    student.classIds = [];
+    
+    saveData();
+    backdrop.remove();
+    renderMain();
+    toast(`✅ 전체 퇴반 처리 완료 (${currentClasses.length}개 반)`);
+  };
 }
 
 function deleteUndistributed(studentId, bookId) {
@@ -11190,6 +13534,49 @@ function completePayment(studentId, bookId, paymentAt) {
       toast('결제 완료 처리되었습니다');
     }
   });
+  
+  // 메모 삭제
+  document.querySelectorAll('[data-delete-memo]').forEach(btn => {
+    btn.onclick = () => {
+      const bookId = btn.dataset.deleteMemo;
+      const memoAt = btn.dataset.memoAt;
+      deleteMemo(selectedStudentId, bookId, memoAt);
+    };
+  });
+}
+
+function deleteMemo(studentId, bookId, memoAt) {
+  const td = getCurrentTargetData();
+  const distKey = studentId + '||' + bookId;
+  const dist = td.distributions[distKey];
+  
+  if (!dist || !dist.history) {
+    toast('메모를 찾을 수 없습니다', true);
+    return;
+  }
+  
+  // 해당 메모 찾기
+  const memoIndex = dist.history.findIndex(h => 
+    h.type === 'staff_memo' && h.at === parseInt(memoAt)
+  );
+  
+  if (memoIndex === -1) {
+    toast('메모를 찾을 수 없습니다', true);
+    return;
+  }
+  
+  // 작성자 확인
+  if (dist.history[memoIndex].author !== state.currentUser) {
+    toast('본인이 작성한 메모만 삭제할 수 있습니다', true);
+    return;
+  }
+  
+  // 메모 삭제
+  dist.history.splice(memoIndex, 1);
+  
+  saveData();
+  renderMain();
+  toast('✅ 메모가 삭제되었습니다');
 }
 
 function showAllHistoryModal(studentId) {
@@ -11479,11 +13866,35 @@ function attachSearchPageEvents() {
     };
   });
   
+  // 일괄 배부
+  document.querySelectorAll('[data-bulk-distribute]').forEach(btn => {
+    btn.onclick = () => {
+      const studentId = btn.dataset.bulkDistribute;
+      bulkDistributeStudent(studentId);
+    };
+  });
+  
   // 전체 회수
   document.querySelectorAll('[data-return-all]').forEach(btn => {
     btn.onclick = () => {
       const studentId = btn.dataset.returnAll;
       returnAllFromStudent(studentId);
+    };
+  });
+  
+  // 반 변경
+  document.querySelectorAll('[data-change-class]').forEach(btn => {
+    btn.onclick = () => {
+      const studentId = btn.dataset.changeClass;
+      showChangeClassModal(studentId);
+    };
+  });
+  
+  // 퇴반
+  document.querySelectorAll('[data-exit-class]').forEach(btn => {
+    btn.onclick = () => {
+      const studentId = btn.dataset.exitClass;
+      showExitClassModal(studentId);
     };
   });
   
@@ -11880,11 +14291,6 @@ function attachEvents() {
     attachRosterFilterEvents(); // 반별 명단 필터
   }
 
-  // 조회·검색 탭 (통합 조회 = 학생별 조회)
-  if (activeTab === 'search') {
-    attachSearchPageEvents();
-  }
-
   // 학생 조회 탭 - 자동완성 검색
   if (activeTab === 'student-search') {
     attachStudentSearchPageEvents();
@@ -11932,6 +14338,8 @@ function attachStudentSearchPageEvents() {
   if (!td) return;
   
   const students = td.students.slice().sort((a, b) => a.name.localeCompare(b.name));
+  let currentIndex = -1; // 현재 선택된 항목 인덱스
+  let filteredResults = []; // 현재 필터링된 결과
   
   // 입력 이벤트 - 드롭다운 표시
   let composing = false;
@@ -11950,19 +14358,76 @@ function attachStudentSearchPageEvents() {
     showDropdown(e.target.value);
   });
   
+  // 키보드 이벤트
+  input.addEventListener('keydown', (e) => {
+    if (dropdown.style.display === 'none') return;
+    
+    const items = dropdown.querySelectorAll('.dropdown-item');
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      currentIndex = Math.min(currentIndex + 1, items.length - 1);
+      highlightItem(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      currentIndex = Math.max(currentIndex - 1, -1);
+      highlightItem(items);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      
+      // 결과가 1개면 자동 선택
+      if (filteredResults.length === 1) {
+        selectStudent(filteredResults[0].id);
+      } else if (currentIndex >= 0 && items[currentIndex]) {
+        // 화살표로 선택한 항목
+        const studentId = items[currentIndex].dataset.studentId;
+        selectStudent(studentId);
+      }
+    } else if (e.key === 'Escape') {
+      dropdown.style.display = 'none';
+      currentIndex = -1;
+    }
+  });
+  
   // 클릭 외부 영역 클릭 시 드롭다운 닫기
   document.addEventListener('click', (e) => {
     if (!input.contains(e.target) && !dropdown.contains(e.target)) {
       dropdown.style.display = 'none';
+      currentIndex = -1;
     }
   });
   
+  function highlightItem(items) {
+    items.forEach((item, idx) => {
+      if (idx === currentIndex) {
+        item.style.background = 'var(--bg-hover)';
+        item.scrollIntoView({ block: 'nearest' });
+      } else {
+        item.style.background = 'white';
+      }
+    });
+  }
+  
+  function selectStudent(studentId) {
+    const student = td.students.find(s => s.id === studentId);
+    if (student) {
+      selectedStudentId = studentId;
+      dropdown.style.display = 'none';
+      currentIndex = -1;
+      input.value = ''; // 검색창 초기화
+      input.blur(); // 포커스 해제
+      renderMain();
+    }
+  }
+  
   function showDropdown(query) {
     const q = (query || '').trim();
+    currentIndex = -1; // 검색 시 선택 초기화
     
     if (!q) {
       // 빈 입력 시 전체 목록 표시
-      const html = students.slice(0, 10).map(s => `
+      filteredResults = students.slice(0, 10);
+      const html = filteredResults.map(s => `
         <div class="dropdown-item" data-student-id="${s.id}" style="
           padding: 8px 12px;
           cursor: pointer;
@@ -11980,6 +14445,7 @@ function attachStudentSearchPageEvents() {
     
     // 자음 검색
     const filtered = students.filter(s => matchesQuery(s.name, q));
+    filteredResults = filtered.slice(0, 10);
     
     if (filtered.length === 0) {
       dropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-dim);">검색 결과가 없습니다</div>';
@@ -11987,7 +14453,7 @@ function attachStudentSearchPageEvents() {
       return;
     }
     
-    const html = filtered.slice(0, 10).map(s => `
+    const html = filteredResults.map(s => `
       <div class="dropdown-item" data-student-id="${s.id}" style="
         padding: 8px 12px;
         cursor: pointer;
@@ -12003,8 +14469,9 @@ function attachStudentSearchPageEvents() {
   }
   
   function attachDropdownEvents() {
-    dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+    dropdown.querySelectorAll('.dropdown-item').forEach((item, idx) => {
       item.addEventListener('mouseenter', () => {
+        currentIndex = idx;
         item.style.background = 'var(--bg-hover)';
       });
       item.addEventListener('mouseleave', () => {
@@ -12012,13 +14479,7 @@ function attachStudentSearchPageEvents() {
       });
       item.addEventListener('click', () => {
         const studentId = item.dataset.studentId;
-        const student = td.students.find(s => s.id === studentId);
-        if (student) {
-          input.value = student.name;
-          selectedStudentId = studentId;
-          dropdown.style.display = 'none';
-          renderMain();
-        }
+        selectStudent(studentId);
       });
     });
   }
@@ -12071,6 +14532,13 @@ function attachBooksPageEvents() {
 
   const patternBtn = document.getElementById('patternBookBtn');
   if (patternBtn) patternBtn.onclick = showPatternBookForm;
+
+  // 3단계 버튼
+  const dl3rd = document.getElementById('download3rdStepBtn');
+  if (dl3rd) dl3rd.onclick = download3rdStepTemplate;
+
+  const up3rd = document.getElementById('upload3rdStepBtn');
+  if (up3rd) up3rd.onclick = start3rdStepUpload;
   
   // 배부 이벤트 (match 탭에서 사용)
   attachDistributionEvents();
@@ -12142,6 +14610,22 @@ function attachBooksPageEvents() {
   }
 
   // 교재 편집 버튼
+  // 교재별 배부 버튼
+  document.querySelectorAll('[data-distribute-book]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      distributeByBook(btn.dataset.distributeBook);
+    };
+  });
+
+  // 교재별 회수 버튼
+  document.querySelectorAll('[data-return-book]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      returnByBook(btn.dataset.returnBook);
+    };
+  });
+
   document.querySelectorAll('[data-edit-book]').forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
@@ -12494,23 +14978,45 @@ function handleLogin(e) {
   
   // 로그인 성공
   currentUser = user;
+  state.currentUser = user.username; // username 사용 (일관성)
   saveSession(username);
+  saveData(); // state.currentUser 저장
   errorEl.textContent = '';
   
-  console.log('✅ 로그인:', username);
+  console.log('✅ 로그인:', username, '→ state.currentUser:', state.currentUser);
   hideLoginScreen();
   updateCurrentUserDisplay();
-  render();
+  
+  try {
+    render();
+  } catch (err) {
+    console.error('❌ render() 에러:', err);
+    toast('화면 렌더링 중 에러 발생. 새로고침 해주세요.', true);
+  }
   
   // Firebase 자동 동기화
   console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
   
   // Firebase에서 targets 로드
-  loadTargetsFromFirebase().then(firebaseState => {
+  loadTargetsFromFirebase().then(async firebaseState => {
     if (firebaseState) {
       if (firebaseState.targets) {
         console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
         state.targets = firebaseState.targets;
+        
+        // 각 target의 실제 데이터 로드
+        for (const target of firebaseState.targets) {
+          try {
+            const snapshot = await firebase.database().ref(`shared/targetData/${target.id}`).once('value');
+            const targetData = snapshot.val();
+            if (targetData) {
+              console.log(`📥 [병합] targetData/${target.id} 로드 완료`);
+              state.data[target.id] = targetData;
+            }
+          } catch (err) {
+            console.error(`❌ [Firebase] targetData/${target.id} 로드 실패:`, err);
+          }
+        }
       }
       if (firebaseState.currentTargetId) {
         state.currentTargetId = firebaseState.currentTargetId;
@@ -12574,6 +15080,7 @@ function checkLoginStatus() {
   const sessionUsername = loadSession();
   
   if (sessionUsername) {
+    // 세션이 있으면 자동 로그인
     const user = findUser(sessionUsername);
     if (user) {
       currentUser = user;
@@ -12586,11 +15093,25 @@ function checkLoginStatus() {
       console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
       
       // Firebase에서 targets 로드
-      loadTargetsFromFirebase().then(firebaseState => {
+      loadTargetsFromFirebase().then(async firebaseState => {
         if (firebaseState) {
           if (firebaseState.targets) {
             console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
             state.targets = firebaseState.targets;
+            
+            // 각 target의 실제 데이터 로드
+            for (const target of firebaseState.targets) {
+              try {
+                const snapshot = await firebase.database().ref(`shared/targetData/${target.id}`).once('value');
+                const targetData = snapshot.val();
+                if (targetData) {
+                  console.log(`📥 [병합] targetData/${target.id} 로드 완료`);
+                  state.data[target.id] = targetData;
+                }
+              } catch (err) {
+                console.error(`❌ [Firebase] targetData/${target.id} 로드 실패:`, err);
+              }
+            }
           }
           if (firebaseState.currentTargetId) {
             state.currentTargetId = firebaseState.currentTargetId;
@@ -12636,21 +15157,24 @@ function checkLoginStatus() {
         saveStudentsToFirebase();
         calculateBookUnissued();
       });
-      
-      return;
+    } else {
+      // 세션은 있는데 사용자가 없으면 (삭제된 경우) 세션 제거
+      clearSession();
+      console.log('⚠️ 세션 사용자가 존재하지 않음, 로그인 필요');
     }
+  } else {
+    // 세션이 없으면 로그인 화면 유지
+    console.log('📝 로그인이 필요합니다');
   }
-  
-  // 로그인 안 됨
-  console.log('❌ 로그인 필요');
-  showLoginScreen();
 }
 
 // 현재 사용자 표시 업데이트
 function updateCurrentUserDisplay() {
   const userNameEl = document.getElementById('currentUserName');
   if (userNameEl && currentUser) {
-    userNameEl.textContent = currentUser.name || currentUser.username;
+    const displayName = currentUser.name || currentUser.username;
+    const userId = currentUser.username || currentUser.id;
+    userNameEl.textContent = `${displayName} (${userId})`;
   }
 }
 
