@@ -21,12 +21,14 @@
 -->
 
 <!-- Firebase SDK -->
+<!-- Firebase 스크립트 (file:// 프로토콜에서는 작동하지 않음 - 주석 처리) -->
+<!--
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<!-- Firebase Auth는 사용하지 않음 (로컬 인증 사용) -->
-<!-- <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script> -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+-->
 
-<!-- Firebase 초기화 -->
+<!-- Firebase 초기화 (주석 처리 - localStorage만 사용) -->
+<!--
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyBIcLrQsEJGmFeikWc4afibUhlWBQkaENw",
@@ -39,10 +41,13 @@
   };
   
   firebase.initializeApp(firebaseConfig);
-  // Firebase Auth는 사용하지 않음
-  // const auth = firebase.auth();
   console.log('✅ Firebase 초기화 완료');
   console.log('📊 Firebase Database URL:', firebaseConfig.databaseURL);
+</script>
+-->
+
+<script>
+  console.log('📦 localStorage 모드로 실행 (Firebase 비활성화)');
 </script>
 
 <style>
@@ -1302,6 +1307,11 @@ function checkLogin() {
 function uid(prefix='id') {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+
+function generateId() {
+  return uid('id');
+}
+
 function toast(msg, isError=false) {
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' is-error' : '');
@@ -4369,6 +4379,11 @@ function handle3rdStepUpload(file) {
         if (updatedCount > 0) {
           console.log('💾 데이터 저장 중...');
           saveData();
+          
+          // 교재 목록 탭으로 이동
+          activeTab = 'books';
+          subTabs.books = 'list';
+          
           console.log('🔄 화면 갱신 중...');
           render();
           toast(`✅ ${updatedCount}개 교재 정보 업데이트 완료${notFoundCount > 0 ? ` (${notFoundCount}개 미매칭)` : ''}`, false);
