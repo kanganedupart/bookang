@@ -4251,119 +4251,141 @@ function start3rdStepUpload() {
 // 3단계 파일 처리
 function handle3rdStepUpload(file) {
   console.log('=== 3단계 파일 업로드 시작 ===');
+  console.log('파일명:', file.name);
+  console.log('파일 크기:', file.size);
 
-  file.arrayBuffer().then(buf => {
-    try {
-      const wb = XLSX.read(buf, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  file.arrayBuffer()
+    .then(buf => {
+      console.log('✅ 파일 읽기 성공');
+      
+      try {
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-      if (rows.length < 2) {
-        toast('엑셀에 데이터가 없습니다', true);
-        return;
-      }
+        console.log('엑셀 행 개수:', rows.length);
 
-      // 헤더 찾기
-      let headerRowIdx = 0;
-      for (let i = 0; i < Math.min(5, rows.length); i++) {
-        if (rows[i].some(c => String(c).trim())) {
-          headerRowIdx = i;
-          break;
+        if (rows.length < 2) {
+          toast('엑셀에 데이터가 없습니다', true);
+          return;
         }
-      }
 
-      const headers = rows[headerRowIdx].map(h => String(h || '').trim().toLowerCase());
-
-      // 컬럼 매칭
-      const findCol = (...keys) => {
-        for (let i = 0; i < headers.length; i++) {
-          if (keys.some(k => headers[i].includes(k.toLowerCase()))) return i;
-        }
-        return -1;
-      };
-
-      const colSubject = findCol('과목', 'subject');
-      const colTeacher = findCol('강사', 'teacher');
-      const colName = findCol('교재명', '교재 명', '교재', 'book');
-      const colPrice = findCol('교재비', '가격', 'price');
-      const colStock = findCol('입고수량', '입고', 'stock', '수량');
-
-      if (colSubject < 0 || colTeacher < 0 || colName < 0) {
-        toast('필수 컬럼(과목/강사/교재명)을 찾을 수 없습니다', true);
-        return;
-      }
-
-      console.log('컬럼 매칭:', { colSubject, colTeacher, colName, colPrice, colStock });
-
-      const td = getCurrentTargetData();
-      let updatedCount = 0;
-      let notFoundCount = 0;
-
-      // 데이터 처리
-      for (let i = headerRowIdx + 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row.some(c => String(c).trim())) continue;
-
-        const subject = String(row[colSubject] || '').trim();
-        const teacher = String(row[colTeacher] || '').trim();
-        const bookName = String(row[colName] || '').trim();
-        const price = colPrice >= 0 ? (parseFloat(row[colPrice]) || 0) : 0;
-        const stockIn = colStock >= 0 ? (parseFloat(row[colStock]) || 0) : 0;
-
-        if (!bookName) continue;
-
-        // 교재 찾기
-        const book = td.books.find(b => 
-          b.name === bookName &&
-          b.subject === subject &&
-          b.teacher === teacher
-        );
-
-        if (book) {
-          // 교재비 업데이트
-          if (price > 0) {
-            book.price = price;
+        // 헤더 찾기
+        let headerRowIdx = 0;
+        for (let i = 0; i < Math.min(5, rows.length); i++) {
+          if (rows[i].some(c => String(c).trim())) {
+            headerRowIdx = i;
+            break;
           }
+        }
 
-          // 입고수량 업데이트 (기존 + 신규)
-          if (stockIn > 0) {
-            book.stockIn = (book.stockIn || 0) + stockIn;
+        const headers = rows[headerRowIdx].map(h => String(h || '').trim().toLowerCase());
+        console.log('헤더:', headers);
+
+        // 컬럼 매칭
+        const findCol = (...keys) => {
+          for (let i = 0; i < headers.length; i++) {
+            if (keys.some(k => headers[i].includes(k.toLowerCase()))) return i;
+          }
+          return -1;
+        };
+
+        const colSubject = findCol('과목', 'subject');
+        const colTeacher = findCol('강사', 'teacher');
+        const colName = findCol('교재명', '교재 명', '교재', 'book');
+        const colPrice = findCol('교재비', '가격', 'price');
+        const colStock = findCol('입고수량', '입고', 'stock', '수량');
+
+        console.log('컬럼 매칭:', { colSubject, colTeacher, colName, colPrice, colStock });
+
+        if (colSubject < 0 || colTeacher < 0 || colName < 0) {
+          toast('필수 컬럼(과목/강사/교재명)을 찾을 수 없습니다', true);
+          return;
+        }
+
+        const td = getCurrentTargetData();
+        let updatedCount = 0;
+        let notFoundCount = 0;
+
+        console.log('현재 교재 개수:', td.books.length);
+
+        // 데이터 처리
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row.some(c => String(c).trim())) continue;
+
+          const subject = String(row[colSubject] || '').trim();
+          const teacher = String(row[colTeacher] || '').trim();
+          const bookName = String(row[colName] || '').trim();
+          const price = colPrice >= 0 ? (parseFloat(row[colPrice]) || 0) : 0;
+          const stockIn = colStock >= 0 ? (parseFloat(row[colStock]) || 0) : 0;
+
+          if (!bookName) continue;
+
+          // 교재 찾기
+          const book = td.books.find(b => 
+            b.name === bookName &&
+            b.subject === subject &&
+            b.teacher === teacher
+          );
+
+          if (book) {
+            console.log(`교재 찾음: ${bookName}, 가격: ${price}, 입고: ${stockIn}`);
             
-            // 입고 이력 추가
-            if (!td.stockHistory) td.stockHistory = [];
-            td.stockHistory.push({
-              id: generateId(),
-              timestamp: Date.now(),
-              bookId: book.id,
-              bookName: book.name,
-              quantity: stockIn,
-              type: 'in',
-              note: '3단계 엑셀 업로드'
-            });
+            // 교재비 업데이트
+            if (price > 0) {
+              book.price = price;
+              console.log(`  → 가격 업데이트: ${price}`);
+            }
+
+            // 입고수량 업데이트 (기존 + 신규)
+            if (stockIn > 0) {
+              const oldStock = book.stockIn || 0;
+              book.stockIn = oldStock + stockIn;
+              console.log(`  → 재고 업데이트: ${oldStock} + ${stockIn} = ${book.stockIn}`);
+              
+              // 입고 이력 추가
+              if (!td.stockHistory) td.stockHistory = [];
+              td.stockHistory.push({
+                id: generateId(),
+                timestamp: Date.now(),
+                bookId: book.id,
+                bookName: book.name,
+                quantity: stockIn,
+                type: 'in',
+                note: '3단계 엑셀 업로드'
+              });
+            }
+
+            updatedCount++;
+          } else {
+            console.warn(`❌ 교재를 찾을 수 없음: ${subject} | ${teacher} | ${bookName}`);
+            notFoundCount++;
           }
-
-          updatedCount++;
-        } else {
-          console.warn(`교재를 찾을 수 없음: ${subject} | ${teacher} | ${bookName}`);
-          notFoundCount++;
         }
-      }
 
-      if (updatedCount > 0) {
-        saveData();
-        render();
-        toast(`✅ ${updatedCount}개 교재 정보 업데이트 완료${notFoundCount > 0 ? ` (${notFoundCount}개 미매칭)` : ''}`, false);
-        console.log('=== 3단계 업로드 완료 ===');
-        console.log(`업데이트: ${updatedCount}개, 미매칭: ${notFoundCount}개`);
-      } else {
-        toast('업데이트된 교재가 없습니다. 교재명을 확인하세요.', true);
-      }
+        console.log(`처리 완료: 업데이트 ${updatedCount}개, 미매칭 ${notFoundCount}개`);
 
-    } catch (err) {
-      console.error(err);
-      toast('엑셀 파일을 읽을 수 없습니다: ' + err.message, true);
-    }
-  });
+        if (updatedCount > 0) {
+          console.log('💾 데이터 저장 중...');
+          saveData();
+          console.log('🔄 화면 갱신 중...');
+          render();
+          toast(`✅ ${updatedCount}개 교재 정보 업데이트 완료${notFoundCount > 0 ? ` (${notFoundCount}개 미매칭)` : ''}`, false);
+          console.log('=== 3단계 업로드 완료 ===');
+        } else {
+          toast('업데이트된 교재가 없습니다. 교재명을 확인하세요.', true);
+        }
+
+      } catch (err) {
+        console.error('❌ 엑셀 처리 에러:', err);
+        toast('엑셀 파일 처리 중 오류: ' + err.message, true);
+      }
+    })
+    .catch(err => {
+      console.error('❌ 파일 읽기 에러:', err);
+      toast('파일을 읽을 수 없습니다: ' + err.message, true);
+    });
 }
 
 function openBookUploadPreview(rows) {
