@@ -2621,19 +2621,9 @@ async function processStep2File(file) {
           // ⭐ 과목명 통일: 탐구1, 탐구2 → "탐구"
           actualSubject = '탐구';
           
-          // 정규식으로 "한지B", "사문D" 등 반명 추출
-          // 패턴: 한글 + 알파벳 대문자 (예: 한지B, 사문D, 생윤A)
-          const parts = cellValue.split(/\s+/);
-          let foundClassName = '';
-          
-          for (let part of parts) {
-            if (/^[가-힣]+[A-Z]$/.test(part)) {
-              foundClassName = part;
-              break;
-            }
-          }
-          
-          className = foundClassName || cellValue; // fallback
+          // ⭐ 반명은 전체 문자열 그대로 사용!
+          // 예: "(화) 별관301호 한지B 이승국(13시 20분)" 전체가 반명
+          className = cellValue;
           
           // 강사는 별도 컬럼(강사_탐구1, 강사_탐구2)에서 추출
           const teacherCol = `강사_${subject}`;
