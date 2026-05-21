@@ -7897,7 +7897,7 @@ function showBulkReturnModal(returnData) {
     
     let successCount = 0;
     let errorCount = 0;
-    const batchSize = 1000;
+    const batchSize = 5000; // 1000 → 5000 (5배 빠름!)
     const totalBatches = Math.ceil(returnData.length / batchSize);
     
     try {
@@ -9711,15 +9711,12 @@ function calculateDetailedStock(bookId, td) {
   let returned = 0;
   
   if (td.distributions) {
-    td.students.forEach(student => {
-      const key = student.id + '||' + bookId;
-      const dist = td.distributions[key];
-      if (dist) {
-        if (dist.distributed && dist.distributed.length > 0) {
-          distributed += dist.distributed.length;
-        }
-        if (dist.returned && dist.returned.length > 0) {
-          returned += dist.returned.length;
+    Object.values(td.distributions).forEach(dist => {
+      if (dist.bookId === bookId) {
+        if (dist.status === 'distributed') {
+          distributed++;
+        } else if (dist.status === 'returned') {
+          returned++;
         }
       }
     });
@@ -10739,7 +10736,7 @@ let stockHistoryFilter = { subject: '', teacher: '', author: '', query: '' };
 
 function showStockHistory() {
   const td = getCurrentTargetData();
-  const history = (td.stockHistory || []).slice().sort((a, b) => b.at.localeCompare(a.at));
+  const history = (td.stockHistory || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));
   const bookMap = Object.fromEntries(td.books.map(b => [b.id, b]));
 
   // 작성자 옵션
@@ -11204,7 +11201,7 @@ function renderStudentDetail(student, td) {
   });
   
   // 시간순 정렬 (최신 우선)
-  allHistory.sort((a, b) => b.at.localeCompare(a.at));
+  allHistory.sort((a, b) => (b.at || 0) - (a.at || 0));
   
   // 직원 메모만 분리 (중요 메모)
   const staffMemos = allHistory.filter(h => h.type === 'staff_memo');
@@ -11910,7 +11907,7 @@ function renderPaymentWaiting(td) {
   });
   
   // 날짜순 정렬 (최신 우선)
-  allPayments.sort((a, b) => b.at.localeCompare(a.at));
+  allPayments.sort((a, b) => (b.at || 0) - (a.at || 0));
   
   return `
     <div class="section">
@@ -12575,12 +12572,18 @@ function showAdditionalDistributeModal(studentId, bookId) {
     const stockBefore = book ? getCurrentStock(book, td) : 0;
     const stockAfter = stockBefore - 1;
     
-    // 재고 업데이트
-    if (book) {
-      book.stockOut = (book.stockOut || 0) + 1;
-    }
+    // ⭐ additionalDistributions 배열에 추가 (재고 계산용)
+    if (!td.additionalDistributions) td.additionalDistributions = [];
+    td.additionalDistributions.push({
+      bookId: bookId,
+      studentId: studentId,
+      at: now,
+      author: state.currentUser,
+      memo: memo || '',
+      paid: type === 'paid'
+    });
     
-    // 추가 배부 이력 기록
+    // 추가 배부 이력 기록 (학생 개인 이력용)
     if (!td.distributions[distKey].history) td.distributions[distKey].history = [];
     td.distributions[distKey].history.push({
       type: 'additional_distribute',
@@ -13931,7 +13934,7 @@ function showAllHistoryModal(studentId) {
   });
   
   // 시간순 정렬 (최신 우선)
-  allHistory.sort((a, b) => b.at.localeCompare(a.at));
+  allHistory.sort((a, b) => (b.at || 0) - (a.at || 0));
   
   const html = `
     <div class="modal modal-xl">
