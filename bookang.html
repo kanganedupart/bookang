@@ -21,14 +21,10 @@
 -->
 
 <!-- Firebase SDK -->
-<!-- Firebase 스크립트 (file:// 프로토콜에서는 작동하지 않음 - 주석 처리) -->
-<!--
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
--->
 
-<!-- Firebase 초기화 (주석 처리 - localStorage만 사용) -->
-<!--
+<!-- Firebase 초기화 -->
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyBIcLrQsEJGmFeikWc4afibUhlWBQkaENw",
@@ -43,11 +39,6 @@
   firebase.initializeApp(firebaseConfig);
   console.log('✅ Firebase 초기화 완료');
   console.log('📊 Firebase Database URL:', firebaseConfig.databaseURL);
-</script>
--->
-
-<script>
-  console.log('📦 localStorage 모드로 실행 (Firebase 비활성화)');
 </script>
 
 <style>
@@ -1232,12 +1223,24 @@ function saveData() {
     console.warn('localStorage 사용 불가 - Firebase만 사용합니다');
   } else {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const dataString = JSON.stringify(state);
+      const dataSize = new Blob([dataString]).size;
+      const dataSizeMB = (dataSize / 1024 / 1024).toFixed(2);
+      
+      console.log(`📊 [저장] 데이터 크기: ${dataSizeMB} MB`);
+      
+      if (dataSize > 4.5 * 1024 * 1024) { // 4.5MB 이상이면 경고
+        console.warn(`⚠️ [저장] 데이터가 큽니다: ${dataSizeMB} MB`);
+        toast(`⚠️ 데이터 크기가 큽니다 (${dataSizeMB} MB). 저장에 실패할 수 있습니다.`, true);
+      }
+      
+      localStorage.setItem(STORAGE_KEY, dataString);
       updateDataInfo();
       console.log('✅ [저장] localStorage 저장 완료');
     } catch (e) {
       console.error('❌ [저장] localStorage 저장 실패:', e);
       console.warn('⚠️ localStorage 용량 초과 - Firebase만 사용합니다');
+      toast('⚠️ 저장 공간 부족! 브라우저 캐시를 삭제하거나 초기화하세요.', true);
       // localStorage 실패해도 계속 진행
     }
   }
@@ -6453,7 +6456,7 @@ function showDistributionModal(distributionData, totalStudents) {
     <h3 style="margin:0 0 16px 0; font-size:18px;">배부 확인</h3>
     <div style="margin-bottom:20px; padding:16px; background:#f9fafb; border-radius:8px;">
       <div style="font-size:15px; margin-bottom:8px;">
-        <strong>${totalStudents}명</strong>의 학생에게 교재를 배부합니다.
+        <strong>${totalStudents}건</strong>의 교재를 배부합니다.
       </div>
       <div style="font-size:13px; color:#6b7280;">
         배부 후 재고가 바로 업데이트됩니다.
@@ -7737,7 +7740,7 @@ function showBulkReturnModal(returnData) {
     <h3 style="margin:0 0 16px 0; font-size:18px;">회수 확인</h3>
     <div style="margin-bottom:20px; padding:16px; background:#f9fafb; border-radius:8px;">
       <div style="font-size:15px; margin-bottom:8px;">
-        <strong>${returnData.length}명</strong>의 학생에게서 교재를 회수합니다.
+        <strong>${returnData.length}건</strong>의 교재를 회수합니다.
       </div>
       <div style="font-size:13px; color:#6b7280;">
         회수 후 재고가 바로 업데이트됩니다.
@@ -7815,13 +7818,47 @@ function showBulkReturnModal(returnData) {
     confirmBtn.style.cursor = 'not-allowed';
     
     // 회수 실행
-    const studentIds = returnData.map(d => d.studentId);
-    const bookId = returnData[0].bookId; // 일괄 회수는 같은 교재
+    const td = getCurrentTargetData();
+    const timestamp = Date.now();
+    const author = state.currentUser || '미설정';
+    
+    let successCount = 0;
+    
+    // 각 항목 회수 처리
+    returnData.forEach(item => {
+      const distKey = item.studentId + '||' + item.bookId;
+      const dist = td.distributions[distKey];
+      
+      if (dist && dist.status === 'distributed') {
+        const book = td.books.find(b => b.id === item.bookId);
+        const stockBefore = book ? getCurrentStock(book, td) : 0;
+        const stockAfter = stockBefore + 1;
+        
+        dist.status = 'returned';
+        dist.at = new Date().toISOString();
+        dist.author = author;
+        
+        if (!dist.history) dist.history = [];
+        dist.history.push({
+          type: 'return',
+          at: dist.at,
+          author,
+          memo: `${reason}${memo ? ' - ' + memo : ''}`,
+          stockBefore,
+          stockAfter,
+          bulk: true
+        });
+        
+        successCount++;
+      }
+    });
     
     // 약간의 딜레이 후 실행 (버튼 변경 표시)
     setTimeout(() => {
-      executeReturn(studentIds, bookId, reason, memo);
+      saveData();
       modal.remove();
+      render();
+      toast(`✅ ${successCount}건 회수 완료`);
     }, 100);
   };
 }
@@ -15152,12 +15189,11 @@ function handleLogin(e) {
     toast('화면 렌더링 중 에러 발생. 새로고침 해주세요.', true);
   }
   
-  // Firebase 자동 동기화 (Firebase가 활성화된 경우에만)
-  if (typeof firebase !== 'undefined' && firebase.database) {
-    console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-    
-    // Firebase에서 targets 로드
-    loadTargetsFromFirebase().then(async firebaseState => {
+  // Firebase 자동 동기화
+  console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+  
+  // Firebase에서 targets 로드
+  loadTargetsFromFirebase().then(async firebaseState => {
     if (firebaseState) {
       if (firebaseState.targets) {
         console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
@@ -15221,9 +15257,6 @@ function handleLogin(e) {
     saveStudentsToFirebase();
     calculateBookUnissued();
   });
-  } else {
-    console.log('📦 localStorage 전용 모드 - Firebase 동기화 건너뜀');
-  }
   
   toast(`${user.name}님 환영합니다!`);
 }
@@ -15251,12 +15284,11 @@ function checkLoginStatus() {
       updateCurrentUserDisplay();
       render();
       
-      // Firebase 자동 동기화 (Firebase가 활성화된 경우에만)
-      if (typeof firebase !== 'undefined' && firebase.database) {
-        console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-        
-        // Firebase에서 targets 로드
-        loadTargetsFromFirebase().then(async firebaseState => {
+      // Firebase 자동 동기화
+      console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+      
+      // Firebase에서 targets 로드
+      loadTargetsFromFirebase().then(async firebaseState => {
         if (firebaseState) {
           if (firebaseState.targets) {
             console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
@@ -15320,9 +15352,6 @@ function checkLoginStatus() {
         saveStudentsToFirebase();
         calculateBookUnissued();
       });
-      } else {
-        console.log('📦 localStorage 전용 모드 - Firebase 동기화 건너뜀');
-      }
     } else {
       // 세션은 있는데 사용자가 없으면 (삭제된 경우) 세션 제거
       clearSession();
