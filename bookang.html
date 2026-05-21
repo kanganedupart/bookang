@@ -1216,8 +1216,10 @@ function saveTargetsToFirebase() {
   }
 }
 
-function saveData() {
-  console.log('💾 [저장] saveData 호출됨');
+function saveData(options = {}) {
+  const { silent = false } = options; // silent 모드: toast 표시 안 함
+  
+  console.log('💾 [저장] saveData 호출됨', silent ? '(silent)' : '');
   
   if (!storageAvailable) {
     console.warn('localStorage 사용 불가 - Firebase만 사용합니다');
@@ -1231,7 +1233,9 @@ function saveData() {
       
       if (dataSize > 4.5 * 1024 * 1024) { // 4.5MB 이상이면 경고
         console.warn(`⚠️ [저장] 데이터가 큽니다: ${dataSizeMB} MB`);
-        toast(`⚠️ 데이터 크기가 큽니다 (${dataSizeMB} MB). 저장에 실패할 수 있습니다.`, true);
+        if (!silent) {
+          toast(`⚠️ 데이터 크기가 큽니다 (${dataSizeMB} MB). 저장에 실패할 수 있습니다.`, true);
+        }
       }
       
       localStorage.setItem(STORAGE_KEY, dataString);
@@ -1240,7 +1244,9 @@ function saveData() {
     } catch (e) {
       console.error('❌ [저장] localStorage 저장 실패:', e);
       console.warn('⚠️ localStorage 용량 초과 - Firebase만 사용합니다');
-      toast('⚠️ 저장 공간 부족! 브라우저 캐시를 삭제하거나 초기화하세요.', true);
+      if (!silent) {
+        toast('⚠️ 저장 공간 부족! 브라우저 캐시를 삭제하거나 초기화하세요.', true);
+      }
       // localStorage 실패해도 계속 진행
     }
   }
@@ -2597,9 +2603,13 @@ async function processStep2File(file) {
         
         let className = cellValue;
         let teacher = '';
+        let actualSubject = subject; // 실제 과목명 (탐구1,탐구2 → 탐구)
         
         // 탐구1, 탐구2 과목 특별 처리
         if (subject === '탐구1' || subject === '탐구2') {
+          // ⭐ 과목명 통일: 탐구1, 탐구2 → "탐구"
+          actualSubject = '탐구';
+          
           // 정규식으로 "한지B", "사문D" 등 반명 추출
           // 패턴: 한글 + 알파벳 대문자 (예: 한지B, 사문D, 생윤A)
           const parts = cellValue.split(/\s+/);
@@ -2624,14 +2634,14 @@ async function processStep2File(file) {
           teacher = parts[parts.length - 1] || '';
         }
         
-        // 반 정보 저장
-        const key = `${subject}||${className}`;
+        // 반 정보 저장 (통일된 과목명 사용!)
+        const key = `${actualSubject}||${className}`;
         if (!classMap[key]) {
-          classMap[key] = { subject, className, teacher };
+          classMap[key] = { subject: actualSubject, className, teacher };
         }
         
-        // 학생의 반 저장
-        student.classes.push({ subject, className });
+        // 학생의 반 저장 (통일된 과목명 사용!)
+        student.classes.push({ subject: actualSubject, className });
       });
       
       studentData.push(student);
@@ -7912,7 +7922,7 @@ function showBulkReturnModal(returnData) {
         // 5개 배치마다 또는 마지막 배치에서 저장
         if (batchIndex % 5 === 0 || batchIndex === totalBatches - 1) {
           try {
-            saveData();
+            saveData({ silent: true }); // ⭐ silent 모드: toast 표시 안 함
             console.log(`배치 ${batchIndex + 1}/${totalBatches} 저장 완료`);
           } catch (saveError) {
             console.error('저장 에러 (계속 진행):', saveError);
@@ -7923,11 +7933,13 @@ function showBulkReturnModal(returnData) {
         await new Promise(resolve => setTimeout(resolve, 10));
       }
       
-      // 최종 저장
+      // 최종 저장 (일반 모드: 에러 시 toast 표시)
       try {
-        saveData();
+        saveData(); // silent: false (기본값)
       } catch (finalSaveError) {
         console.error('최종 저장 에러:', finalSaveError);
+        // localStorage 실패해도 Firebase는 작동 중
+        console.log('💡 localStorage 실패 but Firebase 자동 저장 작동 중');
       }
       
       // 완료
@@ -7937,7 +7949,7 @@ function showBulkReturnModal(returnData) {
       if (errorCount > 0) {
         toast(`✅ ${successCount.toLocaleString()}건 회수 완료 (${errorCount}건 실패)`, false);
       } else {
-        toast(`✅ ${successCount.toLocaleString()}건 회수 완료`, false);
+        toast(`✅ ${successCount.toLocaleString()}건 회수 완료!`, false);
       }
       
     } catch (error) {
