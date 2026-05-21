@@ -2595,12 +2595,34 @@ async function processStep2File(file) {
         const cellValue = String(row[subject] || '').trim();
         if (!cellValue) return;
         
-        // 반명 그대로 사용
-        const className = cellValue;
+        let className = cellValue;
+        let teacher = '';
         
-        // 강사 추출 (마지막 단어)
-        const parts = className.split(/\s+/);
-        const teacher = parts[parts.length - 1] || '';
+        // 탐구1, 탐구2 과목 특별 처리
+        if (subject === '탐구1' || subject === '탐구2') {
+          // 정규식으로 "한지B", "사문D" 등 반명 추출
+          // 패턴: 한글 + 알파벳 대문자 (예: 한지B, 사문D, 생윤A)
+          const parts = cellValue.split(/\s+/);
+          let foundClassName = '';
+          
+          for (let part of parts) {
+            if (/^[가-힣]+[A-Z]$/.test(part)) {
+              foundClassName = part;
+              break;
+            }
+          }
+          
+          className = foundClassName || cellValue; // fallback
+          
+          // 강사는 별도 컬럼(강사_탐구1, 강사_탐구2)에서 추출
+          const teacherCol = `강사_${subject}`;
+          teacher = String(row[teacherCol] || '').trim();
+        } else {
+          // 기존 로직: 반명 그대로 사용, 강사는 마지막 단어
+          className = cellValue;
+          const parts = className.split(/\s+/);
+          teacher = parts[parts.length - 1] || '';
+        }
         
         // 반 정보 저장
         const key = `${subject}||${className}`;
@@ -7801,7 +7823,7 @@ function showBulkReturnModal(returnData) {
   
   // 회수 확인
   const confirmBtn = modalContent.querySelector('.bulk-return-confirm');
-  confirmBtn.onclick = () => {
+  confirmBtn.onclick = async () => {
     const reason = Array.from(reasonRadios).find(r => r.checked)?.value || '결석';
     const memo = memoTextarea.value.trim();
     
@@ -7811,55 +7833,119 @@ function showBulkReturnModal(returnData) {
       return;
     }
     
-    // 버튼 비활성화 및 텍스트 변경
+    // 버튼 비활성화
     confirmBtn.disabled = true;
-    confirmBtn.textContent = '처리 중...';
     confirmBtn.style.opacity = '0.6';
     confirmBtn.style.cursor = 'not-allowed';
     
-    // 회수 실행
+    // 진행률 표시 영역 추가
+    const progressDiv = document.createElement('div');
+    progressDiv.style.cssText = 'margin-top:16px; padding:16px; background:#f3f4f6; border-radius:8px;';
+    progressDiv.innerHTML = `
+      <div style="font-size:14px; font-weight:600; margin-bottom:8px; color:#374151;">처리 중...</div>
+      <div style="background:#e5e7eb; height:8px; border-radius:4px; overflow:hidden;">
+        <div id="progressBar" style="background:#10b981; height:100%; width:0%; transition:width 0.3s;"></div>
+      </div>
+      <div id="progressText" style="font-size:13px; color:#6b7280; margin-top:8px;">0 / ${returnData.length}</div>
+    `;
+    modalContent.querySelector('.bulk-return-confirm').parentElement.parentElement.appendChild(progressDiv);
+    
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    
+    // 회수 실행 (배치 처리)
     const td = getCurrentTargetData();
-    const timestamp = Date.now();
     const author = state.currentUser || '미설정';
     
     let successCount = 0;
+    let errorCount = 0;
+    const batchSize = 1000;
+    const totalBatches = Math.ceil(returnData.length / batchSize);
     
-    // 각 항목 회수 처리
-    returnData.forEach(item => {
-      const distKey = item.studentId + '||' + item.bookId;
-      const dist = td.distributions[distKey];
-      
-      if (dist && dist.status === 'distributed') {
-        const book = td.books.find(b => b.id === item.bookId);
-        const stockBefore = book ? getCurrentStock(book, td) : 0;
-        const stockAfter = stockBefore + 1;
+    try {
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const start = batchIndex * batchSize;
+        const end = Math.min(start + batchSize, returnData.length);
+        const batch = returnData.slice(start, end);
         
-        dist.status = 'returned';
-        dist.at = new Date().toISOString();
-        dist.author = author;
-        
-        if (!dist.history) dist.history = [];
-        dist.history.push({
-          type: 'return',
-          at: dist.at,
-          author,
-          memo: `${reason}${memo ? ' - ' + memo : ''}`,
-          stockBefore,
-          stockAfter,
-          bulk: true
+        // 배치 처리
+        batch.forEach(item => {
+          try {
+            const distKey = item.studentId + '||' + item.bookId;
+            const dist = td.distributions[distKey];
+            
+            if (dist && dist.status === 'distributed') {
+              const book = td.books.find(b => b.id === item.bookId);
+              const stockBefore = book ? getCurrentStock(book, td) : 0;
+              const stockAfter = stockBefore + 1;
+              
+              dist.status = 'returned';
+              dist.at = new Date().toISOString();
+              dist.author = author;
+              
+              if (!dist.history) dist.history = [];
+              dist.history.push({
+                type: 'return',
+                at: dist.at,
+                author,
+                memo: `${reason}${memo ? ' - ' + memo : ''}`,
+                stockBefore,
+                stockAfter,
+                bulk: true
+              });
+              
+              successCount++;
+            }
+          } catch (itemError) {
+            console.error('항목 처리 에러:', itemError);
+            errorCount++;
+          }
         });
         
-        successCount++;
+        // 진행률 업데이트
+        const processed = end;
+        const percentage = Math.round((processed / returnData.length) * 100);
+        progressBar.style.width = percentage + '%';
+        progressText.textContent = `${processed.toLocaleString()} / ${returnData.length.toLocaleString()} (${percentage}%)`;
+        confirmBtn.textContent = `처리 중... ${percentage}%`;
+        
+        // 5개 배치마다 또는 마지막 배치에서 저장
+        if (batchIndex % 5 === 0 || batchIndex === totalBatches - 1) {
+          try {
+            saveData();
+            console.log(`배치 ${batchIndex + 1}/${totalBatches} 저장 완료`);
+          } catch (saveError) {
+            console.error('저장 에러 (계속 진행):', saveError);
+          }
+        }
+        
+        // UI 업데이트를 위한 짧은 대기
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
-    });
-    
-    // 약간의 딜레이 후 실행 (버튼 변경 표시)
-    setTimeout(() => {
-      saveData();
+      
+      // 최종 저장
+      try {
+        saveData();
+      } catch (finalSaveError) {
+        console.error('최종 저장 에러:', finalSaveError);
+      }
+      
+      // 완료
       modal.remove();
       render();
-      toast(`✅ ${successCount}건 회수 완료`);
-    }, 100);
+      
+      if (errorCount > 0) {
+        toast(`✅ ${successCount.toLocaleString()}건 회수 완료 (${errorCount}건 실패)`, false);
+      } else {
+        toast(`✅ ${successCount.toLocaleString()}건 회수 완료`, false);
+      }
+      
+    } catch (error) {
+      console.error('회수 처리 에러:', error);
+      modal.remove();
+      toast(`❌ 회수 중 오류 발생: ${successCount.toLocaleString()}건 처리됨`, true);
+      render();
+    }
   };
 }
 
