@@ -1692,9 +1692,20 @@ function executeFullReset() {
   
   try {
     // 1. Firebase 초기화 (비동기)
+    // ⭐ 수정 2026.05.21: 'shared' 전체를 지우면 환불 프로그램 데이터까지 삭제됨.
+    //   교재 프로그램이 쓰는 경로만 콕 집어서 삭제한다.
+    //   환불 데이터(shared/refunds, shared/staffPasswords 등)는 건드리지 않는다.
     if (typeof firebase !== 'undefined' && firebase.database) {
-      console.log('📡 Firebase 초기화 중...');
-      firebase.database().ref('shared').set({});
+      console.log('📡 Firebase 초기화 중 (교재 데이터만)...');
+      const db = firebase.database();
+      // 교재 프로그램이 사용하는 경로만 삭제
+      db.ref('shared/bookUnissued').set({});
+      db.ref('shared/students').set({});
+      db.ref('shared/studentData').set({});
+      db.ref('shared/bookangState').set({});
+      db.ref('shared/targetData').set({});
+      
+      console.log('✅ Firebase 교재 데이터만 초기화 (환불/설정 보존)');
     }
     
     // 2. localStorage 완전 초기화
@@ -1725,7 +1736,7 @@ function executeFullReset() {
     // 4. 성공 메시지
     console.log('✅ 초기화 완료!');
     closeModal();
-    toast('✅ 전체 초기화 완료! 페이지를 새로고침합니다...', false);
+    toast('✅ 전체 초기화 완료! (환불/설정 데이터 보존됨)', false);
     
     // 5. 1초 후 새로고침
     setTimeout(() => {
