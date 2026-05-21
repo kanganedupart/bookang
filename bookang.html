@@ -15152,11 +15152,12 @@ function handleLogin(e) {
     toast('화면 렌더링 중 에러 발생. 새로고침 해주세요.', true);
   }
   
-  // Firebase 자동 동기화
-  console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-  
-  // Firebase에서 targets 로드
-  loadTargetsFromFirebase().then(async firebaseState => {
+  // Firebase 자동 동기화 (Firebase가 활성화된 경우에만)
+  if (typeof firebase !== 'undefined' && firebase.database) {
+    console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+    
+    // Firebase에서 targets 로드
+    loadTargetsFromFirebase().then(async firebaseState => {
     if (firebaseState) {
       if (firebaseState.targets) {
         console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
@@ -15220,6 +15221,9 @@ function handleLogin(e) {
     saveStudentsToFirebase();
     calculateBookUnissued();
   });
+  } else {
+    console.log('📦 localStorage 전용 모드 - Firebase 동기화 건너뜀');
+  }
   
   toast(`${user.name}님 환영합니다!`);
 }
@@ -15247,11 +15251,12 @@ function checkLoginStatus() {
       updateCurrentUserDisplay();
       render();
       
-      // Firebase 자동 동기화
-      console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
-      
-      // Firebase에서 targets 로드
-      loadTargetsFromFirebase().then(async firebaseState => {
+      // Firebase 자동 동기화 (Firebase가 활성화된 경우에만)
+      if (typeof firebase !== 'undefined' && firebase.database) {
+        console.log('🔄 [초기화] Firebase 자동 동기화 시작...');
+        
+        // Firebase에서 targets 로드
+        loadTargetsFromFirebase().then(async firebaseState => {
         if (firebaseState) {
           if (firebaseState.targets) {
             console.log('📥 [병합] Firebase targets 로드:', firebaseState.targets.length, '개');
@@ -15315,6 +15320,9 @@ function checkLoginStatus() {
         saveStudentsToFirebase();
         calculateBookUnissued();
       });
+      } else {
+        console.log('📦 localStorage 전용 모드 - Firebase 동기화 건너뜀');
+      }
     } else {
       // 세션은 있는데 사용자가 없으면 (삭제된 경우) 세션 제거
       clearSession();
