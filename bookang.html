@@ -5986,8 +5986,35 @@ function getReturnedCount(bookId, td) {
 // 현재 재고 = 입고 누적 - 지금 배부 중인 양
 // (회수된 책은 다시 재고로 돌아왔으므로, status='returned'인 건 빼지 않음)
 function getCurrentStock(book, td) {
-  const distributed = getDistributedCount(book.id, td);
-  return (book.stockIn || 0) - distributed;
+  // ⭐ 완전한 재고 계산 로직
+  
+  // 1. 초기 입고
+  const 입고 = book.stockIn || 0;
+  
+  // 2. 추가 입고
+  const 추가입고합 = (td.additionalStocks || [])
+    .filter(s => s.bookId === book.id)
+    .reduce((sum, s) => sum + (s.qty || 0), 0);
+  
+  // 3. 기본 배부 (distributions에서)
+  const 배부 = Object.values(td.distributions || {})
+    .filter(d => d.bookId === book.id && d.status === 'distributed')
+    .length;
+  
+  // 4. 추가 배부
+  const 추가배부합 = (td.additionalDistributions || [])
+    .filter(d => d.bookId === book.id)
+    .length;
+  
+  // 5. 회수
+  const 회수합 = Object.values(td.distributions || {})
+    .filter(d => d.bookId === book.id && d.status === 'returned')
+    .length;
+  
+  // 6. 최종 재고 계산
+  const 현재고 = 입고 + 추가입고합 - 배부 - 추가배부합 + 회수합;
+  
+  return 현재고;
 }
 
 function renderStockPage() {
