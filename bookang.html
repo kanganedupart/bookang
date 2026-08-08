@@ -61,9 +61,9 @@
       .book-create-row{grid-template-columns:170px 210px minmax(260px,1fr) 150px 150px;max-width:none;width:100%;gap:10px;margin-bottom:18px}.book-create-row button{min-width:0;white-space:nowrap}
       .catalog-step{border-left:4px solid var(--blue)}
       .catalog-step-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.catalog-step-head b{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff}.catalog-step-head h2{margin:0}
-      .catalog-class-row{display:grid;grid-template-columns:130px 150px 190px 170px minmax(280px,1fr) 72px;gap:10px;align-items:end;width:100%}.catalog-class-row label{margin:0}.catalog-class-row input,.catalog-class-row select{max-width:none}.catalog-class-row button{width:72px}.common-class-option{display:flex;align-items:center;gap:8px;min-height:38px;white-space:nowrap}.common-class-option input{width:auto}
+      .catalog-class-row{display:grid;grid-template-columns:140px 160px 210px minmax(280px,1fr) 72px 88px;gap:10px;align-items:end;width:100%}.catalog-class-row label{margin:0}.catalog-class-row input,.catalog-class-row select{max-width:none}.catalog-class-row button{width:100%}.catalog-status-line{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}.catalog-status-line input{width:132px;min-width:132px}.catalog-status-line button{white-space:nowrap}.catalog-table tbody td{padding-top:8px;padding-bottom:8px}
       .catalog-book-row{display:grid;grid-template-columns:140px 170px minmax(280px,1fr) 140px 140px;gap:10px;align-items:end;width:100%}.catalog-book-row label{margin:0}.catalog-book-row input{max-width:none}.catalog-book-row button{min-width:0}
-      .catalog-filter{display:grid;grid-template-columns:150px 180px minmax(240px,420px);gap:10px;align-items:end;max-width:780px;margin-bottom:12px}.catalog-filter label{margin:0}.catalog-filter input,.catalog-filter select{max-width:none}
+      .catalog-filter{display:grid;grid-template-columns:140px 160px 130px 120px minmax(240px,1fr);gap:10px;align-items:end;width:100%;margin-bottom:12px}.catalog-filter label{margin:0}.catalog-filter input,.catalog-filter select{max-width:none}
       .managed-combo{position:relative}.managed-combo .picker-results{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;box-shadow:0 10px 24px #1a243018}
       .section-title{font-size:14px;font-weight:700;margin:0 0 10px;padding-top:4px}
       .action-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px}.action-row button{margin:0}
@@ -136,7 +136,13 @@
       firebase.initializeApp(firebaseConfig);
       // 로컬 테스트와 GitHub 운영 화면이 같은 자료를 사용한다.
       // 실전 전환 시 코드를 바꾸지 않고 이 저장소 안에 새 대상을 만든다.
-      const dataset = "bookflowLiteValidation700";
+      // Production always uses the canonical dataset.  A separate dataset may
+      // only be selected from localhost so end-to-end tests cannot accidentally
+      // redirect the published app to a test database.
+      const localDataset = new URLSearchParams(location.search).get("dataset");
+      const dataset = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && localDataset
+        ? localDataset
+        : "bookflowLiteValidation700";
       const root = firebase.database().ref(dataset);
       let S = { books: {}, classes: {}, students: {}, movements: {} },
         tab = "학생",
@@ -652,11 +658,13 @@
           ids = [...new Set(storedIds.length ? storedIds : legacyIds)];
         return ids.map((id) => S.books?.[id]).filter(Boolean);
       }
-      function refundTaskForStudent(sid) {
+      function refundTaskForStudent(sid, skipStoredLookup = false) {
         const pid = selectedPeriodId();
-        const stored = arr(S.refundTasks).find(
-          (task) => task.studentId === sid && (!pid || task.periodId === pid),
-        );
+        const stored = skipStoredLookup
+          ? null
+          : arr(S.refundTasks).find(
+              (task) => task.studentId === sid && (!pid || task.periodId === pid),
+            );
         if (stored) return stored;
         const student = S.students?.[sid];
         if (!student || student.active !== false) return null;
@@ -735,17 +743,47 @@
         return true;
       }
       function manualEcodingExitWaitingCount(st = S) {
+        if (st === S) {
+          const cached = derivedValue("manualEcodingExitWaitingCount", () =>
+            manualEcodingExitWaitingCountUncached(st),
+          );
+          return cached;
+        }
+        return manualEcodingExitWaitingCountUncached(st);
+      }
+      function manualEcodingExitWaitingCountUncached(st = S) {
         const activeIds = deskPeriodIds(st);
         return arr(st.students).filter((student) =>
           [...activeIds].some((periodId) => ecodingManualExitPending(student, periodId)),
         ).length;
       }
       function ecodingEvents(type, status = "PENDING") {
-        const activeIds = deskPeriodIds();
-        return arr(S.ecodingEvents).filter((event) =>
-          event.type === type && event.status === status &&
-          (!activeIds.size || activeIds.has(event.periodId)),
-        );
+        return derivedValue(`ecodingEvents|${type}|${status}`, () => {
+          const activeIds = deskPeriodIds();
+          return arr(S.ecodingEvents).filter((event) =>
+            event.type === type && event.status === status &&
+            (!activeIds.size || activeIds.has(event.periodId)),
+          );
+        });
+      }
+      let derivedStateSource = null;
+      let derivedStatePeriod = "";
+      let derivedStateCache = Object.create(null);
+      function derivedValue(key, build) {
+        const periodId = window.periodChoiceId || S.currentPeriodId || "";
+        if (derivedStateSource !== S || derivedStatePeriod !== periodId) {
+          derivedStateSource = S;
+          derivedStatePeriod = periodId;
+          derivedStateCache = Object.create(null);
+        }
+        if (!Object.prototype.hasOwnProperty.call(derivedStateCache, key))
+          derivedStateCache[key] = build();
+        return derivedStateCache[key];
+      }
+      function resetDerivedState() {
+        derivedStateSource = null;
+        derivedStatePeriod = "";
+        derivedStateCache = Object.create(null);
       }
       function deskPeriodIds(st = S) {
         const ids = arr(st.periods)
@@ -768,25 +806,36 @@
         return false;
       }
       function pendingChargeCount() {
-        const activeIds = deskPeriodIds();
-        return arr(S.chargeTasks).filter(
-          (x) => x.status === "PENDING" && (!activeIds.size || activeIds.has(x.periodId)),
-        ).length;
+        return derivedValue("pendingChargeCount", () => {
+          const activeIds = deskPeriodIds();
+          return arr(S.chargeTasks).filter(
+            (x) => x.status === "PENDING" && (!activeIds.size || activeIds.has(x.periodId)),
+          ).length;
+        });
       }
       function pendingRefundRows(st = S) {
+        if (st === S)
+          return derivedValue("pendingRefundRows", () => pendingRefundRowsUncached(st));
+        return pendingRefundRowsUncached(st);
+      }
+      function pendingRefundRowsUncached(st = S) {
         const activeIds = deskPeriodIds(st);
-        const tasks = new Map(
-          arr(st.refundTasks)
-            .filter((task) => !activeIds.size || activeIds.has(task.periodId))
-            .map((task) => [`${task.periodId || ""}|${task.studentId}`, task]),
-        );
+        const scopedTasks = arr(st.refundTasks).filter(
+            (task) => !activeIds.size || activeIds.has(task.periodId),
+          ),
+          tasks = new Map(
+            scopedTasks.map((task) => [
+              `${task.periodId || ""}|${task.studentId}`,
+              task,
+            ]),
+          ),
+          taskStudentIds = new Set(scopedTasks.map((task) => task.studentId));
         if (st === S) {
           for (const student of arr(st.students).filter(
             (item) => item.active === false,
           )) {
-            if ([...tasks.values()].some((task) => task.studentId === student.id))
-              continue;
-            const legacyTask = refundTaskForStudent(student.id);
+            if (taskStudentIds.has(student.id)) continue;
+            const legacyTask = refundTaskForStudent(student.id, true);
             if (legacyTask)
               tasks.set(
                 `${legacyTask.periodId || ""}|${student.id}`,
@@ -802,46 +851,106 @@
         );
       }
       function pendingRefundCount() {
-        return pendingRefundRows().length;
+        const count = pendingRefundRows().length;
+        tabRefundBadgeState = { source: S, count, exact: true };
+        return count;
+      }
+      let tabRefundBadgeState = { source: null, count: 0, exact: false };
+      function explicitPendingRefundCount(st = S) {
+        const activeIds = deskPeriodIds(st);
+        return arr(st.refundTasks).filter(
+          (task) =>
+            (!activeIds.size || activeIds.has(task.periodId)) &&
+            Object.values(task.books || {}).some(
+              (book) => book.status === "PENDING",
+            ),
+        ).length;
+      }
+      function fastPendingRefundCount() {
+        if (tabRefundBadgeState.source !== S) {
+          tabRefundBadgeState = {
+            source: S,
+            count: explicitPendingRefundCount(S),
+            exact: false,
+          };
+        }
+        return tabRefundBadgeState.count;
       }
       function changeTab(x) {
+        clearTimeout(remoteRenderTimer);
+        remoteRenderTimer = 0;
+        cancelAnimationFrame(remoteRenderFrame);
+        remoteRenderFrame = 0;
         tab = x;
         selected = [];
         receipt = null;
         window.scrollTo({ top: 0, behavior: "instant" });
         renderActor();
+        clearTimeout(changeTab.renderTimer);
+        changeTab.renderTimer = 0;
         render();
       }
       function renderTabs() {
+        const manualWaiting = manualEcodingExitWaitingCount(),
+          newCount = ecodingEvents("NEW").length,
+          moveCount = ecodingEvents("MOVE").length,
+          chargeCount = pendingChargeCount(),
+          refundCount = fastPendingRefundCount() + ecodingEvents("EXIT").length;
         tabs.innerHTML = TABS.map((x) => {
           const label =
-            x === "학생" && manualEcodingExitWaitingCount()
-              ? `학생 · 이코딩대기 ${manualEcodingExitWaitingCount()}`
+            x === "학생" && manualWaiting
+              ? `학생 · 이코딩대기 ${manualWaiting}`
               : x === "신규"
-              ? `신규 ${ecodingEvents("NEW").length}`
+              ? `신규 ${newCount}`
               : x === "반이동"
-                ? `반이동 ${ecodingEvents("MOVE").length}`
+                ? `반이동 ${moveCount}`
                 : x === "추가결제"
-              ? `추가결제 ${pendingChargeCount()}`
+              ? `추가결제 ${chargeCount}`
               : x === "환불대기"
-                ? `환불대기 ${pendingRefundCount() + ecodingEvents("EXIT").length}`
+                ? `환불대기 ${refundCount}`
                 : x;
-          return `<button class="${x === tab ? "on" : ""}" onclick="changeTab('${x}')">${label}</button>`;
+          return `<button type="button" class="${x === tab ? "on" : ""}" data-main-tab="${esc(x)}">${label}</button>`;
         }).join("");
+        tabs.querySelectorAll("[data-main-tab]").forEach((button) => {
+          button.addEventListener("click", () => changeTab(button.dataset.mainTab));
+        });
       }
       let bookflowListenerStarted = false;
+      let remoteRenderFrame = 0;
+      let remoteRenderTimer = 0;
+      // Firebase root transactions may emit intermediate value events. Do not
+      // let an older intermediate snapshot overwrite the optimistic result
+      // that the employee is already checking on screen.
+      let pendingRemoteState = null;
+      function scheduleRemoteRender() {
+        clearTimeout(remoteRenderTimer);
+        cancelAnimationFrame(remoteRenderFrame);
+        remoteRenderTimer = setTimeout(() => {
+          remoteRenderTimer = 0;
+          remoteRenderFrame = requestAnimationFrame(() => {
+            remoteRenderFrame = 0;
+            renderActor();
+            actor ? render() : staffLoginScreen();
+          });
+        }, 120);
+      }
       function connectBookflowData() {
         if (bookflowListenerStarted) return;
         bookflowListenerStarted = true;
         root.on(
           "value",
           (snap) => {
-            S = snap.val() || {
+            const incomingState = snap.val() || {
               books: {},
               classes: {},
               students: {},
               movements: {},
             };
+            if (operationBusy) {
+              pendingRemoteState = incomingState;
+              return;
+            }
+            S = incomingState;
             if (actor) {
               const profile = S.staffProfiles?.[id("U", actor)];
               if (!profile || profile.active === false) {
@@ -853,8 +962,9 @@
                 localStorage.setItem("bookflowStaffRole", actorRole);
               }
             }
-            renderActor();
-            actor ? render() : staffLoginScreen();
+            resetDerivedState();
+            scheduleRemoteRender();
+            if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
           },
           () => {
             bookflowListenerStarted = false;
@@ -925,6 +1035,7 @@
           };
           renderActor();
           render();
+          startEcodingAutoSync();
         } catch (error) {
           alert("로그인 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.");
         }
@@ -935,6 +1046,8 @@
         localStorage.removeItem("bookflowStaffLoginUntil");
       }
       function staffLogout() {
+        clearInterval(ecodingAutoSyncTimer);
+        ecodingAutoSyncTimer = 0;
         clearSavedStaffLogin();
         actor = "";
         actorRole = "";
@@ -944,6 +1057,8 @@
         firebase.auth().signOut().finally(staffLoginScreen);
       }
       function render() {
+        clearTimeout(changeTab.renderTimer);
+        changeTab.renderTimer = 0;
         document.body.classList.remove("login-mode");
         renderPeriodBar();
         renderTabs();
@@ -964,24 +1079,100 @@
         requestAnimationFrame(activateAutomaticStudentSearches);
       }
       function movementRows() {
-        return arr(S.movements).sort((a, b) => b.time.localeCompare(a.time));
+        return derivedValue("movementRows", () =>
+          arr(S.movements).sort((a, b) =>
+            String(b.time || "").localeCompare(String(a.time || "")),
+          ),
+        );
       }
       function transaction(mutator) {
-        return root.transaction(
+        // Keep the server-side root transaction as the final atomic authority,
+        // but show the exact same mutation from the current snapshot immediately.
+        // The previous implementation waited for the complete (large) root payload
+        // to make a round trip before any screen changed, so every save looked frozen.
+        // Rendering the optimistic preview rebuilds the current screen and can
+        // clear the global selection. Firebase may also retry an updater later.
+        // Every attempt must therefore use the exact targets chosen at click time.
+        const transactionSelected = selected.slice();
+        const runMutation = (state) => {
+          const liveSelected = selected;
+          selected = transactionSelected.slice();
+          try {
+            return mutator(state);
+          } finally {
+            selected = liveSelected;
+          }
+        };
+        let optimisticState = null;
+        try {
+          optimisticState = typeof structuredClone === "function"
+            ? structuredClone(S)
+            : JSON.parse(JSON.stringify(S));
+          const optimisticResult = runMutation(optimisticState);
+          if (optimisticResult !== false) {
+            S = optimisticState;
+            resetDerivedState();
+            renderActor();
+            render();
+          } else {
+            optimisticState = null;
+          }
+        } catch (error) {
+          optimisticState = null;
+          console.error("optimistic transaction preview failed", error);
+        }
+        const pending = root.transaction(
           (st) => {
             st = st || { books: {}, classes: {}, students: {}, movements: {} };
-            const out = mutator(st);
+            // Firebase supplies a fresh local snapshot for every retry.  Making
+            // another full copy here doubled the main-thread work for every save
+            // and was the main cause of the long "반영 중" pause on 600+ students.
+            // The mutators are deterministic and are already regression-tested
+            // for Firebase retries, so mutate this attempt's snapshot directly.
+            const out = runMutation(st);
             return out === false ? undefined : st;
           },
           null,
           false,
         );
+        return pending.then(
+          (result) => {
+            pendingRemoteState = null;
+            S = result.snapshot.val() || {
+              books: {}, classes: {}, students: {}, movements: {},
+            };
+            resetDerivedState();
+            // A rejected/aborted transaction must also undo the immediate preview.
+            if (!result.committed) {
+              renderActor();
+              render();
+            }
+            return result;
+          },
+          async (error) => {
+            if (pendingRemoteState) {
+              S = pendingRemoteState;
+              pendingRemoteState = null;
+            } else {
+              const snapshot = await root.once("value");
+              S = snapshot.val() || {
+                books: {}, classes: {}, students: {}, movements: {},
+              };
+            }
+            resetDerivedState();
+            renderActor();
+            render();
+            throw error;
+          },
+        );
       }
       function periods() {
-        return arr(S.periods).sort(
-          (a, b) =>
-            String(b.year || "").localeCompare(String(a.year || "")) ||
-            String(a.name || "").localeCompare(String(b.name || ""), "ko"),
+        return derivedValue("periods", () =>
+          arr(S.periods).sort(
+            (a, b) =>
+              String(b.year || "").localeCompare(String(a.year || "")) ||
+              String(a.name || "").localeCompare(String(b.name || ""), "ko"),
+          ),
         );
       }
       function selectedPeriodId() {
@@ -992,17 +1183,36 @@
           ""
         );
       }
+      function selectedPeriodIdIn(st) {
+        return (
+          window.periodChoiceId ||
+          st?.currentPeriodId ||
+          arr(st?.periods).find((x) => x.status === "ACTIVE")?.id ||
+          ""
+        );
+      }
       function selectedPeriod() {
         return S.periods?.[selectedPeriodId()] || null;
       }
       function periodLabel(p) {
-        return p ? `${p.year || ""} ${p.name || ""}`.trim() : "기존 운영자료";
+        if (!p) return "기존 운영자료";
+        const name = String(p.name || "")
+          .replace(/\s*[·-]?\s*운영\s*중\s*$/u, "")
+          .trim();
+        return `${p.year || ""} ${name}`.trim();
       }
       function classInPeriod(c, pid = selectedPeriodId()) {
         return (
           !pid ||
           c?.periodId === pid ||
           (!c?.periodId && pid === S.currentPeriodId)
+        );
+      }
+      function classInPeriodOf(st, c, pid = selectedPeriodIdIn(st)) {
+        return (
+          !pid ||
+          c?.periodId === pid ||
+          (!c?.periodId && pid === st?.currentPeriodId)
         );
       }
       function periodBookIds(pid = selectedPeriodId()) {
@@ -1113,7 +1323,7 @@
         );
       }
       function periodIsWritable(st, allowReturn = false) {
-        const pid = selectedPeriodId() || st.currentPeriodId,
+        const pid = selectedPeriodIdIn(st) || st.currentPeriodId,
           p = st.periods?.[pid];
         if (!p) return !Object.keys(st.periods || {}).length;
         if (p.status === "ACTIVE") return true;
@@ -1148,7 +1358,7 @@
         const ps = periods(),
           pid = selectedPeriodId(),
           p = S.periods?.[pid];
-        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))} · ${{ ACTIVE: "운영 중", CLOSING: "종료", CLOSED: "종료" }[x.status] || x.status}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span>${pendingChargeCount() ? `<button onclick="changeTab('추가결제')">추가결제 ${pendingChargeCount()}건</button>` : ""}</div>`;
+        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span></div>`;
       }
       function hubNav(items, current, setter) {
         return `<div class="subtabs">${items.map(([key, label]) => `<button class="${current === key ? "on" : ""}" onclick="${setter}='${key}';render()">${label}</button>`).join("")}</div>`;
@@ -1256,6 +1466,11 @@
         );
       }
       function staffManagement() {
+        // A staff update can finish after the user has already moved to a
+        // different tab. Do not let a stale callback overwrite that screen.
+        if (tab !== "관리" || (window.manageView || "target") !== "staff") {
+          return render();
+        }
         if (actorRole !== "admin") {
           window.manageView = "data";
           return setup();
@@ -1306,7 +1521,7 @@
         });
         if (!r.committed) return alert(msg || "직원을 추가하지 못했습니다.");
         S = r.snapshot.val();
-        staffManagement();
+        render();
         alert(`${name} 직원을 추가했습니다.`);
       }
       async function setStaffActive(key, active) {
@@ -1329,12 +1544,12 @@
         });
         if (!r.committed) return alert("직원 상태를 변경하지 못했습니다.");
         S = r.snapshot.val();
-        staffManagement();
+        render();
       }
       function eligibleIn(st, sid, bid) {
         const s = st.students?.[sid],
           b = st.books?.[bid],
-          pid = selectedPeriodId() || st.currentPeriodId;
+          pid = selectedPeriodIdIn(st) || st.currentPeriodId;
         return !!(
           b &&
           b.active !== false &&
@@ -1343,7 +1558,7 @@
           !s.pendingReturn &&
           activePeriodClassIds(st, sid, pid).some(
             (cid) =>
-              classInPeriod(st.classes?.[cid], pid) &&
+              classInPeriodOf(st, st.classes?.[cid], pid) &&
               Object.values(st.classes?.[cid]?.books || {}).includes(bid),
           )
         );
@@ -1485,60 +1700,70 @@
         const typeLabel = r.type === "RETURN" ? "회수" : r.type === "ADDITIONAL" ? "추가배부" : r.type === "DISTRIBUTE" ? "배부" : "전체 처리";
         if (Array.isArray(r.rows))
           return `<div class="receipt completed-state"><b>${esc(typeLabel)} 완료</b><br>${esc(r.time)} · ${esc(r.actor)}${r.memo ? ` · ${esc(r.memo)}` : ""}<div class="scroll"><table><thead><tr><th>교재</th><th>현재 보유→처리 후 보유</th><th>재고 전→재고 후</th></tr></thead><tbody>${r.rows.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td>${x.studentBefore}권 → <b>${x.studentAfter}권</b></td><td>${x.stockBefore}권 → <b>${x.stockAfter}권</b></td></tr>`).join("")}</tbody></table></div></div>`;
-        return `<div class="receipt completed-state"><b>${esc(typeLabel)} 완료 · ${esc(r.bookName)}</b><br>${esc(r.time)} · ${esc(r.actor)}${r.memo ? ` · ${esc(r.memo)}` : ""}<div class="flow"><div>현재 보유<br><b>${r.studentBefore}권</b></div><div class="arrow">${r.studentDelta > 0 ? "+" : ""}${r.studentDelta} →</div><div>처리 후 보유<br><b>${r.studentAfter}권</b></div></div><div class="flow"><div>재고 전<br><b>${r.stockBefore}권</b></div><div class="arrow">${r.stockDelta > 0 ? "+" : ""}${r.stockDelta} →</div><div>재고 후<br><b>${r.stockAfter}권</b></div></div></div>`;
+        const paymentNotice = r.businessReason === "EXTRA_PAYMENT"
+          ? '<div class="receipt"><b>추가결제 대기 등록 완료</b><br>상단 추가결제 건수와 추가결제 목록에 반영되었습니다.</div>'
+          : r.businessReason === "FREE"
+            ? '<div class="receipt"><b>무료 추가배부로 기록</b></div>'
+            : "";
+        return `<div class="receipt completed-state"><b>${esc(typeLabel)} 완료 · ${esc(r.bookName)}</b><br>${esc(r.time)} · ${esc(r.actor)}${r.memo ? ` · ${esc(r.memo)}` : ""}<div class="flow"><div>현재 보유<br><b>${r.studentBefore}권</b></div><div class="arrow">${r.studentDelta > 0 ? "+" : ""}${r.studentDelta} →</div><div>처리 후 보유<br><b>${r.studentAfter}권</b></div></div><div class="flow"><div>재고 전<br><b>${r.stockBefore}권</b></div><div class="arrow">${r.stockDelta > 0 ? "+" : ""}${r.stockDelta} →</div><div>재고 후<br><b>${r.stockAfter}권</b></div></div></div>${paymentNotice}`;
       }
       function processScreen() {
         if (tab === "일괄처리" && view === "student") view = "academy";
-        const students = arr(S.students)
-          .filter((s) => s.active !== false && activePeriodClassIds(S, s.id).length)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        const processQuery = window.processStudentQuery || "",
-          studentMatches = matchingStudents(processQuery);
-        const allClasses = arr(S.classes)
-            .filter((c) => c.active !== false && classInPeriod(c))
-            .sort((a, b) => a.name.localeCompare(b.name, "ko")),
-          classSubjects = uniq(allClasses.map((c) => c.subject)),
-          classSubject = classSubjects.includes(window.processClassSubject)
-            ? window.processClassSubject
-            : classSubjects[0] || "",
-          classTeachers = uniq(
-            allClasses
-              .filter((c) => c.subject === classSubject)
-              .map((c) => c.teacher || "미지정"),
-          ),
-          classTeacher = classTeachers.includes(window.processClassTeacher)
-            ? window.processClassTeacher
-            : classTeachers[0] || "",
-          classes = allClasses.filter(
-            (c) =>
-              c.subject === classSubject &&
-              (c.teacher || "미지정") === classTeacher,
-          );
-        const books = arr(S.books)
-          .filter(
-            (b) =>
-              b.active !== false ||
-              b.stock ||
-              arr(S.students).some((s) => held(s.id, b.id)),
-          )
-          .sort((a, b) => a.name.localeCompare(b.name));
-        const bookSubjects = uniq(books.map((b) => b.subject)),
-          processBookSubject = bookSubjects.includes(window.processBookSubject)
-            ? window.processBookSubject
-            : bookSubjects[0] || "",
-          bookTeachers = uniq(
-            books
-              .filter((b) => b.subject === processBookSubject)
-              .map((b) => b.teacher || "미지정"),
-          ),
-          processBookTeacher = bookTeachers.includes(window.processBookTeacher)
-            ? window.processBookTeacher
-            : bookTeachers[0] || "",
-          processBooks = books.filter(
-            (b) =>
-              b.subject === processBookSubject &&
-              (b.teacher || "미지정") === processBookTeacher,
-          );
+        const processQuery = window.processStudentQuery || "";
+        const students = view === "class"
+          ? arr(S.students)
+              .filter((s) => s.active !== false && activePeriodClassIds(S, s.id).length)
+              .sort((a, b) => a.name.localeCompare(b.name))
+          : [];
+        const studentMatches = view === "student" ? matchingStudents(processQuery) : [];
+        const allClasses = view === "class"
+          ? arr(S.classes)
+              .filter((c) => c.active !== false && classInPeriod(c))
+              .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+          : [];
+        const classSubjects = uniq(allClasses.map((c) => c.subject));
+        const classSubject = classSubjects.includes(window.processClassSubject)
+          ? window.processClassSubject
+          : classSubjects[0] || "";
+        const classTeachers = uniq(
+          allClasses
+            .filter((c) => c.subject === classSubject)
+            .map((c) => c.teacher || "미지정"),
+        );
+        const classTeacher = classTeachers.includes(window.processClassTeacher)
+          ? window.processClassTeacher
+          : classTeachers[0] || "";
+        const classes = allClasses.filter(
+          (c) => c.subject === classSubject && (c.teacher || "미지정") === classTeacher,
+        );
+        const needsBooks = view === "student" || view === "book";
+        const books = needsBooks
+          ? arr(S.books)
+              .filter(
+                (b) =>
+                  b.active !== false ||
+                  b.stock ||
+                  arr(S.students).some((s) => held(s.id, b.id)),
+              )
+              .sort((a, b) => a.name.localeCompare(b.name))
+          : [];
+        const bookSubjects = uniq(books.map((b) => b.subject));
+        const processBookSubject = bookSubjects.includes(window.processBookSubject)
+          ? window.processBookSubject
+          : bookSubjects[0] || "";
+        const bookTeachers = uniq(
+          books
+            .filter((b) => b.subject === processBookSubject)
+            .map((b) => b.teacher || "미지정"),
+        );
+        const processBookTeacher = bookTeachers.includes(window.processBookTeacher)
+          ? window.processBookTeacher
+          : bookTeachers[0] || "";
+        const processBooks = books.filter(
+          (b) =>
+            b.subject === processBookSubject &&
+            (b.teacher || "미지정") === processBookTeacher,
+        );
         const sid = S.students[window.sid] ? window.sid : "",
           cid = classes.some((c) => c.id === window.cid) ? window.cid : "",
           bid = books.some((b) => b.id === window.bid) ? window.bid : "";
@@ -1679,8 +1904,8 @@
       async function excludeStudentBook(sid, bid) {
         const student = S.students?.[sid], book = S.books?.[bid];
         if (!student || !book || held(sid, bid) > 0) return alert("미배부 교재만 제외할 수 있습니다.");
-        const reason = await askPrompt("미배부 제외 사유를 입력하세요. (예: 프린트 대체)", "프린트 대체");
-        if (!String(reason || "").trim()) return;
+        const reason = String(window.memoDraft || "").trim();
+        if (!reason) return alert("미배부 제외 사유를 입력하세요.");
         if (!(await askConfirm(`${student.name} 학생의 '${book.name}'을 배부·환불 대상에서 제외할까요?\n재고 수량은 변하지 않습니다.`))) return;
         const pid = selectedPeriodId(), result = await transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
@@ -1698,7 +1923,7 @@
           st.movements = st.movements || {};
           st.movements[mid] = { id: mid, periodId: pid, type: "BOOK_EXCLUDE", bookId: bid, bookName: st.books?.[bid]?.name || bid, studentId: sid, studentIds: { [sid]: sid }, studentNames: { [sid]: target.name }, memo: String(reason).trim(), actor, time: now() };
         });
-        if (result.committed) { S = result.snapshot.val(); bid = ""; action = ""; selected = []; receipt = null; render(); }
+        if (result.committed) { S = result.snapshot.val(); bid = ""; action = ""; selected = []; receipt = null; memoDraft = ""; render(); }
       }
       async function restoreStudentBook(sid, bid) {
         const student = S.students?.[sid], book = S.books?.[bid];
@@ -1718,6 +1943,7 @@
         const qty = selected.length,
           returnOnly = view === "student" && S.students[sid]?.active === false,
           action = returnOnly ? "RETURN" : view === "student" ? window.action || "" : window.action || "DISTRIBUTE",
+          isExclude = view === "student" && action === "EXCLUDE",
           bookCandidates = view === "book" ? eligibleStudents(book.id) : [],
           missingCount = bookCandidates.filter(
             (student) => held(student.id, book.id) === 0,
@@ -1726,21 +1952,21 @@
             (student) => held(student.id, book.id) > 0,
           ).length,
           activeTargetCount = action === "DISTRIBUTE" ? missingCount : holderCount,
-          delta = action === "RETURN" ? qty : -qty,
+          delta = isExclude ? 0 : action === "RETURN" ? qty : -qty,
           expected = (book.stock || 0) + delta,
           studentQuantity = view === "student" ? held(sid, book.id) : 0,
           studentAfter = view === "student" && action
-            ? studentQuantity + (action === "RETURN" ? -1 : 1)
+            ? isExclude ? studentQuantity : studentQuantity + (action === "RETURN" ? -1 : 1)
             : studentQuantity;
         if (view === "student" && window.studentProcessScope === "ALL")
           return studentAllActionBox(sid, action);
-        return `${view === "student" ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='';render()">전체 교재</button></div></div>` : ""}<div class="tabs student-action-kind">${returnOnly ? "" : `<button class="${action === "DISTRIBUTE" ? "on" : ""}" onclick="action='DISTRIBUTE';selected=[];render()" ${(view === "student" && studentQuantity > 0) || (view === "book" && missingCount < 1) ? "disabled" : ""}>배부</button>${view === "student" ? `<button class="${action === "ADDITIONAL" ? "on" : ""}" onclick="action='ADDITIONAL';selected=[];render()" ${studentQuantity < 1 ? "disabled" : ""}>추가배부</button>` : ""}` }<button class="${action === "RETURN" ? "on" : ""}" onclick="action='RETURN';selected=[];render()" ${(view === "student" && studentQuantity < 1) || (view === "book" && holderCount < 1) ? "disabled" : ""}>회수</button></div>
+        return `${view === "student" ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='';businessReason='NORMAL';render()">전체 교재</button></div></div>` : ""}<div class="tabs student-action-kind">${returnOnly ? "" : `<button class="${action === "DISTRIBUTE" ? "on" : ""}" onclick="action='DISTRIBUTE';businessReason='NORMAL';selected=[];render()" ${(view === "student" && studentQuantity > 0) || (view === "book" && missingCount < 1) ? "disabled" : ""}>배부</button>${view === "student" ? `<button class="${action === "ADDITIONAL" ? "on" : ""}" onclick="action='ADDITIONAL';businessReason='';selected=[];render()" ${studentQuantity < 1 ? "disabled" : ""}>추가배부</button>` : ""}` }<button class="${action === "RETURN" ? "on" : ""}" onclick="action='RETURN';businessReason='NORMAL';selected=[];render()" ${(view === "student" && studentQuantity < 1) || (view === "book" && holderCount < 1) ? "disabled" : ""}>회수</button>${view === "student" && !returnOnly ? `<button class="${isExclude ? "on" : ""}" onclick="action='EXCLUDE';businessReason='NORMAL';selected=[];render()" ${studentQuantity > 0 ? "disabled" : ""}>미배부 제외</button>` : ""}</div>
  ${view === "book" ? `<p class="muted">배부 대상 ${missingCount}명 · 보유 학생 ${holderCount}명${!activeTargetCount ? ` · ${action === "DISTRIBUTE" ? "미배부 학생이 없습니다." : "보유 학생이 없습니다."}` : ""}</p>` : ""}
- <p><b>${esc(book.name)}</b>${view === "student" ? ` · 학생 현재 상태 ${studentQuantity ? "배부" : "미배부"} · 현재 보유 ${studentQuantity}권` : ` · ${qty}명 선택`}</p>${view === "student" ? `<div class="student-state-flow"><small>처리 후 예상</small><div class="flow"><div>현재 보유<br><b>${studentQuantity}권</b></div><div class="arrow">${action ? action === "RETURN" ? "-1 →" : "+1 →" : "처리 선택 →"}</div><div>처리 후 보유<br><b>${studentAfter}권</b></div></div>` : ""}<div class="flow"><div>재고 전<br><b>${book.stock || 0}권</b></div><div class="arrow">${action ? `${delta >= 0 ? "+" : ""}${delta} →` : "처리 선택 →"}</div><div>재고 후<br><b class="${expected < 0 ? "danger" : ""}">${expected}권</b></div></div>${view === "student" ? "</div>" : ""}
- ${action === "ADDITIONAL" ? `<label>추가배부 유형</label><select id="businessReason"><option value="">선택하세요</option><option value="FREE">무료배부</option><option value="EXTRA_PAYMENT">추가결제 필요</option><option value="CLASS_MOVE">반이동</option><option value="OTHER">기타</option></select>` : action === "DISTRIBUTE" && view === "student" ? `<label>배부 유형</label><select id="businessReason"><option value="NORMAL">일반</option><option value="FREE">무료배부</option><option value="EXTRA_PAYMENT">추가결제 필요</option></select>` : action === "RETURN" ? `<label>회수 유형</label><select id="businessReason"><option value="NORMAL">일반</option><option value="MISDISTRIBUTION">실수</option><option value="OTHER">기타</option></select>` : ""}
- <label>메모(사유)</label><textarea id="memo" placeholder="예: 반이동 교재 추가결제 / 실수 배부 회수"></textarea>
- <button class="btn" style="width:100%;margin-top:12px" ${expected < 0 || !action || !qty ? "disabled" : ""} onclick="commitMove('${book.id}','${action}',this)">${!action ? "처리 선택" : action === "RETURN" ? "회수 확정" : action === "ADDITIONAL" ? "추가배부 확정" : "배부 확정"}</button>
- ${view === "student" && studentQuantity === 0 ? `<button style="width:100%;margin-top:8px" onclick="excludeStudentBook('${sid}','${book.id}')">미배부 제외</button><p class="muted">프린트 대체처럼 배부·환불 대상이 아닌 경우에만 사용합니다. 재고는 변하지 않습니다.</p>` : ""}
+ <p><b>${esc(book.name)}</b>${view === "student" ? ` · 학생 현재 상태 ${studentQuantity ? "배부" : "미배부"} · 현재 보유 ${studentQuantity}권` : ` · ${qty}명 선택`}</p>${view === "student" ? `<div class="student-state-flow"><small>처리 후 예상</small>${isExclude ? `<div class="flow"><div>현재 상태<br><b>미배부</b></div><div class="arrow">제외 →</div><div>처리 후 상태<br><b>제외</b></div></div>` : `<div class="flow"><div>현재 보유<br><b>${studentQuantity}권</b></div><div class="arrow">${action ? action === "RETURN" ? "-1 →" : "+1 →" : "처리 선택 →"}</div><div>처리 후 보유<br><b>${studentAfter}권</b></div></div>`}` : ""}<div class="flow"><div>재고 전<br><b>${book.stock || 0}권</b></div><div class="arrow">${isExclude ? "변경 없음 →" : action ? `${delta >= 0 ? "+" : ""}${delta} →` : "처리 선택 →"}</div><div>재고 후<br><b class="${expected < 0 ? "danger" : ""}">${expected}권</b></div></div>${view === "student" ? "</div>" : ""}
+ ${action === "ADDITIONAL" ? `<label>추가배부 유형</label><select id="businessReason" onchange="businessReason=this.value;render()"><option value="" ${!window.businessReason ? "selected" : ""}>선택하세요</option><option value="FREE" ${window.businessReason === "FREE" ? "selected" : ""}>무료배부</option><option value="EXTRA_PAYMENT" ${window.businessReason === "EXTRA_PAYMENT" ? "selected" : ""}>추가결제 필요</option></select>${window.businessReason === "EXTRA_PAYMENT" ? '<div class="receipt"><b>추가결제 대기 등록</b><br>배부 확정과 동시에 상단 추가결제 건수에 반영됩니다.</div>' : ""}` : action === "DISTRIBUTE" && view === "student" ? `<label>배부 유형</label><select id="businessReason" onchange="businessReason=this.value"><option value="NORMAL" ${window.businessReason === "NORMAL" ? "selected" : ""}>일반</option><option value="FREE" ${window.businessReason === "FREE" ? "selected" : ""}>무료배부</option><option value="EXTRA_PAYMENT" ${window.businessReason === "EXTRA_PAYMENT" ? "selected" : ""}>추가결제 필요</option></select>` : action === "RETURN" ? `<label>회수 유형</label><select id="businessReason" onchange="businessReason=this.value"><option value="NORMAL" ${window.businessReason === "NORMAL" ? "selected" : ""}>일반</option><option value="MISDISTRIBUTION" ${window.businessReason === "MISDISTRIBUTION" ? "selected" : ""}>실수</option><option value="OTHER" ${window.businessReason === "OTHER" ? "selected" : ""}>기타</option></select>` : ""}
+ <label>메모(사유)</label><textarea id="memo" placeholder="예: 반이동 교재 추가결제 / 실수 배부 회수" oninput="memoDraft=this.value">${esc(window.memoDraft || "")}</textarea>
+ <button class="btn" style="width:100%;margin-top:12px" ${expected < 0 || !action || (!isExclude && !qty) || (action === "ADDITIONAL" && !window.businessReason) ? "disabled" : ""} onclick="${isExclude ? `excludeStudentBook('${sid}','${book.id}')` : `commitMove('${book.id}','${action}',this)`}">${!action ? "처리 선택" : isExclude ? "미배부 제외 확정" : action === "RETURN" ? "회수 확정" : action === "ADDITIONAL" ? (window.businessReason === "EXTRA_PAYMENT" ? "추가결제 배부 확정" : window.businessReason === "FREE" ? "무료 추가배부 확정" : "추가배부 유형 선택") : "배부 확정"}</button>
+ ${isExclude ? `<p class="muted">배부·환불 대상에서만 제외되며 재고는 변하지 않습니다.</p>` : ""}
  ${expected < 0 ? `<p class="error">재고 ${Math.abs(expected)}권 부족</p>` : ""}
  ${receipt && view !== "student" ? `<div class="receipt"><b>처리 완료</b><br>${esc(receipt)}<br>원장과 실제 재고를 같은 거래에서 저장했습니다.</div>` : ""}`;
       }
@@ -2037,16 +2263,18 @@
         }
       }
       function academyTargetSummary() {
-        const students = arr(S.students).filter(
-            (student) =>
-              student.active !== false &&
-              activePeriodClassIds(S, student.id).length,
-          ),
-          classes = arr(S.classes).filter(
-            (item) => item.active !== false && classInPeriod(item),
-          ),
-          books = periodBookIds();
-        return `<div class="receipt"><b>${esc(periodLabel(selectedPeriod()))}</b><br>전체 학생 ${students.length}명 · 운영반 ${classes.length}개 · 매칭 교재 ${books.size}종</div><p class="muted">현재 대상 전체를 처리합니다. 특정 반이나 교재만 처리하려면 옆 탭을 선택하세요.</p>`;
+        return derivedValue("academyTargetSummary", () => {
+          const students = arr(S.students).filter(
+              (student) =>
+                student.active !== false &&
+                activePeriodClassIds(S, student.id).length,
+            ),
+            classes = arr(S.classes).filter(
+              (item) => item.active !== false && classInPeriod(item),
+            ),
+            books = periodBookIds();
+          return `<div class="receipt"><b>${esc(periodLabel(selectedPeriod()))}</b><br>전체 학생 ${students.length}명 · 운영반 ${classes.length}개 · 매칭 교재 ${books.size}종</div><p class="muted">현재 대상 전체를 처리합니다. 특정 반이나 교재만 처리하려면 옆 탭을 선택하세요.</p>`;
+        });
       }
       function classRosterSummaryHtml(cid) {
         const c = S.classes?.[cid],
@@ -2396,12 +2624,55 @@
         };
       }
       function academyBulkPlan(st) {
-        return arr(st.books)
-          .filter(
+        if (st === S)
+          return derivedValue("academyBulkPlan", () => academyBulkPlanUncached(st));
+        return academyBulkPlanUncached(st);
+      }
+      function academyBulkPlanUncached(st) {
+        const pid = selectedPeriodId() || st.currentPeriodId,
+          activeBooks = arr(st.books).filter(
             (b) => b.active !== false && !bookDistributionIsClosed(b),
-          )
-          .map((b) => bookBulkPlan(st, b.id))
-          .filter((x) => x && x.need > 0)
+          ),
+          activeBookIds = new Set(activeBooks.map((b) => b.id)),
+          classBooks = new Map();
+        for (const c of arr(st.classes)) {
+          if (c.active === false || !classInPeriod(c, pid)) continue;
+          const ids = arr(c.books).filter((id) => activeBookIds.has(id));
+          if (ids.length) classBooks.set(c.id, ids);
+        }
+        const eligibleByBook = new Map();
+        for (const s of arr(st.students)) {
+          if (s.active === false || s.pendingReturn) continue;
+          const bookIds = new Set();
+          for (const cid of activePeriodClassIds(st, s.id, pid))
+            for (const id of classBooks.get(cid) || []) bookIds.add(id);
+          for (const id of bookIds) {
+            if (!eligibleByBook.has(id)) eligibleByBook.set(id, []);
+            eligibleByBook.get(id).push(s);
+          }
+        }
+        return activeBooks
+          .map((b) => {
+            const eligible = eligibleByBook.get(b.id) || [],
+              studentIds = eligible
+                .filter((s) => Number(s.holdings?.[b.id] || 0) === 0)
+                .map((s) => s.id)
+                .sort(),
+              distributed = eligible.length - studentIds.length,
+              stock = Number(b.stock || 0);
+            return {
+              bid: b.id,
+              name: b.name,
+              stock,
+              studentIds,
+              need: studentIds.length,
+              after: stock - studentIds.length,
+              total: eligible.length,
+              distributed,
+              missing: studentIds.length,
+            };
+          })
+          .filter((x) => x.need > 0)
           .sort((a, b) => a.name.localeCompare(b.name, "ko"));
       }
       function academyBulkBox() {
@@ -2421,12 +2692,17 @@
         return `${completed}<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="academyBulkMode='DISTRIBUTE';academyShortOnly=false;render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="academyBulkMode='RETURN';academyShortOnly=false;render()">전체 회수</button></div>
  <div class="summary-row"><div class="summary-item"><span>교재</span><b>${allRows.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"배부"}</span><b>${quantity}권</b></div><div class="summary-item"><span>부족</span><b>${mode==="DISTRIBUTE"?short.length:0}종</b></div></div>
  ${mode==="DISTRIBUTE" && short.length ? `<div class="tabs shortage-filter"><button class="${shortOnly?"":"on"}" onclick="academyShortOnly=false;render()">전체 교재</button><button class="${shortOnly?"on":""}" onclick="academyShortOnly=true;render()">부족 ${short.length}종만 보기</button></div>` : ""}
- <div class="scroll" style="max-height:280px"><table><thead><tr><th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th></tr></thead><tbody>${rows.map((x)=>{const summary=bookEligibilitySummary(S,x.bid),total=summary?.total ?? x.studentIds?.length ?? 0,distributed=summary?.distributed ?? (mode==="RETURN"?x.studentIds.length:Math.max(0,total-x.need)),missing=summary?.missing ?? Math.max(0,total-distributed);return `<tr><td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${x.studentIds.length}명 → <b>0명</b>`:`${distributed}명 → <b>${total}명</b>`}</td><td>${mode==="RETURN"?`${missing}명 → <b>${total}명</b>`:`${x.need}명 → <b>0명</b>`}</td><td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`}).join("") || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>'}</tbody></table></div>
+ <div class="scroll" style="max-height:280px"><table><thead><tr><th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th></tr></thead><tbody>${rows.map((x)=>{const total=mode==="RETURN"?x.studentIds.length:x.total,distributed=mode==="RETURN"?x.studentIds.length:x.distributed,missing=mode==="RETURN"?0:x.missing;return `<tr><td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${distributed}명 → <b>0명</b>`:`${distributed}명 → <b>${total}명</b>`}</td><td>${mode==="RETURN"?`${missing}명 → <b>${total}명</b>`:`${missing}명 → <b>0명</b>`}</td><td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`}).join("") || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>'}</tbody></table></div>
  ${mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족 ${short.length}종 — 전체 배부를 중단합니다.</p>` : ""}
  <label>${mode==="RETURN"?"전체 회수 사유":"전체 배부 메모"}</label><input id="${mode==="RETURN"?"academyReturnMemo":"academyBulkMemo"}" placeholder="${mode==="RETURN"?"예: 학기 종료 전체 회수":"예: 개강 전체 미배부"}">
  <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!quantity || (mode==="DISTRIBUTE"&&short.length) ? "disabled" : ""} onclick="${mode==="RETURN"?"commitAcademyReturn(this)":"commitAcademyBulk(this)"}">${quantity}권 ${mode==="RETURN"?"전체 회수":"전체 배부"} 확정</button>`;
       }
       function academyReturnPlan(st) {
+        if (st === S)
+          return derivedValue("academyReturnPlan", () => academyReturnPlanUncached(st));
+        return academyReturnPlanUncached(st);
+      }
+      function academyReturnPlanUncached(st) {
         const plan = [];
         for (const b of arr(st.books)) {
           const quantities = {};
@@ -2945,6 +3221,11 @@
       async function commitMove(bid, type, button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         if (!selected.length) return alert("대상을 선택하세요.");
+        const originalButtonText = button?.textContent || "";
+        if (button) {
+          button.disabled = true;
+          button.textContent = "반영 중...";
+        }
         const shownStock = Number(S.books?.[bid]?.stock || 0),
           receiptSid = view === "student" && selected.length === 1 ? selected[0] : "",
           shownStudentQuantity = receiptSid ? held(receiptSid, bid) : 0,
@@ -2956,10 +3237,11 @@
             .join("|");
         operationBusy = true;
         try {
-          const memo = document.querySelector("#memo")?.value.trim() || "",
-            businessReason =
-              document.querySelector("#businessReason")?.value ||
-              (type === "DISTRIBUTE" ? "NORMAL" : "NORMAL");
+           const memo = document.querySelector("#memo")?.value.trim() || String(window.memoDraft || "").trim(),
+             businessReason =
+               document.querySelector("#businessReason")?.value ||
+               window.businessReason ||
+               (type === "ADDITIONAL" ? "" : "NORMAL");
           let msg = "";
           const opId = operationId(button),
             isReturn = type === "RETURN",
@@ -2968,13 +3250,19 @@
             batchId = "B" + crypto.randomUUID();
           if (
             isAdditional &&
-            !["FREE", "EXTRA_PAYMENT", "CLASS_MOVE", "OTHER"].includes(
+             !["FREE", "EXTRA_PAYMENT"].includes(
               businessReason,
             )
           )
             return alert("추가배부 유형을 선택하세요.");
           if ((isAdditional || businessReason !== "NORMAL") && !memo)
             return alert("예외처리 상세메모를 입력하세요.");
+          // The transaction below applies the same mutation to the local snapshot
+          // before it waits for Firebase.  Clear only the editor selection first so
+          // that the immediate render shows the completed state, not a second
+          // phantom preview or a long-lived "반영 중" button.
+          window.action = "";
+          window.memoDraft = "";
           const r = await transaction((st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
@@ -3175,16 +3463,24 @@
               stockBefore: shownStock,
               stockAfter,
               stockDelta: stockAfter - shownStock,
+              businessReason,
               memo,
               actor,
               time: fmt(now()),
             };
           }
-          receipt = msg;
-          selected = [];
-          render();
+           receipt = msg;
+           selected = [];
+           window.action = "";
+           window.businessReason = type === "ADDITIONAL" ? "" : "NORMAL";
+           window.memoDraft = "";
+           render();
         } finally {
           operationBusy = false;
+          if (button?.isConnected) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+          }
         }
       }
       async function allForStudent(sid, type, button) {
@@ -3503,14 +3799,14 @@
               )
               .map((c) => c.id),
           ),
-          targets = arr(S.students).filter(
+          targets = !b ? [] : arr(S.students).filter(
             (s) =>
               s.active !== false &&
               !s.pendingReturn &&
               activePeriodClassIds(S, s.id).some((cid) => mappedClassIds.has(cid)),
           ),
           targetIds = new Set(targets.map((s) => s.id)),
-          outsideHolders = arr(S.students).filter(
+          outsideHolders = !b ? [] : arr(S.students).filter(
             (s) => held(s.id, bid) > 0 && !targetIds.has(s.id),
           ),
           distributed = targets.filter((s) => held(s.id, bid) > 0),
@@ -3519,7 +3815,7 @@
             (n, s) => n + Math.max(0, held(s.id, bid) - 1),
             0,
           ),
-          returns = movementRows().filter(
+          returns = !b ? [] : movementRows().filter(
             (m) => m.bookId === bid && m.type === "RETURN",
           ),
           mode = ["all", "missing", "distributed", "outside", "returns"].includes(
@@ -3688,7 +3984,9 @@
           bookTeachers = uniq(allBooks.filter((b)=>bookSubject === "전체" || b.subject === bookSubject).map((b)=>b.teacher || "학원 공통")).sort((a,b)=>a.localeCompare(b,"ko")),
           bookTeacher = bookTeachers.includes(window.bookManageTeacher) ? window.bookManageTeacher : "전체",
           bookQuery = String(window.bookManageQuery || "").trim().toLocaleLowerCase("ko"),
-          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && (!bookQuery || `${b.subject} ${b.teacher || "학원 공통"} ${b.name}`.toLocaleLowerCase("ko").includes(bookQuery))),
+          bookState = window.bookManageState || "배부 가능",
+          bookPriceState = window.bookManagePriceState || "전체",
+          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && (bookState === "전체" || (bookState === "배부 가능" ? b.active !== false && !bookDistributionIsClosed(b) : b.active === false || bookDistributionIsClosed(b))) && (bookPriceState === "전체" || bookPriceValue(b) == null) && (!bookQuery || `${b.subject} ${b.teacher || "학원 공통"} ${b.name}`.toLocaleLowerCase("ko").includes(bookQuery))),
           classSubject = window.classManageSubject || "전체",
           classTeachers = uniq(classes.filter((c)=>classSubject === "전체" || c.subject === classSubject).map((c)=>c.teacher || "미지정")).sort((a,b)=>a.localeCompare(b,"ko")),
           classTeacher = classTeachers.includes(window.classManageTeacher) ? window.classManageTeacher : "전체",
@@ -3707,12 +4005,11 @@
             ${managedComboField("newClassSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newClassTeacher","강사",teachersAll,"선택하거나 입력")}
             <label>반명<input id="newClassName" placeholder="반명 입력"></label>
-            <label class="common-class-option"><input id="newClassSystemCommon" type="checkbox" onchange="toggleNewCommonClass(this.checked)">전체 학생 공통반</label>
             <label>매칭 교재<div class="managed-combo"><input id="newClassBookSearch" autocomplete="off" placeholder="교재명 검색" onfocus="showClassBookPicker()" oninput="showClassBookPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassBookResults');if(b)b.innerHTML=''},160)"><div id="newClassBookResults" class="picker-results"></div></div></label>
             <button onclick="addClassBook()">추가</button>
             <button class="btn" onclick="createClass()">반 저장</button>
           </div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div></section>
-          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="action-row" style="justify-content:center"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록" style="width:110px"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
+          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="action-row" style="justify-content:center"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록" style="width:110px"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
@@ -3722,7 +4019,7 @@
           const cell = catalogRows[index]?.lastElementChild;
           if (!cell) return;
           const closed = bookDistributionIsClosed(book);
-          cell.innerHTML = `<div class="action-row" style="justify-content:center;gap:6px;flex-wrap:wrap"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : book.distributionEndDate ? `배부 가능 · ${esc(book.distributionEndDate)}까지` : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일" style="width:145px"><button onclick="saveBookDistributionEndDate('${book.id}')">종료일 저장</button></div>`;
+          cell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button></div>`;
         });
       }
       function operatingClassManagement() {
@@ -3806,15 +4103,11 @@
         );
         newClassBookList.innerHTML = classBookDraftHtml();
       }
-      function toggleNewCommonClass(checked) {
-        const teacher = document.getElementById("newClassTeacher");
-        if (checked && teacher) teacher.value = "공통";
-      }
       async function createClass() {
         const pid = selectedPeriodId(),
           subject = newClassSubject.value.trim(),
-          systemCommon = !!document.getElementById("newClassSystemCommon")?.checked,
-          teacher = systemCommon ? "공통" : newClassTeacher.value.trim(),
+          teacher = newClassTeacher.value.trim(),
+          systemCommon = teacher === "공통",
           name = newClassName.value.trim(),
           bids = window.newClassBooks || [];
         if (!pid || !subject || !teacher || !name || !bids.length)
@@ -4267,13 +4560,21 @@
             : "",
           newStudent = S.students[newStudentId];
         const current = S.students[editId],
+          beforeBookIds = new Set(
+            periodClassIds(S, editId).flatMap((cid) =>
+              arr(S.classes[cid]?.books),
+            ),
+          ),
           afterBookIds = new Set(
             (window.editAssigned || []).flatMap((cid) =>
               arr(S.classes[cid]?.books),
             ),
           ),
           newBookCandidates = arr(S.books).filter(
-            (b) => afterBookIds.has(b.id) && held(editId, b.id) === 0,
+            (b) =>
+              afterBookIds.has(b.id) &&
+              !beforeBookIds.has(b.id) &&
+              held(editId, b.id) === 0,
           ),
           returnCandidates = arr(S.books).filter(
             (b) => held(editId, b.id) > 0 && !afterBookIds.has(b.id),
@@ -4434,11 +4735,19 @@
           before = clsOf(sid)
           .map((c) => c.name)
           .join(", ");
-        const afterBookIds = new Set(
+        const beforeBookIds = new Set(
+            beforeClassIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
+          ),
+          afterBookIds = new Set(
             classIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
           ),
           distributeIds = arr(S.books)
-            .filter((book) => afterBookIds.has(book.id) && held(sid, book.id) === 0)
+            .filter(
+              (book) =>
+                afterBookIds.has(book.id) &&
+                !beforeBookIds.has(book.id) &&
+                held(sid, book.id) === 0,
+            )
             .map((book) => book.id),
           returnIds = arr(S.books)
             .filter((book) => held(sid, book.id) > 0 && !afterBookIds.has(book.id))
@@ -5182,6 +5491,9 @@
         );
       }
       function allHistory() {
+        return derivedValue("allHistory", buildAllHistory);
+      }
+      function buildAllHistory() {
         const extra = [];
         for (const s of arr(S.students)) {
           if (s.createdAt)
@@ -5350,6 +5662,7 @@
       function copyEcodingClassInfo(){
         const sourceId=document.querySelector('#ecCopyPeriod')?.value;
         if(!sourceId)return alert('복사할 이전 대상을 선택하세요.');
+        window.ecodingCopySourceId=sourceId;
         const sourceRows=ecodingCopySource(sourceId),classes=arr(S.ecodingSnapshots?.[selectedPeriodId()]?.classes),draft=ecodingDraftState();
         const byId=new Map(sourceRows.map(item=>[String(item.externalClassId||''),item]));
         const byName=new Map(sourceRows.map(item=>[String(item.externalClassName||'').trim(),item]));
@@ -5395,7 +5708,7 @@
         const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort();
         const rank=c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id],configured=!!(m.subject||m.teacher);return (bulk?0:m.enabled?1:configured?2:3)};
         const shown=classes.filter(c=>view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!draft[c.id]?.enabled:view==='UNSET'?!draft[c.id]?.enabled:true).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
-        return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}">${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="미입력 가능"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 ‘적용’ 체크를 해제하세요. 교재가 여러 권이면 한 권씩 적용→저장을 반복합니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결 예정</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
+        return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="미입력 가능"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 ‘적용’ 체크를 해제하세요. 교재가 여러 권이면 한 권씩 적용→저장을 반복합니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결 예정</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
       }
       async function fetchEcodingSnapshot(){
         const user=firebase.auth().currentUser;
@@ -5408,8 +5721,12 @@
       }
       async function refreshEcodingPreview(){
         const pid=selectedPeriodId(); if(!pid) return alert('대상을 먼저 선택하세요.');
-        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); const old=st.ecodingSnapshots[pid]; st.ecodingSnapshots[pid]={...body,previousStudents:old?.students||body.students,periodId:pid};}); if(r.committed){S=r.snapshot.val();alert(`이코딩 반 ${body.classes.length}개·학생 ${body.students.length}명을 확인했습니다. 공통 반은 프로그램에서 자동 준비하며 재고 변화는 없습니다.`);targetManagement();}}
+        const button=document.querySelector('button[onclick="refreshEcodingPreview()"]');
+        const originalText=button?.textContent||'이코딩 반 불러오기';
+        if(button){button.disabled=true;button.textContent='불러오는 중...';}
+        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();alert(`이코딩 반 ${body.classes.length}개·학생 ${body.students.length}명을 확인했습니다. 공통 반은 프로그램에서 자동 준비하며 재고 변화는 없습니다.`);targetManagement();}}
         catch(error){alert(error.message)}
+        finally{if(button?.isConnected){button.disabled=false;button.textContent=originalText;}}
       }
       function ecodingMapDraft(){
         const draft=ecodingDraftState(),classes=arr(S.ecodingSnapshots?.[selectedPeriodId()]?.classes),rows={};
@@ -5418,16 +5735,17 @@
       async function saveEcodingMappings(){
         const pid=selectedPeriodId(),rows=ecodingMapDraft(); if(!Object.keys(rows).length)return alert('사용할 반을 선택하세요.');
         const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price!=null&&(!Number.isInteger(x.price)||x.price<0)); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 확인하세요.');
-        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){const linked=normalizedEcodingStudent(source,rows);let student=arr(st.students).find(x=>x.externalId===source.id);const sid=student?.id||id('S',`ECODING|${source.id}`);student=student||{id:sid,externalId:source.id,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=source.name;student.number=source.number||student.number||'';student.externalId=source.id;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...linked.classIds};student.classes={...(student.classes||{}),...linked.classIds};st.students[sid]=student;}});if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
+        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){const linked=normalizedEcodingStudent(source,rows);let student=arr(st.students).find(x=>x.externalId===source.id);const sid=student?.id||id('S',`ECODING|${source.id}`);student=student||{id:sid,externalId:source.id,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=source.name;student.number=source.number||student.number||'';student.externalId=source.id;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...linked.classIds};rebuildStudentClasses(student);st.students[sid]=student;}});if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
       }
+      function rebuildStudentClasses(student){const merged={};for(const periodClasses of Object.values(student.periodClasses||{}))for(const classId of Object.keys(periodClasses||{}))merged[classId]=classId;student.classes=merged;return student;}
       function normalizedEcodingStudent(student,maps){const classIds={};for(const c of student.classes||[]){if(!c.active||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
-      function queueEcodingExitRefund(st,pid,eid,prev){
+      function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const student=arr(st.students).find(x=>x.externalId===eid);
         if(!student)return false;
         student.periodMembership=student.periodMembership||{};
         student.periodMembership[pid]=false;
         st.refundTasks=st.refundTasks||{};
-        const taskId=`${pid}|${student.id}`,books={};
+        const taskId=`${pid}|${student.id}${transitionId?`|${transitionId}`:''}`,books={};
         for(const cid of Object.keys(prev.classIds||{}))for(const bid of Object.keys(st.classes?.[cid]?.books||{})){
           if(studentBookIsExcluded(st,student.id,bid,pid))continue;
           if(Number(student.holdings?.[bid]||0)>0)continue;
@@ -5446,7 +5764,7 @@
       function ecodingEventDetail(event){const names=ids=>Object.keys(ids||{}).map(id=>S.classes?.[id]?.name||id).join(' · ')||'없음';return `<h2>${esc(event.studentName)}</h2><div class="flow"><div>이전 반<br><b>${esc(names(event.beforeClassIds))}</b></div><div class="arrow">→</div><div>변경 반<br><b>${esc(names(event.afterClassIds))}</b></div></div><p class="muted">반정보 확인은 재고를 바꾸지 않습니다. 저장 후 학생 교재 화면에서 배부·회수를 선택하면 그때 재고 전·후가 표시됩니다.</p><button class="btn" onclick="applyEcodingEvent('${event.id}')">반정보 확인 후 교재 처리</button>`;}
       function ecodingNewScreen(){ecodingQueueScreen('NEW','신규');}
       function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반이동');}
-      async function applyEcodingEvent(eventId){const event=S.ecodingEvents?.[eventId];if(!event)return;let localSid=arr(S.students).find(s=>s.externalId===event.externalStudentId)?.id||id('S',`ECODING|${event.externalStudentId}`);const r=await transaction(st=>{const e=st.ecodingEvents?.[eventId];if(!e||e.status!=='PENDING')return false;st.students=st.students||{};ensureSystemCommonClass(st,e.periodId);const student=st.students[localSid]||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};student.classes={...(student.classes||{}),...(e.afterClassIds||{})};st.students[localSid]=student;e.status='DONE';e.completedAt=now();e.completedBy=actor;});if(r.committed){S=r.snapshot.val();window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();}}
+      async function applyEcodingEvent(eventId){const event=S.ecodingEvents?.[eventId];if(!event)return;let localSid=arr(S.students).find(s=>s.externalId===event.externalStudentId)?.id||id('S',`ECODING|${event.externalStudentId}`);const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&held(localSid,bid)===0),returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&held(localSid,bid)>0);const r=await transaction(st=>{const e=st.ecodingEvents?.[eventId];if(!e||e.status!=='PENDING')return false;st.students=st.students||{};ensureSystemCommonClass(st,e.periodId);const student=st.students[localSid]||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;e.status='DONE';e.completedAt=now();e.completedBy=actor;});if(r.committed){S=r.snapshot.val();window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();}}
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
       saveEcodingMappings = async function () {
         await saveEcodingMappingsBeforeManualExitLock();
@@ -5460,6 +5778,7 @@
             student.periodClasses = student.periodClasses || {};
             student.periodMembership[pid] = false;
             student.periodClasses[pid] = {};
+            rebuildStudentClasses(student);
           }
         });
         if (r.committed) {
@@ -5467,19 +5786,36 @@
           render();
         }
       };
-      runEcodingDiff = async function () {
-        const pid = selectedPeriodId(),
-          snap = S.ecodingSnapshots?.[pid],
+      runEcodingDiff = async function (silent = false, requestedPeriodId = "") {
+        const pid = requestedPeriodId || selectedPeriodId(),
+          snap = S.ecodingBaselines?.[pid],
           maps = S.ecodingClassMappings?.[pid] || {};
-        if (!snap || !Object.keys(maps).length)
-          return alert("반을 불러오고 선택 반을 먼저 저장하세요.");
+        if (!snap || !Object.keys(maps).length) {
+          if (!silent) alert("반을 불러오고 선택 반을 먼저 저장하세요.");
+          return { skipped: true };
+        }
         try {
           const fresh = await fetchEcodingSnapshot(),
             before = new Map((snap.students || []).map((student) => [student.id, normalizedEcodingStudent(student, maps)])),
             after = new Map((fresh.students || []).map((student) => [student.id, normalizedEcodingStudent(student, maps)]));
           const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0 };
+          const hasRosterChange = [...after].some(([externalId, next]) => {
+            const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
+            if (!nextIds.length) return false;
+            const prevIds = Object.keys(prev?.classIds || {}).sort();
+            return !prev || JSON.stringify(prevIds) !== JSON.stringify(nextIds);
+          }) || [...before].some(([externalId, prev]) => {
+            if (!Object.keys(prev.classIds || {}).length) return false;
+            const next = after.get(externalId);
+            return !next || !Object.keys(next.classIds || {}).length;
+          });
+          const hasManualExitPending = arr(S.students).some((student) => ecodingManualExitPending(student, pid));
+          // 자동 확인은 변경이 없을 때 Firebase 전체 상태를 다시 쓰지 않는다.
+          // 이 방어가 탭 전환·입력·저장 중 불필요한 전체 화면 갱신을 막는다.
+          if (silent && !hasRosterChange && !hasManualExitPending) return counts;
           const r = await transaction((st) => {
             st.ecodingEvents = st.ecodingEvents || {};
+            st.ecodingBaselines = st.ecodingBaselines || {};
             st.movements = st.movements || {};
             const manualExternalIds = new Set();
             for (const student of arr(st.students)) {
@@ -5492,6 +5828,7 @@
               student.periodClasses = student.periodClasses || {};
               student.periodMembership[pid] = false;
               student.periodClasses[pid] = {};
+              rebuildStudentClasses(student);
               if (stillLinked) {
                 counts.WAITING++;
                 continue;
@@ -5522,7 +5859,8 @@
                   ? "MOVE"
                   : "";
               if (!type) continue;
-              const key = id("E", `${pid}|${externalId}|${type}|${JSON.stringify(next.classIds)}`);
+              const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
+              const key = id("E", `${pid}|${externalId}|${type}|${JSON.stringify(next.classIds)}|${transitionStamp}`);
               if (!st.ecodingEvents[key]) {
                 st.ecodingEvents[key] = {
                   id: key, type, status: "PENDING", periodId: pid,
@@ -5537,9 +5875,10 @@
               if (manualExternalIds.has(externalId) || !Object.keys(prev.classIds).length) continue;
               const next = after.get(externalId);
               if (next && Object.keys(next.classIds).length) continue;
-              const key = id("E", `${pid}|${externalId}|EXIT`);
+              const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
+              const key = id("E", `${pid}|${externalId}|EXIT|${transitionStamp}`);
               if (!st.ecodingEvents[key]) {
-                const queued = queueEcodingExitRefund(st, pid, externalId, prev);
+                const queued = queueEcodingExitRefund(st, pid, externalId, prev, key);
                 st.ecodingEvents[key] = {
                   id: key, type: "EXIT", status: queued ? "DONE" : "PENDING",
                   periodId: pid, externalStudentId: externalId, studentName: prev.name,
@@ -5549,17 +5888,59 @@
                 counts.EXIT++;
               }
             }
-            st.ecodingSnapshots[pid] = { ...fresh, previousStudents: fresh.students, periodId: pid };
+            st.ecodingSnapshots[pid] = { ...fresh, periodId: pid };
+            st.ecodingBaselines[pid] = { ...fresh, periodId: pid };
           });
           if (r.committed) {
             S = r.snapshot.val();
-            alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명\n재고는 변하지 않았습니다.`);
-            render();
+            resetDerivedState();
+            if (!silent) {
+              alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명\n재고는 변하지 않았습니다.`);
+              render();
+            } else if (counts.NEW || counts.MOVE || counts.EXIT || counts.WAITING || counts.CONFIRMED) {
+              renderTabs();
+            }
+            return counts;
           }
         } catch (error) {
-          alert(error.message);
+          if (!silent) alert(error.message);
+          else console.warn("이코딩 자동 연동 확인 실패", error);
+          return { error: true };
         }
       };
+
+      // 이코딩은 재고를 자동 변경하지 않고 신규·반이동·퇴반 명단만 자동 감지한다.
+      const ECODING_AUTO_SYNC_INTERVAL = 60 * 1000;
+      let ecodingAutoSyncRunning = false;
+      let ecodingAutoSyncLastAttempt = 0;
+      let ecodingAutoSyncTimer = 0;
+      async function runEcodingAutoSync(force = false) {
+        if (!actor || !firebase.auth().currentUser || ecodingAutoSyncRunning || document.hidden) return;
+        const currentTime = Date.now();
+        if (!force && currentTime - ecodingAutoSyncLastAttempt < ECODING_AUTO_SYNC_INTERVAL - 1000) return;
+        ecodingAutoSyncLastAttempt = currentTime;
+        ecodingAutoSyncRunning = true;
+        try {
+          const periodIds = arr(S.periods)
+            .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status))
+            .map((period) => period.id)
+            .filter((periodId) => S.ecodingBaselines?.[periodId] && Object.keys(S.ecodingClassMappings?.[periodId] || {}).length);
+          for (const periodId of periodIds) await runEcodingDiff(true, periodId);
+        } catch (error) {
+          console.warn("이코딩 자동 연동 확인 실패", error);
+        } finally {
+          ecodingAutoSyncRunning = false;
+        }
+      }
+      function startEcodingAutoSync() {
+        clearInterval(ecodingAutoSyncTimer);
+        ecodingAutoSyncTimer = setInterval(() => runEcodingAutoSync(false), ECODING_AUTO_SYNC_INTERVAL);
+        setTimeout(() => runEcodingAutoSync(true), 1200);
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) runEcodingAutoSync(true);
+      });
+      window.addEventListener("focus", () => runEcodingAutoSync(true));
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
       applyEcodingEvent = async function (eventId) {
         const event = S.ecodingEvents?.[eventId],
