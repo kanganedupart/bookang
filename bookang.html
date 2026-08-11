@@ -61,7 +61,7 @@
       .book-create-row{grid-template-columns:170px 210px minmax(260px,1fr) 150px 150px;max-width:none;width:100%;gap:10px;margin-bottom:18px}.book-create-row button{min-width:0;white-space:nowrap}
       .catalog-step{border-left:4px solid var(--blue)}
       .catalog-step-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.catalog-step-head b{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff}.catalog-step-head h2{margin:0}
-      .catalog-class-row{display:grid;grid-template-columns:140px 160px 210px minmax(280px,1fr) 72px 88px;gap:10px;align-items:end;width:100%}.catalog-class-row label{margin:0}.catalog-class-row input,.catalog-class-row select{max-width:none}.catalog-class-row button{width:100%}.catalog-status-line{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}.catalog-status-line input{width:132px;min-width:132px}.catalog-status-line button{white-space:nowrap}.catalog-table tbody td{padding-top:8px;padding-bottom:8px}
+      .catalog-class-row{display:grid;grid-template-columns:140px 160px 210px minmax(280px,1fr) 72px 88px;gap:10px;align-items:end;width:100%}.catalog-class-row label{margin:0}.catalog-class-row input,.catalog-class-row select{max-width:none}.catalog-class-row button{width:100%}.catalog-table th:nth-child(7),.catalog-table td:nth-child(7){width:170px}.catalog-table th:nth-child(8),.catalog-table td:nth-child(8){width:300px}.catalog-price-line,.catalog-status-line{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;margin:0}.catalog-price-line input{width:96px;min-width:72px;max-width:96px;text-align:right}.catalog-status-line input{width:126px;min-width:118px}.catalog-price-line button,.catalog-status-line button{flex:0 0 auto;white-space:nowrap;margin:0}.catalog-table tbody td{padding-top:8px;padding-bottom:8px}
       .catalog-book-row{display:grid;grid-template-columns:140px 170px minmax(280px,1fr) 140px 140px;gap:10px;align-items:end;width:100%}.catalog-book-row label{margin:0}.catalog-book-row input{max-width:none}.catalog-book-row button{min-width:0}
       .catalog-filter{display:grid;grid-template-columns:140px 160px 130px 120px minmax(240px,1fr);gap:10px;align-items:end;width:100%;margin-bottom:12px}.catalog-filter label{margin:0}.catalog-filter input,.catalog-filter select{max-width:none}
       .managed-combo{position:relative}.managed-combo .picker-results{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;box-shadow:0 10px 24px #1a243018}
@@ -240,15 +240,55 @@
           .toLowerCase()
           .replace(/\s+/g, "");
       }
+      function normalizedStudentName(studentOrName) {
+        const rawName = String(
+          typeof studentOrName === "object" && studentOrName
+            ? studentOrName.name
+            : studentOrName || "",
+        ).normalize("NFKC").trim();
+        const withoutLegacyPrefix = rawName
+          .replace(/^\([^)]*\)/, "")
+          .replace(/\s+/g, "");
+        const nameOnly = /^[가-힣]{2,5}\d{3,6}$/.test(withoutLegacyPrefix)
+          ? withoutLegacyPrefix.replace(/\d{3,6}$/, "")
+          : withoutLegacyPrefix;
+        return nameOnly.toLowerCase();
+      }
+      function studentNameIdentityKey(studentOrName) {
+        const normalizedName = normalizedStudentName(studentOrName);
+        return normalizedName ? `name:${normalizedName}` : "";
+      }
+      function studentIdentityKey(student) {
+        const externalId = String(student?.externalId || "").normalize("NFKC").trim();
+        if (externalId) return `external:${externalId}`;
+        const normalizedName = normalizedStudentName(student);
+        return normalizedName ? `name:${normalizedName}` : `id:${String(student?.id || "")}`;
+      }
+      function preferredStudentRecord(a, b, pid = selectedPeriodId()) {
+        const score = (student) =>
+          Object.keys(student?.periodClasses?.[pid] || {}).length * 1000 +
+          Object.keys(student?.holdings || {}).length * 10 +
+          (student?.externalId ? 2 : 0) +
+          (student?.active !== false ? 1 : 0);
+        return score(b) > score(a) ? b : a;
+      }
       function matchingStudents(q, includeInactive = false) {
         q = studentSearchKey(q);
         if (q.length < 2) return [];
-        return arr(S.students)
-          .filter(
-            (s) =>
-              (includeInactive || s.active !== false) &&
-              studentSearchKey(s.name).includes(q),
-          )
+        const uniqueStudents = new Map();
+        for (const student of arr(S.students).filter(
+          (s) =>
+            (includeInactive || s.active !== false) &&
+            studentSearchKey(s.name).includes(q),
+        )) {
+          const key = studentNameIdentityKey(student) || studentIdentityKey(student);
+          const existing = uniqueStudents.get(key);
+          uniqueStudents.set(
+            key,
+            existing ? preferredStudentRecord(existing, student) : student,
+          );
+        }
+        return [...uniqueStudents.values()]
           .sort((a, b) => {
             const ak = studentSearchKey(a.name),
               bk = studentSearchKey(b.name),
@@ -668,6 +708,10 @@
         if (stored) return stored;
         const student = S.students?.[sid];
         if (!student || student.active !== false) return null;
+        const withdrawal = arr(student.withdrawals)
+          .filter((item) => !pid || item.periodId === pid)
+          .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
+        if (!withdrawal) return null;
         const books = Object.fromEntries(
           withdrawalBooks(sid)
             .filter((book) => !studentBookIsExcluded(S, sid, book.id, pid))
@@ -682,10 +726,6 @@
               },
             ]),
         );
-        if (!Object.keys(books).length) return null;
-        const withdrawal = arr(student.withdrawals)
-          .filter((item) => !pid || item.periodId === pid)
-          .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
         return {
           id: id("R", `${sid}|${pid}`),
           periodId: pid,
@@ -843,12 +883,7 @@
               );
           }
         }
-        return [...tasks.values()].filter(
-          (task) =>
-            Object.values(task.books || {}).some(
-              (book) => book.status === "PENDING",
-            ),
-        );
+        return [...tasks.values()].filter((task) => task.status !== "DONE");
       }
       function pendingRefundCount() {
         const count = pendingRefundRows().length;
@@ -861,9 +896,7 @@
         return arr(st.refundTasks).filter(
           (task) =>
             (!activeIds.size || activeIds.has(task.periodId)) &&
-            Object.values(task.books || {}).some(
-              (book) => book.status === "PENDING",
-            ),
+            task.status !== "DONE",
         ).length;
       }
       function fastPendingRefundCount() {
@@ -1259,7 +1292,23 @@
         return !!endDate && endDate < dateKey;
       }
       function studentRosterAtDate(st, pid, dateKey = localDateKey()) {
-        const rows = [], unknown = [];
+        const rowsByStudent = new Map(), unknownByStudent = new Map();
+        const todayKey = localDateKey();
+  const rosterIdentityKey = (student) =>
+    studentNameIdentityKey(student) || studentIdentityKey(student);
+        const preferredRosterRecord = (a, b) => {
+          const score = (student) =>
+            Object.keys(student?.periodClasses?.[pid] || {}).length * 1000 +
+            Object.keys(student?.holdings || {}).length * 10 +
+            (student?.externalId ? 2 : 0) +
+            (student?.active !== false ? 1 : 0);
+          return score(b) > score(a) ? b : a;
+        };
+        const addUnique = (target, student) => {
+          const key = rosterIdentityKey(student);
+          const existing = target.get(key);
+          target.set(key, existing ? preferredRosterRecord(existing, student) : student);
+        };
         for (const student of arr(st.students)) {
           const registered = student.createdAt ? localDateKey(student.createdAt) : "";
           const withdrawals = arr(student.withdrawals)
@@ -1268,21 +1317,31 @@
             .filter(Boolean)
             .sort();
           const withdrewOn = withdrawals[0] || "";
-          const currentMember = student.periodMembership?.[pid] === true ||
-            Object.keys(student.periodClasses?.[pid] || {}).length > 0;
-          const knownPastMember = withdrawals.length > 0;
-          if (!registered && dateKey >= localDateKey() && currentMember) {
-            rows.push(student);
+          const currentMember = Object.keys(student.periodClasses?.[pid] || {}).some(
+            (cid) =>
+              st.classes?.[cid]?.active !== false &&
+              st.classes?.[cid]?.systemCommon !== true,
+          );
+          // 공통반 인원은 현재 대상에 실제 일반반이 남아 있는 학생만 센다.
+          // 과거 가져오기 과정에서 남은 학생 레코드를 기준일 집계에 다시 포함하면
+          // 동일 학생이 중복되어 전체 인원이 두 배 가까이 보일 수 있다.
+          if (!currentMember) continue;
+          // 오늘 이후의 재원 인원은 과거 퇴반 이력이 아니라 현재 대상 소속만 센다.
+          // 같은 학생이 일반반·공통반에 함께 있어도 studentIdentityKey로 한 번만 집계된다.
+          if (dateKey >= todayKey) {
+            if (!registered || registered <= dateKey)
+              addUnique(rowsByStudent, student);
             continue;
           }
           if (!registered) {
-            if (currentMember || knownPastMember) unknown.push(student);
+            addUnique(unknownByStudent, student);
             continue;
           }
-          if (registered <= dateKey && (!withdrewOn || withdrewOn > dateKey) && (currentMember || knownPastMember))
-            rows.push(student);
+          if (registered <= dateKey && (!withdrewOn || withdrewOn > dateKey))
+            addUnique(rowsByStudent, student);
         }
-        return { rows, unknown };
+        for (const key of rowsByStudent.keys()) unknownByStudent.delete(key);
+        return { rows: [...rowsByStudent.values()], unknown: [...unknownByStudent.values()] };
       }
       function periodClassIds(st, sid, pid = selectedPeriodId()) {
         const s = st.students?.[sid];
@@ -1305,13 +1364,10 @@
         const commonIds = new Set(
             systemCommonClasses(st, pid).map((item) => item.id),
           ),
-          membershipKnown = !!pid && Object.prototype.hasOwnProperty.call(s.periodMembership || {}, pid),
-          belongsToTarget = membershipKnown
-            ? s.periodMembership[pid] === true
-            : ids.some(
-                (cid) =>
-                  !commonIds.has(cid) && st.classes?.[cid]?.active !== false,
-              );
+          belongsToTarget = ids.some(
+            (cid) =>
+              !commonIds.has(cid) && st.classes?.[cid]?.active !== false,
+          );
         if (s.active !== false && belongsToTarget)
           for (const commonId of commonIds)
             if (!ids.includes(commonId)) ids.push(commonId);
@@ -4004,12 +4060,12 @@
           <section class="panel catalog-step"><div class="catalog-step-head"><b>2</b><h2>새 반 등록·교재 매칭</h2></div><div class="catalog-class-row">
             ${managedComboField("newClassSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newClassTeacher","강사",teachersAll,"선택하거나 입력")}
-            <label>반명<input id="newClassName" placeholder="반명 입력"></label>
+            <label>반명<input id="newClassName" list="existingClassNames" placeholder="기존 반 검색 또는 새 반명 입력"><datalist id="existingClassNames">${classes.filter((c)=>c.active!==false).map((c)=>`<option value="${esc(c.name)}">${esc(c.subject)} · ${esc(c.teacher||"미지정")}</option>`).join("")}</datalist></label>
             <label>매칭 교재<div class="managed-combo"><input id="newClassBookSearch" autocomplete="off" placeholder="교재명 검색" onfocus="showClassBookPicker()" oninput="showClassBookPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassBookResults');if(b)b.innerHTML=''},160)"><div id="newClassBookResults" class="picker-results"></div></div></label>
             <button onclick="addClassBook()">추가</button>
-            <button class="btn" onclick="createClass()">반 저장</button>
+            <button class="btn" onclick="createClass()">저장</button>
           </div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div></section>
-          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="action-row" style="justify-content:center"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록" style="width:110px"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
+          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
@@ -4112,13 +4168,37 @@
           bids = window.newClassBooks || [];
         if (!pid || !subject || !teacher || !name || !bids.length)
           return alert("과목·강사·반명·교재를 모두 입력하세요.");
-        if (arr(S.classes).some((c) => c.periodId === pid && c.name === name))
-          return alert("현재 운영기간에 같은 반명이 있습니다.");
+        const existingClass = arr(S.classes).find(
+          (c) => c.periodId === pid && c.name === name,
+        );
+        if (
+          existingClass &&
+          (existingClass.subject !== subject || existingClass.teacher !== teacher)
+        )
+          return alert("같은 반명이 다른 과목·강사로 등록되어 있습니다. 기존 반의 과목·강사를 확인하세요.");
+        let mergedExisting = false,
+          classConflict = false;
         const cid = id("C", `${pid}|${name}`),
           r = await transaction((st) => {
+            st.classes = st.classes || {};
+            const target = Object.values(st.classes).find(
+              (c) => c?.periodId === pid && c?.name === name,
+            );
+            if (target) {
+              if (target.subject !== subject || target.teacher !== teacher) {
+                classConflict = true;
+                return false;
+              }
+              mergedExisting = true;
+              target.books = target.books || {};
+              bids.forEach((x) => (target.books[x] = x));
+              target.updatedAt = now();
+              target.updatedBy = actor;
+              return;
+            }
             const books = {};
             bids.forEach((x) => (books[x] = x));
-            st.classes = st.classes || {};
+            mergedExisting = false;
             st.classes[cid] = {
               id: cid,
               periodId: pid,
@@ -4133,11 +4213,21 @@
               createdBy: actor,
             };
           });
+        if (classConflict)
+          return alert(
+            "같은 반명이 다른 과목·강사로 등록되어 있습니다. 기존 반의 과목·강사를 확인하세요.",
+          );
         if (r.committed) {
           window.newClassBooks = [];
           window.newClassBookChoice = "";
         }
-        alert(r.committed ? "반 등록 완료 — 재고 변화 없음" : "반 등록 실패");
+        alert(
+          r.committed
+            ? mergedExisting
+              ? "기존 반 교재 추가 완료 — 학생·재고 변화 없음"
+              : "반 등록 완료 — 재고 변화 없음"
+            : "저장 실패",
+        );
         render();
       }
       async function closeClass(cid) {
@@ -4217,7 +4307,7 @@
                 ).length;
               const price = bookPriceValue(b);
               const closed = bookDistributionIsClosed(b);
-              return `<tr data-search="${esc([b.subject, b.teacher || "학원 공통", b.name].join(" ").toLocaleLowerCase("ko"))}"><td>${esc(b.subject)}</td><td>${esc(b.teacher || "학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock || 0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="action-row" style="justify-content:center"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price == null ? "" : price}" placeholder="미등록" style="width:110px"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><div class="action-row" style="justify-content:center;gap:6px;flex-wrap:wrap"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : b.distributionEndDate ? `배부 가능 · ${esc(b.distributionEndDate)}까지` : "배부 가능"}</span><input id="bookEnd_${b.id}" type="date" value="${esc(b.distributionEndDate || "")}" title="배부 종료일" style="width:145px"><button onclick="saveBookDistributionEndDate('${b.id}')">종료일 저장</button></div></td></tr>`;
+              return `<tr data-search="${esc([b.subject, b.teacher || "학원 공통", b.name].join(" ").toLocaleLowerCase("ko"))}"><td>${esc(b.subject)}</td><td>${esc(b.teacher || "학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock || 0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price == null ? "" : price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${b.id}" type="date" value="${esc(b.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${b.id}')">저장</button></div></td></tr>`;
             })
             .join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
@@ -5735,10 +5825,40 @@
       async function saveEcodingMappings(){
         const pid=selectedPeriodId(),rows=ecodingMapDraft(); if(!Object.keys(rows).length)return alert('사용할 반을 선택하세요.');
         const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price!=null&&(!Number.isInteger(x.price)||x.price<0)); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 확인하세요.');
-        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){const linked=normalizedEcodingStudent(source,rows);let student=arr(st.students).find(x=>x.externalId===source.id);const sid=student?.id||id('S',`ECODING|${source.id}`);student=student||{id:sid,externalId:source.id,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=source.name;student.number=source.number||student.number||'';student.externalId=source.id;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...linked.classIds};rebuildStudentClasses(student);st.students[sid]=student;}});if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
+        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}
+          const linkedPeople=new Map(),snapshotPeople=new Map(),snapshotExternalIds=new Set();
+          for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){
+            const linked=normalizedEcodingStudent(source,rows),key=studentNameIdentityKey(source)||studentIdentityKey(source);
+            snapshotPeople.set(key,{externalId:source.id,name:source.name,number:source.number||''});
+            if(source.id)snapshotExternalIds.add(String(source.id));
+            if(!Object.keys(linked.classIds).length)continue;
+            const existing=linkedPeople.get(key);
+            if(existing){Object.assign(existing.classIds,linked.classIds);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;}
+            else linkedPeople.set(key,{externalId:source.id,name:source.name,number:source.number||'',classIds:{...linked.classIds}});
+          }
+          for(const student of arr(st.students)){
+            if(student.periodMembership?.[pid]!==true)continue;
+            const knownEcodingStudent=student.source==='ECODING'||student.externalId&&snapshotExternalIds.has(String(student.externalId));
+            if(!knownEcodingStudent)continue;
+            const key=studentNameIdentityKey(student)||studentIdentityKey(student),snapshot=snapshotPeople.get(key);
+            if(!snapshot&&!student.externalId)continue;
+            const stillLinked=linkedPeople.has(key)||[...linkedPeople.values()].some(x=>x.externalId&&x.externalId===student.externalId);
+            continue; // 부분 반 불러오기로 기존 반배정을 삭제하지 않는다.
+            student.periodMembership=student.periodMembership||{};student.periodClasses=student.periodClasses||{};
+            student.periodMembership[pid]=false;student.periodClasses[pid]={};rebuildStudentClasses(student);
+          }
+          for(const source of linkedPeople.values()){
+            const sourceKey=studentNameIdentityKey(source)||studentIdentityKey(source);
+            const candidates=arr(st.students).filter(x=>x.externalId===source.externalId||(studentNameIdentityKey(x)||studentIdentityKey(x))===sourceKey);
+            let student=candidates.reduce((best,item)=>best?preferredStudentRecord(best,item,pid):item,null);
+            const sid=student?.id||id('S',`ECODING|${source.externalId||sourceKey}`);
+            student=student||{id:sid,externalId:source.externalId,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
+            student.name=student.name||source.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};rebuildStudentClasses(student);st.students[sid]=student;
+          }
+        });if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
       }
       function rebuildStudentClasses(student){const merged={};for(const periodClasses of Object.values(student.periodClasses||{}))for(const classId of Object.keys(periodClasses||{}))merged[classId]=classId;student.classes=merged;return student;}
-      function normalizedEcodingStudent(student,maps){const classIds={};for(const c of student.classes||[]){if(!c.active||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
+      function normalizedEcodingStudent(student,maps){const classIds={};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const student=arr(st.students).find(x=>x.externalId===eid);
         if(!student)return false;
@@ -5810,9 +5930,22 @@
             return !next || !Object.keys(next.classIds || {}).length;
           });
           const hasManualExitPending = arr(S.students).some((student) => ecodingManualExitPending(student, pid));
+          const hasMissingNewStudent = [...after].some(([externalId, next]) => {
+            if (!Object.keys(next.classIds || {}).length) return false;
+            const localStudent = arr(S.students).find((student) => student.externalId === externalId);
+            const pendingNew = arr(S.ecodingEvents).some((event) =>
+              event.periodId === pid &&
+              event.externalStudentId === externalId &&
+              event.type === "NEW" &&
+              event.status === "PENDING"
+            );
+            return !localStudent && !pendingNew;
+          });
           // 자동 확인은 변경이 없을 때 Firebase 전체 상태를 다시 쓰지 않는다.
           // 이 방어가 탭 전환·입력·저장 중 불필요한 전체 화면 갱신을 막는다.
-          if (silent && !hasRosterChange && !hasManualExitPending) return counts;
+          // 단, 이코딩에는 있으나 교재 DB와 신규 대기명단에 모두 없는 학생은
+          // 이전 기준자료가 먼저 갱신됐더라도 다시 신규로 복구한다.
+          if (silent && !hasRosterChange && !hasManualExitPending && !hasMissingNewStudent) return counts;
           const r = await transaction((st) => {
             st.ecodingEvents = st.ecodingEvents || {};
             st.ecodingBaselines = st.ecodingBaselines || {};
@@ -5853,7 +5986,14 @@
               const prev = before.get(externalId),
                 hasClasses = Object.keys(next.classIds).length;
               if (!hasClasses) continue;
-              const type = !prev || !Object.keys(prev.classIds).length
+              const localStudent = arr(st.students).find((student) => student.externalId === externalId),
+                pendingNew = arr(st.ecodingEvents).some((event) =>
+                  event.periodId === pid &&
+                  event.externalStudentId === externalId &&
+                  event.type === "NEW" &&
+                  event.status === "PENDING"
+                );
+              const type = (!localStudent && !pendingNew) || !prev || !Object.keys(prev.classIds).length
                 ? "NEW"
                 : JSON.stringify(Object.keys(prev.classIds).sort()) !== JSON.stringify(Object.keys(next.classIds).sort())
                   ? "MOVE"
@@ -6622,7 +6762,9 @@
             refundTask = refundTaskForStudent(s.id),
             pendingRefundBooks = Object.values(refundTask?.books || {}).filter(
               (book) => book.status === "PENDING",
-            );
+            ),
+            refundPending =
+              s.active === false && refundTask && refundTask.status !== "DONE";
           const books = [
             ...new Map(
               [...assigned, ...heldBooks, ...exitBooks].map((book) => [book.id, book]),
@@ -6663,12 +6805,12 @@
             .sort((a, b) => a.localeCompare(b, "ko"));
           const actionButtons =
             s.active === false
-              ? `${heldBooks.length ? `<button class="done-btn" onclick="openStudentProcess('${s.id}')">보유 교재 회수</button>` : ""}${pendingRefundBooks.length ? `<button onclick="completeRefund('${s.id}')">환불완료</button>` : ""}`
+              ? `${heldBooks.length ? `<button class="done-btn" onclick="openStudentProcess('${s.id}')">보유 교재 회수</button>` : ""}${refundPending ? `<button onclick="completeRefund('${s.id}')">환불완료</button>` : ""}`
               : s.onboarding
                 ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${s.createdAt ? localDateKey(s.createdAt) : localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
                 : studentWorkspaceActions(s.id, "status");
           detail = `<div id="studentDetail">
-  <div class="student-head"><div><h2>${esc(s.name)} ${s.active === false ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${s.active === false && pendingRefundBooks.length ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : s.active === false && refundTask?.status === "DONE" ? '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
+          <div class="student-head"><div><h2>${esc(s.name)} ${s.active === false ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : s.active === false && refundTask?.status === "DONE" ? '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
   <details class="compact-details"><summary>교재 필터</summary><div class="student-book-toolbar">
     <select id="studentBookSubject" onchange="syncStudentBookFilters('subject')"><option value="">전체 과목</option>${subjects.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("")}</select>
@@ -7125,9 +7267,7 @@
         }
         const rows = [...allRows.values()]
             .filter((task) => {
-              const hasPending = Object.values(task.books || {}).some(
-                (book) => book.status === "PENDING",
-              );
+              const hasPending = task.status !== "DONE";
               return (
                 (periodFilter === "ACTIVE_ALL" ||
                   task.periodId === periodFilter) &&
@@ -7173,7 +7313,7 @@
                 visibleBooks[visibleBooks.length - 1].bookName += ` · 총액 ${missing ? "확정 불가" : won(total)}`;
               return { ...task, books };
             });
-        document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">운영 중인 모든 대상의 환불대기를 한 화면에서 확인합니다. 완료 처리는 각 학생의 원래 대상에 기록되며 재고와 학생 보유수량은 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생·교재" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 교재</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => { const pendingBooks = Object.values(task.books || {}).filter((book) => book.status === "PENDING"), doneBooks = Object.values(task.books || {}).filter((book) => book.status === "DONE"); return `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td>${pendingBooks.map((book) => esc(book.bookName)).join(" · ") || doneBooks.map((book) => esc(book.bookName)).join(" · ") || "없음"}</td><td>${pendingBooks.length ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`; }).join("") || '<tr><td colspan="6">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">운영 중인 모든 대상의 환불대기를 한 화면에서 확인합니다. 완료 처리는 각 학생의 원래 대상에 기록되며 재고와 학생 보유수량은 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생·교재" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 교재</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => { const pendingBooks = Object.values(task.books || {}).filter((book) => book.status === "PENDING"), doneBooks = Object.values(task.books || {}).filter((book) => book.status === "DONE"); return `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td>${pendingBooks.map((book) => esc(book.bookName)).join(" · ") || doneBooks.map((book) => esc(book.bookName)).join(" · ") || "없음"}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`; }).join("") || '<tr><td colspan="6">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
       async function completeRefund(sid) {
         const task = refundTaskForStudent(sid),
@@ -7189,8 +7329,10 @@
             (sum, item) => sum + Number(item.unitPrice || 0),
             0,
           );
-        if (!task || !pendingBooks.length)
+        if (!task)
           return alert("환불대기 교재가 없습니다.");
+        if (task.status === "DONE")
+          return alert("이미 환불완료로 처리했습니다.");
         if (missingPrices.length)
           return alert(`교재비 미등록으로 환불완료할 수 없습니다.\n\n${missingPrices.map((book) => book.bookName).join("\n")}\n\n관리의 반·교재에서 금액을 먼저 입력하세요.`);
         if (!(await askConfirm(`${S.students?.[sid]?.name || task.studentName} 학생의 환불을 완료할까요?\n\n${pricedBooks.map((book) => `${book.bookName} · ${won(book.unitPrice)}`).join("\n")}\n\n환불 총액 ${won(totalAmount)}\n\n재고와 학생 보유수량은 변경되지 않습니다.`)))
@@ -7209,6 +7351,7 @@
               createdBy: task.createdBy || actor,
               migratedAt: completedAt,
             });
+            if (target.status === "DONE") return false;
             const names = [],
               bookAmounts = [];
             for (const book of Object.values(target.books || {})) {
@@ -7228,7 +7371,6 @@
                 amount: currentPrice,
               });
             }
-            if (!names.length) return false;
             target.status = "DONE";
             target.completedAt = completedAt;
             target.completedBy = actor;
