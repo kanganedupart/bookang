@@ -258,8 +258,11 @@
         const normalizedName = normalizedStudentName(studentOrName);
         return normalizedName ? `name:${normalizedName}` : "";
       }
+      function normalizeExternalId(value) {
+        return String(value ?? "").normalize("NFKC").trim();
+      }
       function studentIdentityKey(student) {
-        const externalId = String(student?.externalId || "").normalize("NFKC").trim();
+        const externalId = normalizeExternalId(student?.externalId);
         if (externalId) return `external:${externalId}`;
         const normalizedName = normalizedStudentName(student);
         return normalizedName ? `name:${normalizedName}` : `id:${String(student?.id || "")}`;
@@ -281,7 +284,7 @@
             (includeInactive || s.active !== false) &&
             studentSearchKey(s.name).includes(q),
         )) {
-          const key = studentNameIdentityKey(student) || studentIdentityKey(student);
+          const key = studentIdentityKey(student);
           const existing = uniqueStudents.get(key);
           uniqueStudents.set(
             key,
@@ -389,8 +392,12 @@
         window.sid = id;
         window.processStudentQuery = S.students[id]?.name || "";
         window.studentHubView = "process";
-        window.action =
-          S.students[id]?.active === false ? "RETURN" : "DISTRIBUTE";
+        window.action = studentExitedInPeriod(
+          S.students[id],
+          selectedPeriodId(),
+        )
+          ? "RETURN"
+          : "DISTRIBUTE";
         window.bid = "";
         window.memoDraft = "";
         window.businessReason = "NORMAL";
@@ -702,12 +709,24 @@
         const pid = selectedPeriodId();
         const stored = skipStoredLookup
           ? null
-          : arr(S.refundTasks).find(
-              (task) => task.studentId === sid && (!pid || task.periodId === pid),
-            );
+          : arr(S.refundTasks)
+              .filter(
+                (task) => task.studentId === sid && (!pid || task.periodId === pid),
+              )
+              .sort((a, b) => {
+                const statusPriority = (task) => task.status === "PENDING" ? 0 : 1,
+                  taskTime = (task) => String(
+                    task.closedAt || task.completedAt || task.cancelledAt ||
+                    task.reopenedAt || task.createdAt || "",
+                  );
+                return statusPriority(a) - statusPriority(b) ||
+                  taskTime(b).localeCompare(taskTime(a)) ||
+                  String(b.createdAt || "").localeCompare(String(a.createdAt || "")) ||
+                  String(b.id || "").localeCompare(String(a.id || ""));
+              })[0];
         if (stored) return stored;
         const student = S.students?.[sid];
-        if (!student || student.active !== false) return null;
+        if (!student || !studentExitedInPeriod(student, pid)) return null;
         const withdrawal = arr(student.withdrawals)
           .filter((item) => !pid || item.periodId === pid)
           .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
@@ -737,6 +756,86 @@
           createdBy: withdrawal?.actor || "",
           legacy: true,
         };
+      }
+      function studentExitedInPeriod(student, pid = selectedPeriodId(), st = S) {
+        if (!student || !pid) return student?.active === false;
+        if (student.periodMembership?.[pid] === true) return false;
+        if (student.periodMembership?.[pid] === false) return true;
+        return arr(st.refundTasks).some(
+          (task) => task.studentId === student.id && task.periodId === pid,
+        );
+      }
+      function closeRefundTasksForReenrollment(st, sid, pid) {
+        for (const task of arr(st.refundTasks)) {
+          if (
+            task.studentId !== sid ||
+            task.periodId !== pid ||
+            task.status !== "PENDING"
+          )
+            continue;
+          const closedAt = now();
+          task.status = "CANCELLED";
+          task.closedAt = closedAt;
+          task.closedBy = actor;
+          task.closeReason = "REENROLLED";
+          st.refundTaskEvents = st.refundTaskEvents || {};
+          const eventId = "RTE" + crypto.randomUUID();
+          st.refundTaskEvents[eventId] = {
+            id: eventId,
+            type: "REENROLLED_CLOSED",
+            taskId: task.id,
+            periodId: pid,
+            studentId: sid,
+            studentName: task.studentName || st.students?.[sid]?.name || "",
+            actor,
+            time: closedAt,
+            memo: "재등록으로 환불대기 종결",
+          };
+        }
+      }
+      function appendReturnedRefundBook(st, sid, pid, bid, quantity, batchId, classNames = []) {
+        const student = st.students?.[sid], qty = Number(quantity || 0);
+        if (!student || qty < 1 || !studentExitedInPeriod(student, pid, st)) return;
+        st.refundTasks = st.refundTasks || {};
+        let task = arr(st.refundTasks).find(
+          (item) => item.studentId === sid && item.periodId === pid && item.status === "PENDING",
+        );
+        if (!task) {
+          const taskId = id("R", `${sid}|${pid}`);
+          task = st.refundTasks[taskId] = {
+            id: taskId, periodId: pid, studentId: sid, studentName: student.name,
+            beforeClassNames: classNames, status: "PENDING", books: {},
+            createdAt: now(), createdBy: actor,
+          };
+        }
+        task.books = task.books || {};
+        const prior = task.books[bid];
+        task.books[bid] = {
+          ...(prior || {}), bookId: bid, bookName: st.books?.[bid]?.name || bid,
+          status: "PENDING", source: "RETURNED",
+          quantity: Number(prior?.quantity || 0) + qty,
+          addedAt: now(), movementBatchId: batchId,
+        };
+        task.status = "PENDING";
+      }
+      function appendReturnedRefundBooksForPeriodDeltas(
+        st,
+        bid,
+        periodStudentDeltas,
+        batchId,
+        classNames = [],
+      ) {
+        for (const [pid, studentDeltas] of Object.entries(
+          periodStudentDeltas || {},
+        )) {
+          for (const [sid, delta] of Object.entries(studentDeltas || {})) {
+            const quantity = -Number(delta || 0);
+            if (quantity > 0)
+              appendReturnedRefundBook(
+                st, sid, pid, bid, quantity, batchId, classNames,
+              );
+          }
+        }
       }
       function held(sid, bid) {
         return Number(S.students[sid]?.holdings?.[bid] || 0);
@@ -883,7 +982,7 @@
               );
           }
         }
-        return [...tasks.values()].filter((task) => task.status !== "DONE");
+        return [...tasks.values()].filter((task) => task.status === "PENDING");
       }
       function pendingRefundCount() {
         const count = pendingRefundRows().length;
@@ -896,7 +995,7 @@
         return arr(st.refundTasks).filter(
           (task) =>
             (!activeIds.size || activeIds.has(task.periodId)) &&
-            task.status !== "DONE",
+            task.status === "PENDING",
         ).length;
       }
       function fastPendingRefundCount() {
@@ -1289,13 +1388,12 @@
         if (!book) return true;
         if (book.distributionClosed === true) return true;
         const endDate = String(book.distributionEndDate || "").trim();
-        return !!endDate && endDate < dateKey;
+        return !!endDate && endDate <= dateKey;
       }
       function studentRosterAtDate(st, pid, dateKey = localDateKey()) {
         const rowsByStudent = new Map(), unknownByStudent = new Map();
         const todayKey = localDateKey();
-  const rosterIdentityKey = (student) =>
-    studentNameIdentityKey(student) || studentIdentityKey(student);
+  const rosterIdentityKey = (student) => studentIdentityKey(student);
         const preferredRosterRecord = (a, b) => {
           const score = (student) =>
             Object.keys(student?.periodClasses?.[pid] || {}).length * 1000 +
@@ -1317,6 +1415,26 @@
             .filter(Boolean)
             .sort();
           const withdrewOn = withdrawals[0] || "";
+          const wasMemberOnDate = arr(student.withdrawals).some((item) => {
+            if (pid && item.periodId !== pid) return false;
+            const withdrawalDate = item.time ? localDateKey(item.time) : "";
+            if (!withdrawalDate || withdrawalDate <= dateKey) return false;
+            return (
+              Object.keys(item.beforeClassIds || {}).length > 0 ||
+              arr(item.beforeClasses).length > 0
+            );
+          }) || Object.keys(student.periodClasses?.[pid] || {}).some((cid) => {
+            const cls = st.classes?.[cid];
+            if (!cls || cls.systemCommon === true) return false;
+            if (cls.active !== false) return true;
+            return arr(st.classEvents).some(
+              (event) =>
+                event.classId === cid &&
+                event.type === "반종료" &&
+                event.time &&
+                localDateKey(event.time) > dateKey,
+            );
+          });
           const currentMember = Object.keys(student.periodClasses?.[pid] || {}).some(
             (cid) =>
               st.classes?.[cid]?.active !== false &&
@@ -1325,7 +1443,7 @@
           // 공통반 인원은 현재 대상에 실제 일반반이 남아 있는 학생만 센다.
           // 과거 가져오기 과정에서 남은 학생 레코드를 기준일 집계에 다시 포함하면
           // 동일 학생이 중복되어 전체 인원이 두 배 가까이 보일 수 있다.
-          if (!currentMember) continue;
+          if (!currentMember && !(dateKey < todayKey && wasMemberOnDate)) continue;
           // 오늘 이후의 재원 인원은 과거 퇴반 이력이 아니라 현재 대상 소속만 센다.
           // 같은 학생이 일반반·공통반에 함께 있어도 studentIdentityKey로 한 번만 집계된다.
           if (dateKey >= todayKey) {
@@ -1823,7 +1941,10 @@
         const sid = S.students[window.sid] ? window.sid : "",
           cid = classes.some((c) => c.id === window.cid) ? window.cid : "",
           bid = books.some((b) => b.id === window.bid) ? window.bid : "";
-        if (view === "student" && S.students[sid]?.active === false)
+        if (
+          view === "student" &&
+          studentExitedInPeriod(S.students[sid], selectedPeriodId())
+        )
           window.action = "RETURN";
         window.sid = sid;
         window.cid = cid;
@@ -1997,7 +2118,9 @@
       }
       function actionBox(book) {
         const qty = selected.length,
-          returnOnly = view === "student" && S.students[sid]?.active === false,
+          returnOnly =
+            view === "student" &&
+            studentExitedInPeriod(S.students[sid], selectedPeriodId()),
           action = returnOnly ? "RETURN" : view === "student" ? window.action || "" : window.action || "DISTRIBUTE",
           isExclude = view === "student" && action === "EXCLUDE",
           bookCandidates = view === "book" ? eligibleStudents(book.id) : [],
@@ -2027,7 +2150,10 @@
  ${receipt && view !== "student" ? `<div class="receipt"><b>처리 완료</b><br>${esc(receipt)}<br>원장과 실제 재고를 같은 거래에서 저장했습니다.</div>` : ""}`;
       }
       function studentAllActionBox(studentId, action) {
-        const returnOnly = S.students?.[studentId]?.active === false,
+        const returnOnly = studentExitedInPeriod(
+            S.students?.[studentId],
+            selectedPeriodId(),
+          ),
           isReturn = returnOnly || action === "RETURN",
           books = isReturn
             ? arr(S.books).filter((b) => held(studentId, b.id) > 0)
@@ -2045,6 +2171,7 @@
           shortage = rows.some((x) => x.after < 0);
         return `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button onclick="studentProcessScope='SINGLE';action='';render()">선택 교재</button><button class="on">전체 교재</button></div></div><div class="tabs student-action-kind">${returnOnly ? "" : `<button class="${!isReturn?"on":""}" onclick="action='DISTRIBUTE';render()">전체 배부</button>`}<button class="${isReturn?"on":""}" onclick="action='RETURN';render()">전체 회수</button></div>
  <div class="scroll"><table><thead><tr><th>교재</th><th>현재 보유→처리 후 보유</th><th>재고 전→재고 후</th></tr></thead><tbody>${rows.map((x)=>`<tr><td><b>${esc(x.book.name)}</b></td><td>${isReturn ? x.quantity : 0}권 → <b>${isReturn ? 0 : 1}권</b></td><td>${x.book.stock||0}권 → <b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`).join("") || '<tr><td colspan="3">처리할 교재가 없습니다.</td></tr>'}</tbody></table></div>
+ ${isReturn ? `<label>전체 회수 사유</label><textarea id="studentAllMemo" placeholder="예: 퇴반 교재 전체 회수" oninput="studentAllMemoDraft=this.value">${esc(window.studentAllMemoDraft || "")}</textarea>` : ""}
  <button class="${isReturn?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!rows.length||shortage?"disabled":""} onclick="allForStudent('${studentId}','${isReturn?"RETURN":"DISTRIBUTE"}',this)">${isReturn?"전체 회수":"전체 배부"} 확정</button>
  ${receipt && view !== "student" ? `<div class="receipt"><b>원장·재고 반영 완료</b><br>${esc(receipt)}</div>` : ""}`;
       }
@@ -2240,6 +2367,7 @@
                   st,
                   p.bid,
                   p.quantities,
+                  selectedPeriodId() || st.currentPeriodId,
                 );
                 if (!returnAllocations[p.bid]) {
                   msg =
@@ -2526,17 +2654,24 @@
           .map((bid) => {
             const b = st.books?.[bid];
             if (!b) return null;
-            const ids = students
-              .filter((s) => Number(s.holdings?.[bid] || 0) > 0)
-              .map((s) => s.id)
-              .sort();
+            const quantities = Object.fromEntries(
+              students
+                .map((s) => [s.id, Number(s.holdings?.[bid] || 0)])
+                .filter(([, quantity]) => quantity > 0),
+            );
+            const ids = Object.keys(quantities).sort();
+            const quantity = Object.values(quantities).reduce(
+              (sum, value) => sum + value,
+              0,
+            );
             return {
               bid,
               name: b.name,
               studentIds: ids,
-              quantity: ids.length,
+              quantities,
+              quantity,
               stock: Number(b.stock || 0),
-              after: Number(b.stock || 0) + ids.length,
+              after: Number(b.stock || 0) + quantity,
             };
           })
           .filter((x) => x && x.quantity > 0)
@@ -2585,13 +2720,12 @@
             st.movements = st.movements || {};
             const returnAllocations = {};
             for (const p of plan) {
-              const quantities = Object.fromEntries(
-                p.studentIds.map((sid) => [sid, 1]),
-              );
+              const quantities = p.quantities;
               returnAllocations[p.bid] = returnPeriodDeltas(
                 st,
                 p.bid,
                 quantities,
+                st.classes?.[cid]?.periodId || selectedPeriodId() || st.currentPeriodId,
               );
               if (!returnAllocations[p.bid]) {
                 msg =
@@ -2603,15 +2737,24 @@
               const b = st.books[p.bid],
                 before = Number(b.stock || 0);
               b.stock = before + p.quantity;
-              for (const sid of p.studentIds)
+              for (const sid of p.studentIds) {
                 st.students[sid].holdings[p.bid] =
-                  Number(st.students[sid].holdings[p.bid] || 0) - 1;
+                  Number(st.students[sid].holdings[p.bid] || 0) -
+                  Number(p.quantities[sid] || 0);
+              }
+              appendReturnedRefundBooksForPeriodDeltas(
+                st, p.bid, returnAllocations[p.bid], batchId,
+                [st.classes[cid]?.name].filter(Boolean),
+              );
               const mid = "M" + crypto.randomUUID();
               st.movements[mid] = {
                 id: mid,
                 batchId,
                 operationId: opId,
-                periodId: selectedPeriodId() || st.currentPeriodId,
+                periodId:
+                  st.classes[cid]?.periodId ||
+                  selectedPeriodId() ||
+                  st.currentPeriodId,
                 type: "RETURN",
                 mode: "CLASS_ALL_BOOKS",
                 businessReason: "NORMAL",
@@ -2627,7 +2770,7 @@
                   p.studentIds.map((x) => [x, st.classes[cid]?.name || ""]),
                 ),
                 studentDeltas: Object.fromEntries(
-                  p.studentIds.map((x) => [x, -1]),
+                  p.studentIds.map((x) => [x, -Number(p.quantities[x] || 0)]),
                 ),
                 periodStudentDeltas: returnAllocations[p.bid],
                 itemCount: p.quantity,
@@ -2787,29 +2930,21 @@
           : "";
         if (!p)
           return `${completed}<div class="receipt" style="border-left-color:#8b4a43"><b>교재 중심 전체 일괄회수</b><br>현재 보유자가 없습니다.</div>`;
-        const quantity = p.studentIds.length,
+        const quantity = p.quantity,
+          holderCount = p.studentIds.length,
           after = Number(p.stock || 0) + quantity;
-        return `${completed}<details class="compact-details"><summary>이 교재 전체 회수</summary><div class="flow"><div>배부 인원<br><b>${quantity}명</b></div><div class="arrow">-${quantity} →</div><div>회수 후 배부<br><b>0명</b></div></div><div class="flow"><div>재고 전<br><b>${p.stock}권</b></div><div class="arrow">+${quantity} →</div><div>재고 후<br><b>${after}권</b></div></div><p><b>보유자 ${quantity}명</b>에게서 학생당 1권씩 회수</p><label>회수 사유</label><input id="bookReturnMemo" placeholder="예: 교재 실수배부 전체 회수"><button class="danger-btn" style="width:100%;margin-top:12px" onclick="commitBookReturn('${bid}',this)">${quantity}권 전체 회수 확정</button></details>`;
+        return `${completed}<details class="compact-details"><summary>이 교재 전체 회수</summary><div class="flow"><div>보유 인원<br><b>${holderCount}명</b></div><div class="arrow">전량 회수 →</div><div>회수 권수<br><b>${quantity}권</b></div></div><div class="flow"><div>재고 전<br><b>${p.stock}권</b></div><div class="arrow">+${quantity} →</div><div>재고 후<br><b>${after}권</b></div></div><p><b>보유자 ${holderCount}명 · 실제 보유 ${quantity}권</b> 전량 회수</p><label>회수 사유</label><input id="bookReturnMemo" placeholder="예: 교재 실수배부 전체 회수"><button class="danger-btn" style="width:100%;margin-top:12px" onclick="commitBookReturn('${bid}',this)">${quantity}권 전체 회수 확정</button></details>`;
       }
       async function commitBookReturn(bid, button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
-        const all = academyReturnPlan(S).find((x) => x.bid === bid),
-          shown = all
-            ? {
-                ...all,
-                quantities: Object.fromEntries(
-                  all.studentIds.map((x) => [x, 1]),
-                ),
-                quantity: all.studentIds.length,
-              }
-            : null,
+        const shown = academyReturnPlan(S).find((x) => x.bid === bid) || null,
           signature = shown ? returnSignature([shown]) : "",
           memo = document.querySelector("#bookReturnMemo")?.value.trim() || "";
         if (!shown?.quantity) return alert("회수할 보유자가 없습니다.");
         if (!memo) return alert("교재 전체 회수 사유를 입력하세요.");
         if (
           !(await askConfirm(
-            `${shown.name}을 보유자 ${shown.quantity}명에게서 1권씩 회수합니다. 계속할까요?`,
+            `${shown.name} 교재를 보유 학생 ${shown.studentIds.length}명에게서 실제 보유수량 ${shown.quantity}권만큼 전량 회수합니다. 계속할까요?`,
           ))
         )
           return;
@@ -2824,16 +2959,7 @@
               msg = st.processedOperations[opId].message;
               return false;
             }
-            const current = academyReturnPlan(st).find((x) => x.bid === bid),
-              p = current
-                ? {
-                    ...current,
-                    quantities: Object.fromEntries(
-                      current.studentIds.map((x) => [x, 1]),
-                    ),
-                    quantity: current.studentIds.length,
-                  }
-                : null;
+            const p = academyReturnPlan(st).find((x) => x.bid === bid) || null;
             if (!p || returnSignature([p]) !== signature) {
               msg =
                 "선택 후 보유수량 또는 대상 학생이 변경되었습니다. 다시 확인하세요.";
@@ -2842,7 +2968,7 @@
             const periodStudentDeltas = returnPeriodDeltas(
               st,
               bid,
-              Object.fromEntries(p.studentIds.map((sid) => [sid, 1])),
+              p.quantities,
             );
             if (!periodStudentDeltas) {
               msg =
@@ -2852,9 +2978,14 @@
             const b = st.books[bid],
               before = Number(b.stock || 0);
             b.stock = before + p.quantity;
-            for (const sid of p.studentIds)
+            for (const sid of p.studentIds) {
               st.students[sid].holdings[bid] =
-                Number(st.students[sid].holdings[bid] || 0) - 1;
+                Number(st.students[sid].holdings[bid] || 0) -
+                Number(p.quantities[sid] || 0);
+            }
+            appendReturnedRefundBooksForPeriodDeltas(
+              st, bid, periodStudentDeltas, batchId,
+            );
             st.movements = st.movements || {};
             const mid = "M" + crypto.randomUUID();
             st.movements[mid] = {
@@ -2879,7 +3010,7 @@
                 ]),
               ),
               studentDeltas: Object.fromEntries(
-                p.studentIds.map((x) => [x, -1]),
+                p.studentIds.map((x) => [x, -Number(p.quantities[x] || 0)]),
               ),
               periodStudentDeltas,
               itemCount: p.quantity,
@@ -2956,9 +3087,13 @@
               const b = st.books[p.bid],
                 before = Number(b.stock || 0);
               b.stock = before + p.quantity;
-              for (const [sid, q] of Object.entries(p.quantities))
+              for (const [sid, q] of Object.entries(p.quantities)) {
                 st.students[sid].holdings[p.bid] =
                   Number(st.students[sid].holdings[p.bid] || 0) - q;
+              }
+              appendReturnedRefundBooksForPeriodDeltas(
+                st, p.bid, returnAllocations[p.bid], batchId,
+              );
               const mid = "M" + crypto.randomUUID();
               st.movements[mid] = {
                 id: mid,
@@ -3258,12 +3393,21 @@
             )[0]?.id || "LEGACY"
         );
       }
-      function returnPeriodDeltas(st, bid, quantities) {
+      function returnPeriodDeltas(st, bid, quantities, preferredPeriodId = "") {
         const result = {};
         for (const [sid, quantity] of Object.entries(quantities)) {
           let remaining = Number(quantity || 0);
           const balances = studentBookPeriodBalances(st, sid, bid);
-          for (const [pid, balance] of Object.entries(balances)) {
+          const periodOrder = Object.keys(balances).sort((a, b) => {
+            if (preferredPeriodId && a === preferredPeriodId) return -1;
+            if (preferredPeriodId && b === preferredPeriodId) return 1;
+            const pa = st.periods?.[a], pb = st.periods?.[b];
+            return String(pa?.createdAt || a).localeCompare(
+              String(pb?.createdAt || b),
+            ) || a.localeCompare(b);
+          });
+          for (const pid of periodOrder) {
+            const balance = Number(balances[pid] || 0);
             if (remaining <= 0 || balance <= 0) continue;
             const take = Math.min(remaining, balance);
             (result[pid] ||= {})[sid] =
@@ -3384,6 +3528,7 @@
                   st,
                   bid,
                   Object.fromEntries(selected.map((sid) => [sid, 1])),
+                  selectedPeriodId() || st.currentPeriodId,
                 )
               : null;
             if (isReturn && !periodStudentDeltas) {
@@ -3399,37 +3544,6 @@
                 Number(s.holdings[bid] || 0) + (isReturn ? -1 : 1);
               if (
                 isReturn &&
-                s.active === false &&
-                Number(s.holdings[bid] || 0) === 0 &&
-                s.withdrawalBooks?.[selectedPeriodId() || st.currentPeriodId]?.[bid]
-              ) {
-                const refundPeriodId = selectedPeriodId() || st.currentPeriodId,
-                  refundId = id("R", `${sid}|${refundPeriodId}`);
-                st.refundTasks = st.refundTasks || {};
-                const task = (st.refundTasks[refundId] ||= {
-                  id: refundId,
-                  periodId: refundPeriodId,
-                  studentId: sid,
-                  studentName: s.name,
-                  status: "PENDING",
-                  books: {},
-                  createdAt: now(),
-                  createdBy: actor,
-                });
-                task.books = task.books || {};
-                task.books[bid] = {
-                  bookId: bid,
-                  bookName: b.name,
-                  status: "PENDING",
-                  source: "RETURNED",
-                  addedAt: now(),
-                  movementBatchId: batchId,
-                };
-                task.status = "PENDING";
-                task.reopenedAt = task.completedAt ? now() : task.reopenedAt || "";
-              }
-              if (
-                isReturn &&
                 s.pendingReturn &&
                 !Object.values(s.holdings).some((q) => Number(q) > 0)
               ) {
@@ -3437,6 +3551,10 @@
                 s.active = false;
               }
             }
+            if (isReturn)
+              appendReturnedRefundBooksForPeriodDeltas(
+                st, bid, periodStudentDeltas, batchId,
+              );
             const mid = "M" + crypto.randomUUID();
             st.movements = st.movements || {};
             st.movements[mid] = {
@@ -3541,7 +3659,7 @@
       }
       async function allForStudent(sid, type, button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
-        const memo = document.querySelector("#memo")?.value.trim() || "",
+        const memo = document.querySelector("#studentAllMemo")?.value.trim() || "",
           opId = operationId(button),
           isReturn = type === "RETURN",
           shownIds = (
@@ -3606,14 +3724,43 @@
             }
             st.movements = st.movements || {};
             s.holdings = s.holdings || {};
+            const refundPeriodId = selectedPeriodId() || st.currentPeriodId;
+            let refundTask = null;
+            if (isReturn && studentExitedInPeriod(s, refundPeriodId, st)) {
+              st.refundTasks = st.refundTasks || {};
+              refundTask = arr(st.refundTasks).find(
+                (task) =>
+                  task.studentId === sid && task.periodId === refundPeriodId,
+              );
+              if (!refundTask) {
+                const refundId = id("R", `${sid}|${refundPeriodId}`);
+                refundTask = st.refundTasks[refundId] = {
+                  id: refundId,
+                  periodId: refundPeriodId,
+                  studentId: sid,
+                  studentName: s.name,
+                  beforeClassNames: [],
+                  status: "PENDING",
+                  books: {},
+                  createdAt: now(),
+                  createdBy: actor,
+                };
+              }
+              refundTask.books = refundTask.books || {};
+              refundTask.status = "PENDING";
+            }
+            const historicalClassNames = refundTask?.beforeClassNames || [];
             const details = [];
             const returnAllocations = {};
             if (isReturn) {
               for (const bid of currentIds) {
                 const qty = Number(s.holdings[bid] || 0);
-                returnAllocations[bid] = returnPeriodDeltas(st, bid, {
-                  [sid]: qty,
-                });
+                returnAllocations[bid] = returnPeriodDeltas(
+                  st,
+                  bid,
+                  { [sid]: qty },
+                  refundPeriodId,
+                );
                 if (!returnAllocations[bid]) {
                   msg =
                     "기간별 배부원장과 보유수량이 맞지 않아 전체 회수를 중단했습니다.";
@@ -3632,6 +3779,18 @@
               const periodStudentDeltas = isReturn
                 ? returnAllocations[bid]
                 : null;
+              if (refundTask) {
+                refundTask.books[bid] = {
+                  ...(refundTask.books[bid] || {}),
+                  bookId: bid,
+                  bookName: b.name,
+                  status: "PENDING",
+                  source: "RETURNED",
+                  quantity: qty,
+                  addedAt: now(),
+                  movementBatchId: batchId,
+                };
+              }
               st.movements[mid] = {
                 id: mid,
                 batchId,
@@ -3646,10 +3805,13 @@
                 studentIds: { [sid]: sid },
                 studentNames: { [sid]: s.name },
                 classNames: {
-                  [sid]: periodClassIds(st, sid)
-                    .map((cid) => st.classes[cid]?.name)
-                    .filter(Boolean)
-                    .join(" · "),
+                  [sid]: (
+                    historicalClassNames.length
+                      ? historicalClassNames
+                      : periodClassIds(st, sid)
+                          .map((cid) => st.classes[cid]?.name)
+                          .filter(Boolean)
+                  ).join(" · "),
                 },
                 studentDeltas: { [sid]: isReturn ? -qty : 1 },
                 ...(periodStudentDeltas ? { periodStudentDeltas } : {}),
@@ -3690,6 +3852,7 @@
           };
           receipt = msg;
           selected = [];
+          if (isReturn) window.studentAllMemoDraft = "";
           render();
         } finally {
           operationBusy = false;
@@ -4952,13 +5115,21 @@
               beforeBookIds.map((bid) => [bid, bid]),
             );
             student.periodClasses = student.periodClasses || {};
+            student.periodMembership = student.periodMembership || {};
+            student.periodMembership[pid] = false;
             student.periodClasses[pid] = {};
-            student.classes = {};
+            rebuildStudentClasses(student);
+            student.active = Object.values(student.periodMembership).some(
+              (value) => value === true,
+            );
             student.withdrawals = student.withdrawals || {};
             const wid = "W" + crypto.randomUUID();
             student.withdrawals[wid] = {
               id: wid,
               periodId: pid,
+              beforeClassIds: Object.fromEntries(
+                beforeClassIds.map((cid) => [cid, cid]),
+              ),
               beforeClasses: before,
               reason: String(reason).trim(),
               actor,
@@ -4971,6 +5142,7 @@
               studentId: sid,
               studentName: student.name,
               withdrawalId: wid,
+              beforeClassNames: before,
               status: "PENDING",
               books: {},
               createdAt: now(),
@@ -4986,11 +5158,8 @@
                 addedAt: now(),
               };
             }
-            task.status = Object.values(task.books).some(
-              (book) => book.status === "PENDING",
-            )
-              ? "PENDING"
-              : "WAITING_RETURN";
+            task.beforeClassNames = before;
+            task.status = "PENDING";
           });
         if (r.committed) {
           S = r.snapshot.val();
@@ -5056,13 +5225,21 @@
               beforeBookIds.map((bid) => [bid, bid]),
             );
             student.periodClasses = student.periodClasses || {};
+            student.periodMembership = student.periodMembership || {};
+            student.periodMembership[pid] = false;
             student.periodClasses[pid] = {};
-            student.classes = {};
+            rebuildStudentClasses(student);
+            student.active = Object.values(student.periodMembership).some(
+              (value) => value === true,
+            );
             student.withdrawals = student.withdrawals || {};
             const wid = "W" + crypto.randomUUID();
             student.withdrawals[wid] = {
               id: wid,
               periodId: pid,
+              beforeClassIds: Object.fromEntries(
+                beforeClassIds.map((cid) => [cid, cid]),
+              ),
               beforeClasses,
               reason: String(reason).trim(),
               disposition: "KEEP_BOOKS",
@@ -5077,6 +5254,7 @@
               studentId: sid,
               studentName: student.name,
               withdrawalId: wid,
+              beforeClassNames: beforeClasses,
               status: "PENDING",
               books: {},
               createdAt: now(),
@@ -5092,11 +5270,8 @@
                 addedAt: now(),
               };
             }
-            task.status = Object.values(task.books).some(
-              (book) => book.status === "PENDING",
-            )
-              ? "PENDING"
-              : "DONE";
+            task.beforeClassNames = beforeClasses;
+            task.status = "PENDING";
           });
         if (r.committed) {
           S = r.snapshot.val();
@@ -5112,10 +5287,19 @@
         render();
       }
       function intakePreview() {
-        const b = S.books[inBook?.value],
-          q = Number(inQty?.value || 0);
+        const bookInput = document.querySelector("#inBook"),
+          qtyInput = document.querySelector("#inQty"),
+          memoInput = document.querySelector("#inMemo"),
+          confirmButton = document.querySelector("#intakeConfirm"),
+          b = S.books?.[bookInput?.value],
+          q = Number(qtyInput?.value || 0),
+          validQuantity = Number.isInteger(q) && q > 0;
         if (b)
-          inFlow.innerHTML = `<div class="flow"><div>현재재고<br><b>${b.stock || 0}</b></div><div class="arrow">+${Number.isFinite(q) ? q : 0} →</div><div>입고 후 예상<br><b>${(b.stock || 0) + (Number.isFinite(q) ? q : 0)}</b></div></div>`;
+          inFlow.innerHTML = `<div class="flow"><div>현재재고<br><b>${b.stock || 0}</b></div><div class="arrow">+${validQuantity ? q : 0} →</div><div>입고 후 예상<br><b>${(b.stock || 0) + (validQuantity ? q : 0)}</b></div></div>`;
+        if (confirmButton)
+          confirmButton.disabled = !(
+            b && validQuantity && String(memoInput?.value || "").trim()
+          );
       }
       async function doIntake(button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
@@ -5660,6 +5844,14 @@
             actor: h.actor,
             memo: h.memo,
           });
+        for (const h of arr(S.refundTaskEvents))
+          extra.push({
+            type: "재등록 종결",
+            time: h.time,
+            studentName: h.studentName,
+            actor: h.actor,
+            memo: h.memo || "재등록으로 환불대기 종결",
+          });
         for (const h of arr(S.classEvents))
           extra.push({
             type: h.type,
@@ -5828,9 +6020,9 @@
         const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}
           const linkedPeople=new Map(),snapshotPeople=new Map(),snapshotExternalIds=new Set();
           for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){
-            const linked=normalizedEcodingStudent(source,rows),key=studentNameIdentityKey(source)||studentIdentityKey(source);
+            const linked=normalizedEcodingStudent(source,rows),key=studentIdentityKey({externalId:source.id,name:source.name,id:source.id});
             snapshotPeople.set(key,{externalId:source.id,name:source.name,number:source.number||''});
-            if(source.id)snapshotExternalIds.add(String(source.id));
+            if(normalizeExternalId(source.id))snapshotExternalIds.add(normalizeExternalId(source.id));
             if(!Object.keys(linked.classIds).length)continue;
             const existing=linkedPeople.get(key);
             if(existing){Object.assign(existing.classIds,linked.classIds);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;}
@@ -5838,41 +6030,49 @@
           }
           for(const student of arr(st.students)){
             if(student.periodMembership?.[pid]!==true)continue;
-            const knownEcodingStudent=student.source==='ECODING'||student.externalId&&snapshotExternalIds.has(String(student.externalId));
+            const knownEcodingStudent=student.source==='ECODING'||normalizeExternalId(student.externalId)&&snapshotExternalIds.has(normalizeExternalId(student.externalId));
             if(!knownEcodingStudent)continue;
-            const key=studentNameIdentityKey(student)||studentIdentityKey(student),snapshot=snapshotPeople.get(key);
+            const key=studentIdentityKey(student),snapshot=snapshotPeople.get(key);
             if(!snapshot&&!student.externalId)continue;
-            const stillLinked=linkedPeople.has(key)||[...linkedPeople.values()].some(x=>x.externalId&&x.externalId===student.externalId);
+            const stillLinked=linkedPeople.has(key)||[...linkedPeople.values()].some(x=>normalizeExternalId(x.externalId)&&normalizeExternalId(x.externalId)===normalizeExternalId(student.externalId));
             continue; // 부분 반 불러오기로 기존 반배정을 삭제하지 않는다.
             student.periodMembership=student.periodMembership||{};student.periodClasses=student.periodClasses||{};
             student.periodMembership[pid]=false;student.periodClasses[pid]={};rebuildStudentClasses(student);
           }
           for(const source of linkedPeople.values()){
-            const sourceKey=studentNameIdentityKey(source)||studentIdentityKey(source);
-            const candidates=arr(st.students).filter(x=>x.externalId===source.externalId||(studentNameIdentityKey(x)||studentIdentityKey(x))===sourceKey);
+            const sourceKey=studentIdentityKey(source);
+            const candidates=arr(st.students).filter(x=>normalizeExternalId(source.externalId)?normalizeExternalId(x.externalId)===normalizeExternalId(source.externalId):studentIdentityKey(x)===sourceKey);
+            if(normalizeExternalId(source.externalId)&&candidates.length>1)return false;
             let student=candidates.reduce((best,item)=>best?preferredStudentRecord(best,item,pid):item,null);
             const sid=student?.id||id('S',`ECODING|${source.externalId||sourceKey}`);
             student=student||{id:sid,externalId:source.externalId,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-            student.name=student.name||source.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};rebuildStudentClasses(student);st.students[sid]=student;
+            student.name=source.name||student.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};rebuildStudentClasses(student);st.students[sid]=student;closeRefundTasksForReenrollment(st,sid,pid);
           }
         });if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
       }
       function rebuildStudentClasses(student){const merged={};for(const periodClasses of Object.values(student.periodClasses||{}))for(const classId of Object.keys(periodClasses||{}))merged[classId]=classId;student.classes=merged;return student;}
       function normalizedEcodingStudent(student,maps){const classIds={};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
-        const student=arr(st.students).find(x=>x.externalId===eid);
+        const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
+        if(matches.length!==1)return false;
+        const student=matches[0];
         if(!student)return false;
         student.periodMembership=student.periodMembership||{};
+        student.periodClasses=student.periodClasses||{};
         student.periodMembership[pid]=false;
+        student.periodClasses[pid]={};
+        rebuildStudentClasses(student);
+        student.active=Object.values(student.periodMembership).some(value=>value===true);
         st.refundTasks=st.refundTasks||{};
         const taskId=`${pid}|${student.id}${transitionId?`|${transitionId}`:''}`,books={};
+        const beforeClassNames=Object.keys(prev.classIds||{}).map(cid=>st.classes?.[cid]?.name).filter(Boolean);
         for(const cid of Object.keys(prev.classIds||{}))for(const bid of Object.keys(st.classes?.[cid]?.books||{})){
           if(studentBookIsExcluded(st,student.id,bid,pid))continue;
           if(Number(student.holdings?.[bid]||0)>0)continue;
           const book=st.books?.[bid];
           books[bid]={bookId:bid,bookName:book?.name||bid,status:'PENDING',unitPrice:bookPriceValue(book)};
         }
-        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,books,status:Object.keys(books).length?'PENDING':'DONE',source:'ECODING',createdAt:now(),createdBy:'이코딩 연동'};
+        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,beforeClassNames,books,status:'PENDING',source:'ECODING',createdAt:now(),createdBy:'이코딩 연동'};
         return true;
       }
       async function runEcodingDiff(){
@@ -5884,21 +6084,23 @@
       function ecodingEventDetail(event){const names=ids=>Object.keys(ids||{}).map(id=>S.classes?.[id]?.name||id).join(' · ')||'없음';return `<h2>${esc(event.studentName)}</h2><div class="flow"><div>이전 반<br><b>${esc(names(event.beforeClassIds))}</b></div><div class="arrow">→</div><div>변경 반<br><b>${esc(names(event.afterClassIds))}</b></div></div><p class="muted">반정보 확인은 재고를 바꾸지 않습니다. 저장 후 학생 교재 화면에서 배부·회수를 선택하면 그때 재고 전·후가 표시됩니다.</p><button class="btn" onclick="applyEcodingEvent('${event.id}')">반정보 확인 후 교재 처리</button>`;}
       function ecodingNewScreen(){ecodingQueueScreen('NEW','신규');}
       function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반이동');}
-      async function applyEcodingEvent(eventId){const event=S.ecodingEvents?.[eventId];if(!event)return;let localSid=arr(S.students).find(s=>s.externalId===event.externalStudentId)?.id||id('S',`ECODING|${event.externalStudentId}`);const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&held(localSid,bid)===0),returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&held(localSid,bid)>0);const r=await transaction(st=>{const e=st.ecodingEvents?.[eventId];if(!e||e.status!=='PENDING')return false;st.students=st.students||{};ensureSystemCommonClass(st,e.periodId);const student=st.students[localSid]||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;e.status='DONE';e.completedAt=now();e.completedBy=actor;});if(r.committed){S=r.snapshot.val();window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();}}
+      async function applyEcodingEvent(eventId){const event=S.ecodingEvents?.[eventId];if(!event)return;let localSid=arr(S.students).find(s=>s.externalId===event.externalStudentId)?.id||id('S',`ECODING|${event.externalStudentId}`);const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&held(localSid,bid)===0),returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&held(localSid,bid)>0);const r=await transaction(st=>{const e=st.ecodingEvents?.[eventId];if(!e||e.status!=='PENDING')return false;st.students=st.students||{};ensureSystemCommonClass(st,e.periodId);const student=st.students[localSid]||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;});if(r.committed){S=r.snapshot.val();window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();}}
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
       saveEcodingMappings = async function () {
-        await saveEcodingMappingsBeforeManualExitLock();
         const pid = selectedPeriodId();
+        await saveEcodingMappingsBeforeManualExitLock();
         if (!pid) return;
         const r = await transaction((st) => {
           for (const student of arr(st.students)) {
             if (!ecodingManualExitPending(student, pid)) continue;
-            student.active = false;
             student.periodMembership = student.periodMembership || {};
             student.periodClasses = student.periodClasses || {};
             student.periodMembership[pid] = false;
             student.periodClasses[pid] = {};
             rebuildStudentClasses(student);
+            student.active = Object.values(student.periodMembership).some(
+              (value) => value === true,
+            );
           }
         });
         if (r.committed) {
@@ -5916,8 +6118,8 @@
         }
         try {
           const fresh = await fetchEcodingSnapshot(),
-            before = new Map((snap.students || []).map((student) => [student.id, normalizedEcodingStudent(student, maps)])),
-            after = new Map((fresh.students || []).map((student) => [student.id, normalizedEcodingStudent(student, maps)]));
+            before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)])),
+            after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)]));
           const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0 };
           const hasRosterChange = [...after].some(([externalId, next]) => {
             const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
@@ -5932,10 +6134,11 @@
           const hasManualExitPending = arr(S.students).some((student) => ecodingManualExitPending(student, pid));
           const hasMissingNewStudent = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const localStudent = arr(S.students).find((student) => student.externalId === externalId);
+            const localMatches = arr(S.students).filter((student) => normalizeExternalId(student.externalId) === externalId),
+              localStudent = localMatches.length === 1 ? localMatches[0] : null;
             const pendingNew = arr(S.ecodingEvents).some((event) =>
               event.periodId === pid &&
-              event.externalStudentId === externalId &&
+              normalizeExternalId(event.externalStudentId) === externalId &&
               event.type === "NEW" &&
               event.status === "PENDING"
             );
@@ -5953,15 +6156,18 @@
             const manualExternalIds = new Set();
             for (const student of arr(st.students)) {
               if (!ecodingManualExitPending(student, pid) || !student.externalId) continue;
-              manualExternalIds.add(student.externalId);
-              const next = after.get(student.externalId),
+              const normalizedExternalId = normalizeExternalId(student.externalId);
+              manualExternalIds.add(normalizedExternalId);
+              const next = after.get(normalizedExternalId),
                 stillLinked = !!next && Object.keys(next.classIds || {}).length > 0;
-              student.active = false;
               student.periodMembership = student.periodMembership || {};
               student.periodClasses = student.periodClasses || {};
               student.periodMembership[pid] = false;
               student.periodClasses[pid] = {};
               rebuildStudentClasses(student);
+              student.active = Object.values(student.periodMembership).some(
+                (value) => value === true,
+              );
               if (stillLinked) {
                 counts.WAITING++;
                 continue;
@@ -5986,10 +6192,12 @@
               const prev = before.get(externalId),
                 hasClasses = Object.keys(next.classIds).length;
               if (!hasClasses) continue;
-              const localStudent = arr(st.students).find((student) => student.externalId === externalId),
+              const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
+              if (localMatches.length > 1) return false;
+              const localStudent = localMatches[0],
                 pendingNew = arr(st.ecodingEvents).some((event) =>
                   event.periodId === pid &&
-                  event.externalStudentId === externalId &&
+                  normalizeExternalId(event.externalStudentId) === externalId &&
                   event.type === "NEW" &&
                   event.status === "PENDING"
                 );
@@ -6084,9 +6292,13 @@
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
       applyEcodingEvent = async function (eventId) {
         const event = S.ecodingEvents?.[eventId],
-          student = arr(S.students).find((item) => item.externalId === event?.externalStudentId);
+          studentMatches = arr(S.students).filter((item) => normalizeExternalId(item.externalId) === normalizeExternalId(event?.externalStudentId)),
+          student = studentMatches.length === 1 ? studentMatches[0] : null;
+        if (studentMatches.length > 1)
+          return alert("처리 차단: 같은 외부 학생번호가 여러 학생에게 연결되어 있습니다.");
         if (event && student && ecodingManualExitPending(student, event.periodId))
           return alert("교재에서 먼저 퇴반되어 이코딩 반영 대기 중입니다. 이코딩 퇴반 확인 전에는 다시 입반할 수 없습니다.");
+        if (event && student) event.externalStudentId = student.externalId;
         return applyEcodingEventBeforeManualExitLock(eventId);
       };
       async function sheet(file) {
@@ -6173,7 +6385,8 @@
             "학생Email",
             "카드번호",
             "비고",
-          ]);
+          ]),
+          uploadedExternalIdRows = new Map();
         for (const [i, r] of sr.entries()) {
           const name = String(r["성명"] || r["학생명"] || "").trim();
           if (!name) {
@@ -6195,13 +6408,60 @@
             if (cid) cs[cid] = cid;
             else errors.push(`학생 ${i + 2}행: 반명 확인 '${n}' (${k})`);
           }
-          const x = id("S", name);
-          if (students[x]) errors.push(`학생 ${i + 2}행: 중복 이름 '${name}'`);
+          const externalId = normalizeExternalId(
+              r["학생Email"] || r["카드번호"] || "",
+            );
+          if (externalId && uploadedExternalIdRows.has(externalId)) {
+            errors.push(
+              `학생 ${i + 2}행: 외부 학생번호 '${externalId}'가 ${uploadedExternalIdRows.get(externalId)}행과 중복되었습니다. 서로 다른 행의 반배정은 자동 병합하지 않습니다.`,
+            );
+            continue;
+          }
+          if (externalId) uploadedExternalIdRows.set(externalId, i + 2);
+          const existingPool = arr(S.students).filter(
+              (student) =>
+                student.periodMembership?.[importPid] != null ||
+                Object.prototype.hasOwnProperty.call(
+                  student.periodClasses || {},
+                  importPid,
+                ),
+            ),
+            externalMatches = externalId
+              ? existingPool.filter(
+                  (student) =>
+                    normalizeExternalId(student.externalId) === externalId,
+                )
+              : [],
+            nameMatches = existingPool.filter(
+              (student) =>
+                !normalizeExternalId(student.externalId) &&
+                normalizedStudentName(student) === normalizedStudentName(name),
+            );
+          if (externalMatches.length > 1 || (!externalMatches.length && nameMatches.length > 1)) {
+            errors.push(
+              `학생 ${i + 2}행: 기존 학생 식별이 모호합니다 '${name}'. 외부 ID와 기존 자료를 확인하세요.`,
+            );
+            continue;
+          }
+          const reused = externalMatches[0] || nameMatches[0],
+            x = reused?.id || id(
+              "S",
+              externalId
+                ? `NEW|${importPid}|EXTERNAL|${externalId}`
+                : `NEW|${importPid}|NAME|${normalizedStudentName(name)}`,
+            );
+          const existingStudent = students[x];
+          if (!externalId && existingStudent) {
+            errors.push(
+              `학생 ${i + 2}행: 외부 ID가 없는 동명이인 '${name}'은 구분할 수 없습니다. 학생Email 또는 카드번호를 입력하세요.`,
+            );
+            continue;
+          }
           students[x] = {
             id: x,
             name,
-            externalId: String(r["학생Email"] || r["카드번호"] || "").trim(),
-            classes: cs,
+            externalId,
+            classes: { ...(existingStudent?.classes || {}), ...cs },
             active: true,
           };
         }
@@ -6227,7 +6487,7 @@
                   .sort()
                   .join("|"),
           );
-        window.importData = { books, classes, students };
+        window.importData = errors.length ? null : { books, classes, students };
         preview.innerHTML = errors.length
           ? `<p class="error">${errors.join("\\n")}</p>`
           : `<div class="receipt">검사 통과<br>교재 ${arr(books).length}종 · 반 ${arr(classes).length}개 · 학생 ${arr(students).length}명<br>제외 예정: 학생 ${removedStudents.length}명 · 반 ${removedClasses.length}개 · 교재 ${removedBooks.length}종<br>반 변경 학생 ${changedStudents.length}명<br><small>제외: ${esc(
@@ -6350,6 +6610,26 @@
           }
           const oldStudents = st.students || {},
             oldBooks = st.books || {};
+          const globalStudentsByExternalId = {};
+          for (const [studentId, student] of Object.entries(oldStudents)) {
+            const externalId = normalizeExternalId(student.externalId);
+            if (externalId)
+              (globalStudentsByExternalId[externalId] ||= []).push(studentId);
+          }
+          const incomingExternalIds = new Set();
+          for (const incoming of Object.values(d.students || {})) {
+            const externalId = normalizeExternalId(incoming.externalId);
+            if (!externalId) continue;
+            if ((globalStudentsByExternalId[externalId] || []).length > 1) {
+              msg = `학생 저장 차단: 외부 학생번호 ${externalId}가 기존 전체 대상에서 여러 학생과 연결되어 있습니다.`;
+              return false;
+            }
+            if (incomingExternalIds.has(externalId)) {
+              msg = `학생 저장 차단: 외부 학생번호 ${externalId}가 업로드 명단에 중복되어 있습니다.`;
+              return false;
+            }
+            incomingExternalIds.add(externalId);
+          }
           st.students = st.students || {};
           st.books = st.books || {};
           st.classes = st.classes || {};
@@ -6409,14 +6689,26 @@
             if (c.periodId === pid) c.active = false;
           for (const s of Object.values(st.students)) {
             s.periodClasses = s.periodClasses || {};
-            if (Object.prototype.hasOwnProperty.call(s.periodClasses, pid))
+            s.periodMembership = s.periodMembership || {};
+            if (Object.prototype.hasOwnProperty.call(s.periodClasses, pid)) {
               s.periodClasses[pid] = {};
+              s.periodMembership[pid] = false;
+              rebuildStudentClasses(s);
+              s.active = Object.values(s.periodMembership).some(
+                (value) => value === true,
+              );
+            }
           }
           for (const [k, c] of Object.entries(d.classes))
             st.classes[k] = { ...c, periodId: pid, active: true };
           for (const [k, incoming] of Object.entries(d.students)) {
-            const old = oldStudents[k] || {
-              id: k,
+            const externalId = normalizeExternalId(incoming.externalId),
+              globalMatchIds = externalId
+                ? globalStudentsByExternalId[externalId] || []
+                : [],
+              targetStudentId = globalMatchIds[0] || k,
+              old = oldStudents[targetStudentId] || {
+              id: targetStudentId,
               name: incoming.name,
               holdings: {},
               active: true,
@@ -6427,11 +6719,14 @@
             old.externalId = incoming.externalId || old.externalId || "";
             old.active = true;
             old.periodClasses = old.periodClasses || {};
+            old.periodMembership = old.periodMembership || {};
+            old.periodMembership[pid] = true;
             old.periodClasses[pid] = incoming.classes || {};
-            old.classes = incoming.classes || {};
+            rebuildStudentClasses(old);
             old.pendingReturn = false;
             old.retainedBooksOnExit = false;
-            st.students[k] = old;
+            st.students[targetStudentId] = old;
+            closeRefundTasksForReenrollment(st, targetStudentId, pid);
           }
         });
         alert(
@@ -6499,8 +6794,9 @@
             .slice(0, 5);
         const heldCount = books.reduce((n, b) => n + held(sid, b.id), 0),
           missingCount = assignedBooks(sid).filter((b) => !held(sid, b.id)).length,
-          latest = recent[0];
-        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""}</h2><span>${s.active === false ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : ""}</section>`;
+          latest = recent[0],
+          exitedInSelectedPeriod = studentExitedInPeriod(s, selectedPeriodId());
+        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : ""}</section>`;
       }
       function intake() {
         const all = arr(S.books)
@@ -6530,11 +6826,11 @@
         document.querySelector("#screen").innerHTML =
           `<div class="workspace-split"><section class="panel"><h2>입고 대상</h2><p class="muted">새 교재는 관리 › 반·교재에서 먼저 등록한 뒤 입고합니다.</p>${
             mode === "existing"
-              ? `<div class="intake-fields"><label>① 과목<select onchange="inSubject=this.value;inOwner='';inBid='';intake()"><option value="">선택</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="inOwner=this.value;inBid='';intake()"><option value="">선택</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<select id="inBook" onchange="inBid=this.value;intakePreview()"><option value="">교재를 선택하세요</option>${books.map((b) => `<option value="${b.id}" ${b.id === bid ? "selected" : ""}>${esc(b.name)} · 현재 ${b.stock || 0}</option>`).join("")}</select></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항"></label></div>`
+              ? `<div class="intake-fields"><label>① 과목<select onchange="inSubject=this.value;inOwner='';inBid='';intake()"><option value="">선택</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="inOwner=this.value;inBid='';intake()"><option value="">선택</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<select id="inBook" onchange="inBid=this.value;intakePreview()"><option value="">교재를 선택하세요</option>${books.map((b) => `<option value="${b.id}" ${b.id === bid ? "selected" : ""}>${esc(b.name)} · 현재 ${b.stock || 0}</option>`).join("")}</select></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항" oninput="intakePreview()"></label></div>`
               : `<div class="intake-fields"><label>과목<input id="nbiSubject"></label><label>강사<input id="nbiTeacher" placeholder="공통교재는 공통"></label><label>교재명<input id="nbiName"></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="nbiQty" type="number" min="1" step="1" oninput="newBookIntakePreview()"></label><label style="grid-column:span 2">입고 메모<input id="nbiMemo" placeholder="입고처·차수·특이사항"></label></div>`
           }</section><section class="panel workspace-side"><h2>입고 전·후 재고</h2>${
             mode === "existing"
-              ? `<div id="inFlow">${bid ? "" : '<div class="flow-placeholder">왼쪽에서 교재를 선택하면<br>입고 전·후 재고가 표시됩니다.</div>'}</div><button class="btn" style="width:100%;margin-top:14px" ${bid ? "" : "disabled"} onclick="doIntake(this)">입고 확정</button>`
+              ? `<div id="inFlow">${bid ? "" : '<div class="flow-placeholder">왼쪽에서 교재를 선택하면<br>입고 전·후 재고가 표시됩니다.</div>'}</div><button id="intakeConfirm" class="btn" style="width:100%;margin-top:14px" disabled onclick="doIntake(this)">입고 확정</button>`
               : `<div id="nbiFlow"><div class="flow"><div>현재재고<br><b>0</b></div><div class="arrow">+0 →</div><div>입고 후 예상<br><b>0</b></div></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="commitNewBookIntake(this)">신규교재 등록·입고 확정</button>`
           }${window.intakeReceipt ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(window.intakeReceipt)}</div>` : ""}${
             mode === "existing" && last ? `<hr><h3>방금 입고한 교재 후속 배부</h3><div class="flow"><div>현재재고<br><b>${last.stock}</b></div><div class="arrow">-${last.need} →</div><div>배부 후<br><b class="${last.after < 0 ? "danger" : ""}">${last.after}</b></div></div><p><b>${esc(last.name)}</b> · 대상 반 전체 미배부 ${last.need}명</p>${last.after < 0 ? `<p class="error">재고 ${Math.abs(last.after)}권 부족 — 전체 배부하지 않습니다.</p>` : ""}<label>배부 메모<input id="lastIntakeMemo" value="입고 후 대상 전체 일괄배부"></label><button class="btn" style="width:100%" ${!last.need || last.after < 0 ? "disabled" : ""} onclick="commitBulkBook('${last.bid}',this)">입고 교재 전체 일괄배부</button>` : ""
@@ -6763,8 +7059,12 @@
             pendingRefundBooks = Object.values(refundTask?.books || {}).filter(
               (book) => book.status === "PENDING",
             ),
+            exitedInSelectedPeriod = studentExitedInPeriod(
+              s,
+              selectedPeriodId(),
+            ),
             refundPending =
-              s.active === false && refundTask && refundTask.status !== "DONE";
+              exitedInSelectedPeriod && refundTask?.status === "PENDING";
           const books = [
             ...new Map(
               [...assigned, ...heldBooks, ...exitBooks].map((book) => [book.id, book]),
@@ -6804,13 +7104,13 @@
             .filter(Boolean)
             .sort((a, b) => a.localeCompare(b, "ko"));
           const actionButtons =
-            s.active === false
+            exitedInSelectedPeriod
               ? `${heldBooks.length ? `<button class="done-btn" onclick="openStudentProcess('${s.id}')">보유 교재 회수</button>` : ""}${refundPending ? `<button onclick="completeRefund('${s.id}')">환불완료</button>` : ""}`
               : s.onboarding
                 ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${s.createdAt ? localDateKey(s.createdAt) : localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
                 : studentWorkspaceActions(s.id, "status");
           detail = `<div id="studentDetail">
-          <div class="student-head"><div><h2>${esc(s.name)} ${s.active === false ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : s.active === false && refundTask?.status === "DONE" ? '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
+          <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
   <details class="compact-details"><summary>교재 필터</summary><div class="student-book-toolbar">
     <select id="studentBookSubject" onchange="syncStudentBookFilters('subject')"><option value="">전체 과목</option>${subjects.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("")}</select>
@@ -7267,12 +7567,10 @@
         }
         const rows = [...allRows.values()]
             .filter((task) => {
-              const hasPending = task.status !== "DONE";
               return (
                 (periodFilter === "ACTIVE_ALL" ||
                   task.periodId === periodFilter) &&
-                (status === "ALL" ||
-                  (status === "PENDING" ? hasPending : task.status === "DONE")) &&
+                (status === "ALL" || task.status === status) &&
                 (!query ||
                   [
                     task.studentName,
@@ -7298,16 +7596,22 @@
                     ),
                 amounts = visibleBooks.map((book) => {
                   const current = bookPriceValue(S.books?.[book.bookId]),
-                    saved = book.refundAmount ?? book.unitPrice;
-                  return saved == null ? current : Number(saved);
+                    quantity = Math.max(1, Number(book.quantity || 1)),
+                    unitPrice = book.unitPrice == null ? current : Number(book.unitPrice),
+                    total = book.refundAmount == null
+                      ? (unitPrice == null ? null : Number(unitPrice) * quantity)
+                      : Number(book.refundAmount);
+                  return { unitPrice, total };
                 }),
-                missing = amounts.some((amount) => amount == null),
+                missing = amounts.some((amount) => amount.total == null),
                 total = amounts.reduce(
-                  (sum, amount) => sum + Number(amount || 0),
+                  (sum, amount) => sum + Number(amount.total || 0),
                   0,
                 );
               visibleBooks.forEach((book, index) => {
-                book.bookName = `${book.bookName} · ${amounts[index] == null ? "금액 미등록" : won(amounts[index])}`;
+                const quantity = Math.max(1, Number(book.quantity || 1)),
+                  amount = amounts[index];
+                book.bookName = `${book.bookName} · ${quantity}권 × ${amount.total == null ? "금액 미등록" : amount.unitPrice == null ? won(amount.total) : `${won(amount.unitPrice)} = ${won(amount.total)}`}`;
               });
               if (visibleBooks.length)
                 visibleBooks[visibleBooks.length - 1].bookName += ` · 총액 ${missing ? "확정 불가" : won(total)}`;
@@ -7315,60 +7619,94 @@
             });
 document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">운영 중인 모든 대상의 환불대기를 한 화면에서 확인합니다. 완료 처리는 각 학생의 원래 대상에 기록되며 재고와 학생 보유수량은 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생·교재" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 교재</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => { const pendingBooks = Object.values(task.books || {}).filter((book) => book.status === "PENDING"), doneBooks = Object.values(task.books || {}).filter((book) => book.status === "DONE"); return `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td>${pendingBooks.map((book) => esc(book.bookName)).join(" · ") || doneBooks.map((book) => esc(book.bookName)).join(" · ") || "없음"}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`; }).join("") || '<tr><td colspan="6">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
+      function refundConfirmationSnapshot(state, task) {
+        if (!task) return null;
+        const books = Object.values(task.books || {})
+          .filter((book) => book.status === "PENDING")
+          .map((book) => {
+            const quantity = Number(book.quantity == null ? 1 : book.quantity),
+              unitPrice = bookPriceValue(state.books?.[book.bookId]);
+            if (!Number.isInteger(quantity) || quantity < 1 || unitPrice == null)
+              return null;
+            return {
+              bookId: String(book.bookId || ""),
+              quantity,
+              unitPrice,
+              amount: unitPrice * quantity,
+            };
+          });
+        if (books.some((book) => !book)) return null;
+        books.sort((a, b) => a.bookId.localeCompare(b.bookId));
+        return {
+          books,
+          signature: JSON.stringify({
+            taskId: task.id,
+            periodId: task.periodId || "",
+            studentId: task.studentId || "",
+            status: task.status,
+            books,
+          }),
+        };
+      }
       async function completeRefund(sid) {
         const task = refundTaskForStudent(sid),
+          confirmation = refundConfirmationSnapshot(S, task),
           pendingBooks = Object.values(task?.books || {}).filter(
             (book) => book.status === "PENDING",
           ),
           pricedBooks = pendingBooks.map((item) => ({
             ...item,
             unitPrice: bookPriceValue(S.books?.[item.bookId]),
+            quantity: Math.max(1, Number(item.quantity || 1)),
           })),
           missingPrices = pricedBooks.filter((item) => item.unitPrice == null),
           totalAmount = pricedBooks.reduce(
-            (sum, item) => sum + Number(item.unitPrice || 0),
+            (sum, item) =>
+              sum + Number(item.unitPrice || 0) * Number(item.quantity || 1),
             0,
           );
         if (!task)
           return alert("환불대기 교재가 없습니다.");
-        if (task.status === "DONE")
-          return alert("이미 환불완료로 처리했습니다.");
+        if (task.status !== "PENDING")
+          return alert(
+            task.status === "CANCELLED"
+              ? "재등록으로 종결된 환불대기입니다. 환불완료로 처리할 수 없습니다."
+              : "이미 환불완료로 처리했습니다.",
+          );
+        if (!confirmation)
+          return alert("환불완료 차단: 교재 수량 또는 금액이 올바르지 않습니다. 다시 확인하세요.");
         if (missingPrices.length)
           return alert(`교재비 미등록으로 환불완료할 수 없습니다.\n\n${missingPrices.map((book) => book.bookName).join("\n")}\n\n관리의 반·교재에서 금액을 먼저 입력하세요.`);
-        if (!(await askConfirm(`${S.students?.[sid]?.name || task.studentName} 학생의 환불을 완료할까요?\n\n${pricedBooks.map((book) => `${book.bookName} · ${won(book.unitPrice)}`).join("\n")}\n\n환불 총액 ${won(totalAmount)}\n\n재고와 학생 보유수량은 변경되지 않습니다.`)))
+        if (!(await askConfirm(`${S.students?.[sid]?.name || task.studentName} 학생의 환불을 완료할까요?\n\n${pricedBooks.map((book) => `${book.bookName} · ${book.quantity}권 × ${won(book.unitPrice)} = ${won(book.unitPrice * book.quantity)}`).join("\n")}\n\n환불 총액 ${won(totalAmount)}\n\n재고와 학생 보유수량은 변경되지 않습니다.`)))
           return;
         const completedAt = now(),
           r = await transaction((st) => {
             st.refundTasks = st.refundTasks || {};
-            const target = (st.refundTasks[task.id] ||= {
-              id: task.id,
-              periodId: task.periodId,
-              studentId: task.studentId,
-              studentName: task.studentName,
-              status: "PENDING",
-              books: structuredClone(task.books || {}),
-              createdAt: task.createdAt || completedAt,
-              createdBy: task.createdBy || actor,
-              migratedAt: completedAt,
-            });
-            if (target.status === "DONE") return false;
+            const target = st.refundTasks[task.id];
+            if (!target || target.status !== "PENDING") return false;
+            const latestConfirmation = refundConfirmationSnapshot(st, target);
+            if (!latestConfirmation || latestConfirmation.signature !== confirmation.signature)
+              return false;
             const names = [],
               bookAmounts = [];
             for (const book of Object.values(target.books || {})) {
               if (book.status !== "PENDING") continue;
               const currentPrice = bookPriceValue(st.books?.[book.bookId]);
               if (currentPrice == null) return false;
+              const quantity = Math.max(1, Number(book.quantity || 1));
               book.status = "DONE";
               book.completedAt = completedAt;
               book.completedBy = actor;
               book.unitPrice = currentPrice;
-              book.refundAmount = currentPrice;
+              book.quantity = quantity;
+              book.refundAmount = currentPrice * quantity;
               names.push(book.bookName);
               bookAmounts.push({
                 bookId: book.bookId,
                 bookName: book.bookName,
                 unitPrice: currentPrice,
-                amount: currentPrice,
+                quantity,
+                amount: currentPrice * quantity,
               });
             }
             target.status = "DONE";
@@ -7389,10 +7727,14 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불
               studentName: target.studentName,
               bookNames: names,
               bookAmounts,
+              quantity: bookAmounts.reduce(
+                (sum, item) => sum + Number(item.quantity || 0),
+                0,
+              ),
               totalAmount: target.totalAmount,
               actor,
               time: completedAt,
-              memo: `미배부 교재 ${names.length}권 · ${won(target.totalAmount)} 환불완료`,
+              memo: `환불 교재 ${bookAmounts.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}권 · ${won(target.totalAmount)} 환불완료`,
             };
           });
         if (!r.committed)
@@ -7401,6 +7743,44 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불
         alert("환불완료로 기록했습니다. 재고와 학생 보유수량은 변경하지 않았습니다.");
         studentStatus();
       }
+      const studentStatusBeforeReenrollmentBadge = studentStatus;
+      studentStatus = function () {
+        studentStatusBeforeReenrollmentBadge();
+        const student = S.students?.[window.statusStudentId || ""],
+          task = student && refundTaskForStudent(student.id);
+        if (task?.status !== "CANCELLED") return;
+        const heading = document.querySelector("#studentDetail .student-head h2");
+        if (heading)
+          heading.insertAdjacentHTML(
+            "beforeend",
+            ' <span class="badge" style="background:#fff2cc;color:#7a5a00">재등록 종결</span>',
+          );
+      };
+      const refundTaskScreenBeforeCancelled = refundTaskScreen;
+      refundTaskScreen = function () {
+        refundTaskScreenBeforeCancelled();
+        const statusSelect = document.querySelector(
+          'select[onchange="refundStatus=this.value;refundTaskScreen()"]',
+        );
+        if (statusSelect && !statusSelect.querySelector('option[value="CANCELLED"]')) {
+          const option = document.createElement("option");
+          option.value = "CANCELLED";
+          option.textContent = "재등록 종결";
+          statusSelect.insertBefore(option, statusSelect.lastElementChild);
+          statusSelect.value = window.refundStatus || "PENDING";
+        }
+        for (const row of document.querySelectorAll("#screen tbody tr")) {
+          const onclick = row.querySelector("button")?.getAttribute("onclick") || "",
+            match = onclick.match(/openRefundStudent\('([^']+)'\s*,\s*'([^']*)'/);
+          if (!match) continue;
+          const task = arr(S.refundTasks).find(
+            (item) => item.studentId === match[1] && item.periodId === match[2],
+          );
+          if (task?.status === "CANCELLED")
+            row.cells[4].innerHTML =
+              '<span class="badge" style="background:#fff2cc;color:#7a5a00">재등록 종결</span>';
+        }
+      };
       function histApply() {
         const fromInput = document.getElementById("histFrom"),
           toInput = document.getElementById("histTo"),
