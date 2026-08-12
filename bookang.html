@@ -5908,6 +5908,36 @@
         }
         return window.ecodingMapDrafts[pid];
       }
+      function suggestExistingEcodingClassLinks(pid, draft) {
+        const localByName = new Map();
+        for (const cls of arr(S.classes).filter((item) =>
+          item.periodId === pid && item.active !== false && item.systemCommon !== true
+        )) {
+          const key = normalizeNameKey(cls.name);
+          if (!localByName.has(key)) localByName.set(key, []);
+          localByName.get(key).push(cls);
+        }
+        for (const externalClass of arr(S.ecodingSnapshots?.[pid]?.classes)) {
+          if (draft[externalClass.id]?.localClassId) continue;
+          const matches = localByName.get(normalizeNameKey(externalClass.name)) || [];
+          if (matches.length !== 1) continue;
+          const localClass = matches[0], firstBookId = Object.keys(localClass.books || {})[0] || "",
+            firstBook = S.books?.[firstBookId];
+          draft[externalClass.id] = {
+            ...(draft[externalClass.id] || {}),
+            enabled: true,
+            externalClassId: externalClass.id,
+            externalClassName: externalClass.name,
+            localClassId: localClass.id,
+            subject: localClass.subject || "",
+            teacher: localClass.teacher || "",
+            bookId: firstBookId,
+            bookName: firstBook?.name || "기존 반 교재",
+            price: firstBook ? bookPriceValue(firstBook) : null,
+          };
+        }
+        return draft;
+      }
       function setEcodingDraftField(classId,field,value){
         const draft=ecodingDraftState();
         draft[classId]={...(draft[classId]||{}),externalClassId:classId,[field]:value};
@@ -6010,6 +6040,7 @@
           ),
           matchedStudentKeys = new Set();
         for (const student of arr(snapshot?.students)) {
+          if (ecodingStudentExited(student)) continue;
           const belongsToEnabledClass = arr(student.classes).some(
             (cls) =>
               cls.active === true &&
@@ -6041,7 +6072,7 @@
         const button=document.querySelector('button[onclick="refreshEcodingPreview()"]');
         const originalText=button?.textContent||'이코딩 반 불러오기';
         if(button){button.disabled=true;button.textContent='불러오는 중...';}
-        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();const summary=ecodingSnapshotSummary(body,pid,S);alert(`이코딩 연결 확인 완료\n전체 원자료 ${summary.rawStudentCount}명 · ${summary.rawClassCount}개 반 (퇴원·미사용 반 포함)\n현재 사용 설정 ${summary.enabledClassCount}개 반 · 고유 재원 ${summary.matchedUniqueStudentCount}명\n교재관리 ${periodLabel(S.periods?.[pid])} 고유 재원 ${summary.localUniqueRosterCount}명\n반 중복 소속은 전체인원에 중복 합산하지 않습니다. 재고 변화는 없습니다.`);targetManagement();}}
+        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();suggestExistingEcodingClassLinks(pid,ecodingDraftState());const summary=ecodingSnapshotSummary(body,pid,S);alert(`이코딩 연결 확인 완료\n전체 원자료 ${summary.rawStudentCount}명 · ${summary.rawClassCount}개 반 (퇴원·미사용 반 포함)\n현재 사용 설정 ${summary.enabledClassCount}개 반 · 고유 재원 ${summary.matchedUniqueStudentCount}명\n교재관리 ${periodLabel(S.periods?.[pid])} 고유 재원 ${summary.localUniqueRosterCount}명\n반 중복 소속은 전체인원에 중복 합산하지 않습니다. 재고 변화는 없습니다.`);targetManagement();}}
         catch(error){alert(error.message)}
         finally{if(button?.isConnected){button.disabled=false;button.textContent=originalText;}}
       }
@@ -6063,7 +6094,22 @@
       async function saveEcodingMappings(){
         const pid=selectedPeriodId(),rows=ecodingMapDraft(); if(!Object.keys(rows).length)return alert('사용할 반을 선택하세요.');
         const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price!=null&&(!Number.isInteger(x.price)||x.price<0)); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 확인하세요.');
-        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}
+        const invalidExistingLink = Object.values(rows).find((mapping) => {
+          if (!mapping.localClassId) return false;
+          const localClass = S.classes?.[mapping.localClassId];
+          return !localClass || localClass.periodId !== pid ||
+            localClass.active === false || localClass.systemCommon === true;
+        });
+        if (invalidExistingLink)
+          return alert('처리 차단: 종료되었거나 공통 시스템 반으로 연결된 항목이 있습니다. 현재 운영반을 다시 선택하세요.');
+        const r=await transaction(st=>{st.ecodingClassMappings=st.ecodingClassMappings||{};st.ecodingClassMappings[pid]=rows;st.ecodingBaselines=st.ecodingBaselines||{};if(!st.ecodingBaselines[pid]&&st.ecodingSnapshots?.[pid])st.ecodingBaselines[pid]={...st.ecodingSnapshots[pid],periodId:pid};st.books=st.books||{};st.classes=st.classes||{};st.students=st.students||{};ensureSystemCommonClass(st,pid);for(const m of Object.values(rows)){const existingClass=m.localClassId&&st.classes[m.localClassId]?.periodId===pid?st.classes[m.localClassId]:null;if(existingClass){m.localClassId=existingClass.id;m.bookId=m.bookId||Object.keys(existingClass.books||{})[0]||"";continue;}const bid=id('B',`${m.subject}|${m.teacher}|${m.bookName}`),cid=id('C',`${pid}|${m.externalClassId}`);if(!st.books[bid])st.books[bid]={id:bid,subject:m.subject,teacher:m.teacher,name:m.bookName,price:m.price,stock:0,active:true,periodIds:{[pid]:pid},createdAt:now(),createdBy:actor};else{st.books[bid].periodIds=st.books[bid].periodIds||{};st.books[bid].periodIds[pid]=pid;if(m.price!=null)st.books[bid].price=m.price;}st.classes[cid]=st.classes[cid]||{id:cid,books:{}};Object.assign(st.classes[cid],{id:cid,periodId:pid,subject:m.subject,teacher:m.teacher,name:m.externalClassName,active:true,externalClassId:m.externalClassId,source:'ECODING'});st.classes[cid].books=st.classes[cid].books||{};st.classes[cid].books[bid]=bid;m.localClassId=cid;m.bookId=bid;}
+          const transactionInvalidLink = Object.values(rows).some((mapping) => {
+            if (!mapping.localClassId) return false;
+            const localClass = st.classes?.[mapping.localClassId];
+            return !localClass || localClass.periodId !== pid ||
+              localClass.active === false || localClass.systemCommon === true;
+          });
+          if (transactionInvalidLink) return false;
           const linkedPeople=new Map(),snapshotPeople=new Map(),snapshotExternalIds=new Set();
           for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){
             const linked=normalizedEcodingStudent(source,rows),key=studentIdentityKey({externalId:source.id,name:source.name,id:source.id});
@@ -6097,7 +6143,14 @@
         });if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
       }
       function rebuildStudentClasses(student){const merged={};for(const periodClasses of Object.values(student.periodClasses||{}))for(const classId of Object.keys(periodClasses||{}))merged[classId]=classId;student.classes=merged;return student;}
-      function normalizedEcodingStudent(student,maps){const classIds={};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
+      function ecodingStudentExited(student, dateKey = localDateKey()) {
+        const rawExitDate = String(student?.exitDate || "").trim(),
+          exitDate = /^\d{4}-\d{2}-\d{2}/.test(rawExitDate)
+            ? rawExitDate.slice(0, 10)
+            : "";
+        return !!exitDate && exitDate <= dateKey;
+      }
+      function normalizedEcodingStudent(student,maps){const classIds={};if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
         if(matches.length!==1)return false;
@@ -6178,6 +6231,21 @@
             return !next || !Object.keys(next.classIds || {}).length;
           });
           const hasManualExitPending = arr(S.students).some((student) => ecodingManualExitPending(student, pid));
+          const linkedBeforeCount = [...before].filter(([, student]) =>
+              Object.keys(student.classIds || {}).length > 0
+            ).length,
+            plannedExitCount = [...before].filter(([externalId, student]) => {
+              if (!Object.keys(student.classIds || {}).length) return false;
+              const next = after.get(externalId);
+              return !next || !Object.keys(next.classIds || {}).length;
+            }).length,
+            massExitLimit = Math.max(10, Math.ceil(linkedBeforeCount * 0.2));
+          if (plannedExitCount > massExitLimit) {
+            const message = `이코딩 자동처리 차단: ${linkedBeforeCount}명 중 ${plannedExitCount}명이 한꺼번에 퇴반으로 감지됐습니다. 이코딩 자료 기준을 먼저 확인해야 하므로 학생·환불·재고를 변경하지 않았습니다.`;
+            if (!silent) alert(message);
+            else console.warn(message);
+            return { blocked: true, reason: "MASS_EXIT", plannedExitCount, linkedBeforeCount };
+          }
           const hasMissingNewStudent = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
             const localMatches = arr(S.students).filter((student) => normalizeExternalId(student.externalId) === externalId),
