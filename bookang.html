@@ -5987,7 +5987,7 @@
         targetManagement();
       }
       function ecodingTargetMarkup() {
-        const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort();
+        const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],syncSummary=sync?ecodingSnapshotSummary(sync,pid,S):null,draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort();
         const rank=c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id],configured=!!(m.subject||m.teacher);return (bulk?0:m.enabled?1:configured?2:3)};
         const shown=classes.filter(c=>view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!draft[c.id]?.enabled:view==='UNSET'?!draft[c.id]?.enabled:true).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
         return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="미입력 가능"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 ‘적용’ 체크를 해제하세요. 교재가 여러 권이면 한 권씩 적용→저장을 반복합니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결 예정</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
@@ -6001,15 +6001,61 @@
         if(!response.ok||!body.ok) throw new Error(body.message||`이코딩 연결 실패 (${response.status})`);
         return body;
       }
+      function ecodingSnapshotSummary(snapshot, pid, st = S) {
+        const mappings = st.ecodingClassMappings?.[pid] || {},
+          enabledExternalClassIds = new Set(
+            Object.entries(mappings)
+              .filter(([, mapping]) => mapping?.enabled !== false)
+              .map(([externalClassId]) => String(externalClassId)),
+          ),
+          matchedStudentKeys = new Set();
+        for (const student of arr(snapshot?.students)) {
+          const belongsToEnabledClass = arr(student.classes).some(
+            (cls) =>
+              cls.active === true &&
+              enabledExternalClassIds.has(String(cls.id || "")),
+          );
+          if (!belongsToEnabledClass) continue;
+          matchedStudentKeys.add(
+            studentIdentityKey({
+              externalId: student.id,
+              name: student.name,
+              id: student.id,
+            }),
+          );
+        }
+        return {
+          rawStudentCount: arr(snapshot?.students).length,
+          rawClassCount: arr(snapshot?.classes).length,
+          enabledClassCount: enabledExternalClassIds.size,
+          matchedUniqueStudentCount: matchedStudentKeys.size,
+          localUniqueRosterCount: studentRosterAtDate(
+            st,
+            pid,
+            localDateKey(),
+          ).rows.length,
+        };
+      }
       async function refreshEcodingPreview(){
         const pid=selectedPeriodId(); if(!pid) return alert('대상을 먼저 선택하세요.');
         const button=document.querySelector('button[onclick="refreshEcodingPreview()"]');
         const originalText=button?.textContent||'이코딩 반 불러오기';
         if(button){button.disabled=true;button.textContent='불러오는 중...';}
-        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();alert(`이코딩 반 ${body.classes.length}개·학생 ${body.students.length}명을 확인했습니다. 공통 반은 프로그램에서 자동 준비하며 재고 변화는 없습니다.`);targetManagement();}}
+        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();const summary=ecodingSnapshotSummary(body,pid,S);alert(`이코딩 연결 확인 완료\n전체 원자료 ${summary.rawStudentCount}명 · ${summary.rawClassCount}개 반 (퇴원·미사용 반 포함)\n현재 사용 설정 ${summary.enabledClassCount}개 반 · 고유 재원 ${summary.matchedUniqueStudentCount}명\n교재관리 ${periodLabel(S.periods?.[pid])} 고유 재원 ${summary.localUniqueRosterCount}명\n반 중복 소속은 전체인원에 중복 합산하지 않습니다. 재고 변화는 없습니다.`);targetManagement();}}
         catch(error){alert(error.message)}
         finally{if(button?.isConnected){button.disabled=false;button.textContent=originalText;}}
       }
+      const ecodingTargetMarkupBeforeRosterSummary = ecodingTargetMarkup;
+      ecodingTargetMarkup = function () {
+        const markup = ecodingTargetMarkupBeforeRosterSummary(),
+          pid = selectedPeriodId(),
+          snapshot = S.ecodingSnapshots?.[pid];
+        if (!snapshot) return markup;
+        const summary = ecodingSnapshotSummary(snapshot, pid, S),
+          oldSummary = `반 ${summary.rawClassCount}개 · 학생 ${summary.rawStudentCount}명`,
+          accurateSummary = `전체 원자료 ${summary.rawStudentCount}명 (퇴원·미사용 반 포함) · 현재 사용 설정 ${summary.enabledClassCount}개 반 / 고유 재원 ${summary.matchedUniqueStudentCount}명 · 교재관리 고유 재원 ${summary.localUniqueRosterCount}명`;
+        return markup.replace(oldSummary, accurateSummary);
+      };
       function ecodingMapDraft(){
         const draft=ecodingDraftState(),classes=arr(S.ecodingSnapshots?.[selectedPeriodId()]?.classes),rows={};
         for(const cls of classes){const item=draft[cls.id]||{};if(!item.enabled)continue;rows[cls.id]={...item,enabled:true,externalClassId:cls.id,externalClassName:cls.name,subject:String(item.subject||'').trim(),teacher:String(item.teacher||'').trim(),bookName:String(item.bookName||'').trim(),price:item.price==null||item.price===''?null:Number(item.price)};}return rows;
