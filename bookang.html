@@ -6254,6 +6254,109 @@
           render();
         }
       };
+      function ecodingEventClassSignature(classIds) {
+        return Object.keys(classIds || {}).sort().join("|");
+      }
+      function samePendingEcodingTransition(event, pid, externalId, type, beforeClassIds, afterClassIds) {
+        return event?.status === "PENDING" &&
+          event.periodId === pid &&
+          normalizeExternalId(event.externalStudentId) === externalId &&
+          event.type === type &&
+          ecodingEventClassSignature(event.beforeClassIds) === ecodingEventClassSignature(beforeClassIds) &&
+          ecodingEventClassSignature(event.afterClassIds) === ecodingEventClassSignature(afterClassIds);
+      }
+      function ecodingEventTime(event) {
+        const value = event?.completedAt || event?.queuedToRefundAt || event?.closedAt || event?.createdAt || "";
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      function shouldQueueEcodingNew(st, pid, externalId, afterClassIds) {
+        const targetSignature = ecodingEventClassSignature(afterClassIds),
+          events = arr(st.ecodingEvents).filter((event) =>
+            event?.periodId === pid && normalizeExternalId(event.externalStudentId) === externalId
+          );
+        if (events.some((event) => event.type === "NEW" && event.status === "PENDING" &&
+            ecodingEventClassSignature(event.afterClassIds) === targetSignature)) return false;
+        const completedNews = events.filter((event) =>
+          event.type === "NEW" && event.status === "DONE" &&
+          ecodingEventClassSignature(event.afterClassIds) === targetSignature
+        );
+        if (!completedNews.length) return true;
+        const latestNewAt = Math.max(...completedNews.map(ecodingEventTime)),
+          hasLaterCompletedExit = events.some((event) =>
+            event.type === "EXIT" && event.status === "DONE" && ecodingEventTime(event) > latestNewAt
+          ),
+          hasLaterManualExitConfirmation = arr(st.students).some((student) => {
+            if (normalizeExternalId(student.externalId) !== externalId) return false;
+            const record = ecodingManualExitRecord(student, pid);
+            return record?.status === "CONFIRMED" && ecodingEventTime({ completedAt: record.confirmedAt }) > latestNewAt;
+          });
+        return hasLaterCompletedExit || hasLaterManualExitConfirmation;
+      }
+      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds) {
+        const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
+        if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
+        const localStudent = localMatches[0],
+          localClassIds = localStudent?.periodMembership?.[pid] === true
+            ? (localStudent.periodClasses?.[pid] || {}) : {},
+          exactPendingNew = arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
+            event, pid, externalId, "NEW", {}, nextClassIds,
+          ));
+        if (!Object.keys(localClassIds).length) return {
+          blocked: false,
+          type: exactPendingNew || shouldQueueEcodingNew(st, pid, externalId, nextClassIds) ? "NEW" : "",
+          beforeClassIds: {},
+        };
+        return {
+          blocked: false,
+          type: ecodingEventClassSignature(localClassIds) === ecodingEventClassSignature(nextClassIds) ? "" : "MOVE",
+          beforeClassIds: localClassIds,
+        };
+      }
+      function supersedeStalePendingEcodingTransitions(st, pid, externalId, type, beforeClassIds, afterClassIds) {
+        const beforeSignature = ecodingEventClassSignature(beforeClassIds),
+          targetSignature = ecodingEventClassSignature(afterClassIds), closedAt = now();
+        let count = 0;
+        for (const event of arr(st.ecodingEvents)) {
+          if (event?.status !== "PENDING" || !["NEW", "MOVE"].includes(event.type) ||
+              event.periodId !== pid || normalizeExternalId(event.externalStudentId) !== externalId ||
+              (event.type === type && ecodingEventClassSignature(event.beforeClassIds) === beforeSignature &&
+               ecodingEventClassSignature(event.afterClassIds) === targetSignature)) continue;
+          event.status = "CANCELLED";
+          event.closedAt = closedAt;
+          event.closedBy = actor;
+          event.closeReason = "SUPERSEDED_BY_LATEST_ECODING";
+          count++;
+        }
+        return count;
+      }
+      function reconcilePendingEcodingDuplicates(st, pid) {
+        const groups = new Map(), closedAt = now();
+        for (const event of arr(st.ecodingEvents).filter((item) => item?.status === "PENDING" && item.periodId === pid)) {
+          const externalId = normalizeExternalId(event.externalStudentId);
+          if (!externalId) continue;
+          const logicalKey = [externalId, event.type,
+            ecodingEventClassSignature(event.beforeClassIds),
+            ecodingEventClassSignature(event.afterClassIds)].join("::");
+          if (!groups.has(logicalKey)) groups.set(logicalKey, []);
+          groups.get(logicalKey).push(event);
+        }
+        let duplicateCount = 0;
+        for (const events of groups.values()) {
+          if (events.length < 2) continue;
+          events.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || String(a.id).localeCompare(String(b.id)));
+          const keep = events[0];
+          for (const duplicate of events.slice(1)) {
+            duplicate.status = "CANCELLED";
+            duplicate.closedAt = closedAt;
+            duplicate.closedBy = actor;
+            duplicate.closeReason = "DUPLICATE_EVENT";
+            duplicate.duplicateOf = keep.id;
+            duplicateCount++;
+          }
+        }
+        return duplicateCount;
+      }
       runEcodingDiff = async function (silent = false, requestedPeriodId = "") {
         const pid = requestedPeriodId || selectedPeriodId(),
           snap = S.ecodingBaselines?.[pid],
@@ -6266,7 +6369,7 @@
           const fresh = await fetchEcodingSnapshot(),
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)]));
-          const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0 };
+          const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
           const hasRosterChange = [...after].some(([externalId, next]) => {
             const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
             if (!nextIds.length) return false;
@@ -6278,6 +6381,17 @@
             return !next || !Object.keys(next.classIds || {}).length;
           });
           const hasManualExitPending = arr(S.students).some((student) => ecodingManualExitPending(student, pid));
+          const pendingTransitionKeys = new Set(), hasPendingDuplicates = arr(S.ecodingEvents).some((event) => {
+            if (event?.status !== "PENDING" || event.periodId !== pid) return false;
+            const externalId = normalizeExternalId(event.externalStudentId);
+            if (!externalId) return false;
+            const logicalKey = [externalId, event.type,
+              ecodingEventClassSignature(event.beforeClassIds),
+              ecodingEventClassSignature(event.afterClassIds)].join("::");
+            if (pendingTransitionKeys.has(logicalKey)) return true;
+            pendingTransitionKeys.add(logicalKey);
+            return false;
+          });
           const linkedBeforeCount = [...before].filter(([, student]) =>
               Object.keys(student.classIds || {}).length > 0
             ).length,
@@ -6293,27 +6407,29 @@
             else console.warn(message);
             return { blocked: true, reason: "MASS_EXIT", plannedExitCount, linkedBeforeCount };
           }
-          const hasMissingNewStudent = [...after].some(([externalId, next]) => {
+          const hasActionableStudentChange = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const localMatches = arr(S.students).filter((student) => normalizeExternalId(student.externalId) === externalId),
-              localStudent = localMatches.length === 1 ? localMatches[0] : null;
-            const pendingNew = arr(S.ecodingEvents).some((event) =>
-              event.periodId === pid &&
-              normalizeExternalId(event.externalStudentId) === externalId &&
-              event.type === "NEW" &&
-              event.status === "PENDING"
+            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds);
+            if (desired.blocked) return true;
+            const pending = arr(S.ecodingEvents).filter((event) =>
+              event?.status === "PENDING" && ["NEW", "MOVE"].includes(event.type) &&
+              event.periodId === pid && normalizeExternalId(event.externalStudentId) === externalId
             );
-            return !localStudent && !pendingNew;
+            const exactCount = desired.type ? pending.filter((event) => samePendingEcodingTransition(
+              event, pid, externalId, desired.type, desired.beforeClassIds, next.classIds,
+            )).length : 0;
+            return desired.type ? exactCount !== 1 || pending.length !== 1 : pending.length > 0;
           });
           // 자동 확인은 변경이 없을 때 Firebase 전체 상태를 다시 쓰지 않는다.
           // 이 방어가 탭 전환·입력·저장 중 불필요한 전체 화면 갱신을 막는다.
           // 단, 이코딩에는 있으나 교재 DB와 신규 대기명단에 모두 없는 학생은
           // 이전 기준자료가 먼저 갱신됐더라도 다시 신규로 복구한다.
-          if (silent && !hasRosterChange && !hasManualExitPending && !hasMissingNewStudent) return counts;
+          if (silent && !hasRosterChange && !hasManualExitPending && !hasActionableStudentChange && !hasPendingDuplicates) return counts;
           const r = await transaction((st) => {
             st.ecodingEvents = st.ecodingEvents || {};
             st.ecodingBaselines = st.ecodingBaselines || {};
             st.movements = st.movements || {};
+            counts.DUPLICATE = reconcilePendingEcodingDuplicates(st, pid);
             const manualExternalIds = new Set();
             for (const student of arr(st.students)) {
               if (!ecodingManualExitPending(student, pid) || !student.externalId) continue;
@@ -6355,26 +6471,23 @@
               if (!hasClasses) continue;
               const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
               if (localMatches.length > 1) return false;
-              const localStudent = localMatches[0],
-                pendingNew = arr(st.ecodingEvents).some((event) =>
-                  event.periodId === pid &&
-                  normalizeExternalId(event.externalStudentId) === externalId &&
-                  event.type === "NEW" &&
-                  event.status === "PENDING"
-                );
-              const type = (!localStudent && !pendingNew) || !prev || !Object.keys(prev.classIds).length
-                ? "NEW"
-                : JSON.stringify(Object.keys(prev.classIds).sort()) !== JSON.stringify(Object.keys(next.classIds).sort())
-                  ? "MOVE"
-                  : "";
+              const desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds),
+                type = desired.type,
+                eventBeforeClassIds = desired.beforeClassIds;
+              counts.DUPLICATE += supersedeStalePendingEcodingTransitions(
+                st, pid, externalId, type, eventBeforeClassIds, next.classIds,
+              );
               if (!type) continue;
+              if (arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
+                event, pid, externalId, type, eventBeforeClassIds, next.classIds,
+              ))) continue;
               const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
               const key = id("E", `${pid}|${externalId}|${type}|${JSON.stringify(next.classIds)}|${transitionStamp}`);
               if (!st.ecodingEvents[key]) {
                 st.ecodingEvents[key] = {
                   id: key, type, status: "PENDING", periodId: pid,
                   externalStudentId: externalId, studentName: next.name,
-                  beforeClassIds: prev?.classIds || {}, afterClassIds: next.classIds,
+                  beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
                   createdAt: now(),
                 };
                 counts[type]++;
@@ -6404,7 +6517,7 @@
             S = r.snapshot.val();
             resetDerivedState();
             if (!silent) {
-              alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명\n재고는 변하지 않았습니다.`);
+              alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명 · 중복 종결 ${counts.DUPLICATE}건\n재고는 변하지 않았습니다.`);
               render();
             } else if (counts.NEW || counts.MOVE || counts.EXIT || counts.WAITING || counts.CONFIRMED) {
               renderTabs();
