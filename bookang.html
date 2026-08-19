@@ -5041,18 +5041,8 @@
           ),
           afterBookIds = new Set(
             classIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
-          ),
-          distributeIds = arr(S.books)
-            .filter(
-              (book) =>
-                afterBookIds.has(book.id) &&
-                !beforeBookIds.has(book.id) &&
-                held(sid, book.id) === 0,
-            )
-            .map((book) => book.id),
-          returnIds = arr(S.books)
-            .filter((book) => held(sid, book.id) > 0 && !afterBookIds.has(book.id))
-            .map((book) => book.id);
+          );
+        let distributeIds = [], returnIds = [];
         const r = await transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students[sid];
@@ -5074,9 +5064,9 @@
               .map((cid) => [cid, cid]),
           );
           const stored = { ...ended, ...cs };
-          s.classes = stored;
           s.periodClasses = s.periodClasses || {};
           s.periodClasses[pid] = stored;
+          rebuildStudentClasses(s);
           s.classChanges = s.classChanges || {};
           const x = "C" + crypto.randomUUID();
           s.classChanges[x] = {
@@ -5093,6 +5083,11 @@
         });
         if (r.committed) {
           S = r.snapshot.val();
+          const remainingAssignedBookIds = new Set(
+            Object.keys(S.students?.[sid]?.classes || {}).flatMap((classId) => Object.keys(S.classes?.[classId]?.books || {})),
+          );
+          distributeIds = [...afterBookIds].filter((bookId) => !beforeBookIds.has(bookId) && held(sid, bookId) === 0);
+          returnIds = [...beforeBookIds].filter((bookId) => !remainingAssignedBookIds.has(bookId) && held(sid, bookId) > 0);
           window.classMemoDraft = "";
           window.studentTransition = {
             sid,
@@ -6268,8 +6263,9 @@
         if(r.committed){
           S=r.snapshot.val();
           if(outcome==='ALREADY_APPLIED'){window.ecodingEventId='';alert('이미 반영된 학생이라 중복 대기만 종결했습니다. 학생·교재·재고는 변경하지 않았습니다.');render();return;}
+          const remainingAssignedBookIds=new Set(Object.keys(S.students?.[localSid]?.classes||{}).flatMap(classId=>Object.keys(S.classes?.[classId]?.books||{})));
           distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
-          returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
+          returnIds=[...beforeBookIds].filter(bid=>!remainingAssignedBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
           window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();
         }
       }
