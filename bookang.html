@@ -1016,6 +1016,7 @@
         remoteRenderTimer = 0;
         cancelAnimationFrame(remoteRenderFrame);
         remoteRenderFrame = 0;
+        if (x !== tab && (x === "신규" || x === "반이동")) window.ecodingEventId = "";
         tab = x;
         selected = [];
         receipt = null;
@@ -6226,11 +6227,52 @@
         try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const queued=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:queued?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),queuedToRefundAt:queued?now():null};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
         catch(error){alert(error.message)}
       }
-      function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId)||rows[0];window.ecodingEventId=selectedEvent?.id||'';document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';render()"><b>${esc(x.studentName)}</b> · ${esc(deskPeriodName(x.periodId))}</button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2>'}</section></div>`;}
-      function ecodingEventDetail(event){const names=ids=>Object.keys(ids||{}).map(id=>S.classes?.[id]?.name||id).join(' · ')||'없음';return `<h2>${esc(event.studentName)}</h2><div class="flow"><div>이전 반<br><b>${esc(names(event.beforeClassIds))}</b></div><div class="arrow">→</div><div>변경 반<br><b>${esc(names(event.afterClassIds))}</b></div></div><p class="muted">반정보 확인은 재고를 바꾸지 않습니다. 저장 후 학생 교재 화면에서 배부·회수를 선택하면 그때 재고 전·후가 표시됩니다.</p><button class="btn" onclick="applyEcodingEvent('${event.id}')">반정보 확인 후 교재 처리</button>`;}
+      function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent)window.ecodingEventId='';document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';render()"><b>${esc(x.studentName)}</b> · ${esc(deskPeriodName(x.periodId))}</button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
+      function ecodingEventDetail(event){const names=ids=>Object.keys(ids||{}).map(id=>S.classes?.[id]?.name||id).join(' · ')||'없음';return `<h2>${esc(event.studentName)}</h2><div class="flow"><div>이전 반<br><b>${esc(names(event.beforeClassIds))}</b></div><div class="arrow">→</div><div>변경 반<br><b>${esc(names(event.afterClassIds))}</b></div></div><p class="muted">반정보 확인은 재고를 바꾸지 않습니다. 저장 후 학생 교재 화면에서 배부·회수를 선택하면 그때 재고 전·후가 표시됩니다.</p><button class="btn" onclick="requestApplyEcodingEvent('${event.id}')">반정보 확인 후 교재 처리</button>`;}
+      async function requestApplyEcodingEvent(eventId){
+        const event=S.ecodingEvents?.[eventId];
+        if(!event||event.status!=='PENDING'||window.ecodingEventId!==eventId){alert('대기 상태가 바뀌었습니다. 명단에서 학생을 다시 선택하세요.');render();return;}
+        if(window.ecodingApplyBusy)return;
+        if(!confirm(`${event.studentName} 학생의 반정보를 최종 반영할까요?\n\n이 확인 전에는 학생·반·교재·재고가 변경되지 않습니다.`))return;
+        const latest=S.ecodingEvents?.[eventId];
+        if(!latest||latest.status!=='PENDING'||window.ecodingEventId!==eventId){alert('확인 중 상태가 바뀌어 처리하지 않았습니다.');render();return;}
+        window.ecodingApplyBusy=true;
+        try{await applyEcodingEvent(eventId);}finally{window.ecodingApplyBusy=false;}
+      }
       function ecodingNewScreen(){ecodingQueueScreen('NEW','신규');}
       function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반이동');}
-      async function applyEcodingEvent(eventId){const event=S.ecodingEvents?.[eventId];if(!event)return;let localSid=arr(S.students).find(s=>s.externalId===event.externalStudentId)?.id||id('S',`ECODING|${event.externalStudentId}`);const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&held(localSid,bid)===0),returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&held(localSid,bid)>0);const r=await transaction(st=>{const e=st.ecodingEvents?.[eventId];if(!e||e.status!=='PENDING')return false;st.students=st.students||{};ensureSystemCommonClass(st,e.periodId);const student=st.students[localSid]||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;});if(r.committed){S=r.snapshot.val();window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();}}
+      async function applyEcodingEvent(eventId){
+        const event=S.ecodingEvents?.[eventId];if(!event)return;
+        const expectedFingerprint=[event.type,event.periodId,normalizeExternalId(event.externalStudentId),ecodingEventClassSignature(event.beforeClassIds),ecodingEventClassSignature(event.afterClassIds)].join('::');
+        let localSid=arr(S.students).find(s=>normalizeExternalId(s.externalId)===normalizeExternalId(event.externalStudentId))?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
+        const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{})));
+        let distributeIds=[],returnIds=[];
+        const r=await transaction(st=>{
+          const e=st.ecodingEvents?.[eventId];
+          if(!e||e.status!=='PENDING')return false;
+          const latestFingerprint=[e.type,e.periodId,normalizeExternalId(e.externalStudentId),ecodingEventClassSignature(e.beforeClassIds),ecodingEventClassSignature(e.afterClassIds)].join('::');
+          if(latestFingerprint!==expectedFingerprint)return false;
+          st.students=st.students||{};
+          const matches=arr(st.students).filter(s=>normalizeExternalId(s.externalId)===normalizeExternalId(e.externalStudentId));
+          if(matches.length>1)return false;
+          const existing=matches[0];
+          if(existing&&ecodingManualExitPending(existing,e.periodId))return false;
+          if(existing?.periodMembership?.[e.periodId]===true&&ecodingEventClassSignature(existing.periodClasses?.[e.periodId])===ecodingEventClassSignature(e.afterClassIds)){
+            e.status='CANCELLED';e.closedAt=now();e.closedBy=actor;e.closeReason='ALREADY_APPLIED';outcome='ALREADY_APPLIED';return;
+          }
+          if(existing)localSid=existing.id;
+          ensureSystemCommonClass(st,e.periodId);
+          const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+        });
+        if(r.committed){
+          S=r.snapshot.val();
+          if(outcome==='ALREADY_APPLIED'){window.ecodingEventId='';alert('이미 반영된 학생이라 중복 대기만 종결했습니다. 학생·교재·재고는 변경하지 않았습니다.');render();return;}
+          distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
+          returnIds=[...beforeBookIds].filter(bid=>!afterBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
+          window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();
+        }
+      }
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
       saveEcodingMappings = async function () {
         const pid = selectedPeriodId();
@@ -6570,6 +6612,8 @@
           student = studentMatches.length === 1 ? studentMatches[0] : null;
         if (studentMatches.length > 1)
           return alert("처리 차단: 같은 외부 학생번호가 여러 학생에게 연결되어 있습니다.");
+        if (!event || event.status !== "PENDING" || window.ecodingEventId !== eventId)
+          return alert("대기 상태가 바뀌었습니다. 명단에서 학생을 다시 선택하세요.");
         if (event && student && ecodingManualExitPending(student, event.periodId))
           return alert("교재에서 먼저 퇴반되어 이코딩 반영 대기 중입니다. 이코딩 퇴반 확인 전에는 다시 입반할 수 없습니다.");
         if (event && student) event.externalStudentId = student.externalId;
