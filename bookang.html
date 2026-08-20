@@ -108,6 +108,12 @@
         button,.btn,#actor button,select,input:not([type=file]){min-height:44px}td button,td input,td select,.picker-results button,.class-chip-list button{min-height:44px}.panel .btn[style*="width:100%"]{width:100%!important;max-width:none}.student-process-list{max-height:none;border:0;overflow:visible}.student-process-list .student-table{display:block;min-width:0}.student-process-list thead{display:none}.student-process-list tbody{display:grid;gap:10px}.student-process-list tr{display:grid;grid-template-columns:1fr auto;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;min-height:72px}.student-process-list tr.selected{border-color:var(--blue);background:var(--blue-soft)}.student-process-list td{display:block;border:0;padding:2px 4px;text-align:left}.student-process-list td:nth-child(1){font-size:12px;color:var(--muted)}.student-process-list td:nth-child(2){grid-column:1;font-size:15px}.student-process-list td:nth-child(3){grid-column:1;font-size:12px;color:var(--ink2)}.student-process-list td:nth-child(4),.student-process-list td:nth-child(5){grid-column:2;text-align:right}.workspace-side.mobile-focus{scroll-margin-top:12px}
       }
       @media(max-width:720px){.class-chip-list button{min-height:44px}}
+      @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(320px,1.4fr) minmax(190px,.8fr) 70px 86px}.student-status-panel .student-table{min-width:0}.student-status-panel .scroll{overflow-x:hidden}}
+      /* 2026-08 batch usability: fit wide staff tables without removing fallback scroll. */
+      .catalog-class-row,.catalog-class-row label,.catalog-class-row input,.catalog-class-row select{min-width:0}
+      .catalog-status-line{flex-wrap:wrap}
+      @media(max-width:720px){.catalog-class-row,.catalog-book-row{grid-template-columns:1fr}.catalog-class-row button,.catalog-book-row button{width:100%}}
+      @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(360px,1.5fr) minmax(210px,.75fr) 70px 86px}.student-status-panel .student-table{min-width:0;width:100%;table-layout:fixed}.student-status-panel .scroll{overflow-x:auto}}
     </style>
   </head>
   <body>
@@ -1100,7 +1106,7 @@
             }
             resetDerivedState();
             scheduleRemoteRender();
-            if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
+            // 이코딩 자동 감지는 운영 승인 전까지 시작하지 않는다.
           },
           () => {
             bookflowListenerStarted = false;
@@ -1171,7 +1177,7 @@
           };
           renderActor();
           render();
-          startEcodingAutoSync();
+          // 이코딩 자동 감지는 운영 승인 전까지 시작하지 않는다.
         } catch (error) {
           alert("로그인 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.");
         }
@@ -1373,10 +1379,19 @@
           teacher: "공통",
           name: "공통",
           books: current.books || {},
-          active: current.active !== false,
+          active: true,
           source: "SYSTEM_COMMON",
           systemCommon: true,
         };
+        for (const legacy of Object.values(st.classes)) {
+          if (!legacy || legacy.id === cid || legacy.periodId !== pid || legacy.systemCommon !== true || legacy.active === false) continue;
+          for (const bookId of Object.keys(legacy.books || {})) st.classes[cid].books[bookId] = bookId;
+          legacy.active = false;
+          legacy.mergedInto = cid;
+          legacy.mergedAt = now();
+          legacy.mergedBy = actor;
+          legacy.mergeReason = "SYSTEM_COMMON_EXACT_ONE";
+        }
         return cid;
       }
       function systemCommonClasses(st, pid) {
@@ -4114,12 +4129,20 @@
           );
         window.bookSubject = subject;
         window.bookTeacher = teacher;
+        if (!bid) {
+          window.statusBookId = "";
+          if (!books.some((item) => item.name === window.bookNameQuery)) window.bookNameQuery = "";
+        }
         document.querySelector("#screen").innerHTML =
           `<section class="panel"><h2>교재별 재고·배부·회수</h2><div class="book-filter"><label>① 과목<select onchange="bookSubject=this.value;bookTeacher='';statusBookId='';bookNameQuery='';bookStatus()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="bookTeacher=this.value;statusBookId='';bookNameQuery='';bookStatus()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재명 검색<input id="bookNameSearch" value="${esc(b?.name || window.bookNameQuery || "")}" placeholder="교재명을 입력하거나 목록에서 선택" autocomplete="off" oninput="if(!event.isComposing)filterBookPicker(this.value)" oncompositionend="filterBookPicker(this.value)" onfocus="filterBookPicker(this.value)" onkeydown="confirmBookSearch(event)"><div id="bookPickerResults" class="picker-results"></div></label></div>${
             b
               ? `<div class="summary-row"><div class="summary-item"><span>현재재고</span><b>${b.stock || 0}</b></div><div class="summary-item"><span>대상학생</span><b>${targets.length}</b></div><div class="summary-item"><span>배부</span><b>${distributed.length}</b></div><div class="summary-item"><span>미배부</span><b>${missing.length}</b></div><div class="summary-item"><span>추가배부</span><b>${extraCopies}</b></div><div class="summary-item"><span>회수이력</span><b>${returns.length}</b></div></div><div class="status-tabs">${[["all",`전체 대상 ${targets.length}`],["missing",`미배부 ${missing.length}`],["distributed",`배부 ${distributed.length}`],["outside",`대상 외 보유 ${outsideHolders.length}`],["returns",`회수이력 ${returns.length}`]].map(([k,l])=>`<button class="${mode===k?"on":""}" onclick="bookListMode='${k}';bookStatus()">${l}</button>`).join("")}</div>${mode === "returns" ? `<div class="scroll"><table><thead><tr><th>회수일시</th><th>학생</th><th>유형</th><th>수량</th><th>재고 전→후</th><th>작성자</th><th>메모</th></tr></thead><tbody>${returns.slice(0,500).map((m)=>`<tr><td>${fmt(m.time)}</td><td>${esc(movementNames(m).join(", ") || S.students[m.studentId]?.name || "-")}</td><td>${esc(movementLabel(m))}</td><td>${Math.abs(Number(m.quantity || m.itemCount || 0))}권</td><td>${m.stockBefore}→${m.stockAfter}</td><td>${esc(m.actor || "")}</td><td title="${esc(m.memo || "")}">${esc(m.memo || "-")}</td></tr>`).join("") || '<tr><td colspan="7">회수이력 없음</td></tr>'}</tbody></table></div>` : `<label>학생명 검색<input id="bookStudentSearch" placeholder="학생명을 입력하면 바로 검색됩니다" oninput="filterBookStudentRows(this.value)"></label><div class="scroll"><table><thead><tr><th>학생명</th><th>해당 교재 매칭 반</th><th>상태</th><th>보유수량</th></tr></thead><tbody id="bookStudentRows">${visibleStudents.map(({s,outside})=>{const q=held(s.id,bid), related=clsOf(s.id).filter((c)=>mappedClassIds.has(c.id)).map((c)=>c.name).join(" · ");return `<tr data-name="${esc(s.name.toLocaleLowerCase("ko"))}"><td><b>${esc(s.name)}</b></td><td title="${esc(related || "현재 매칭 반 없음")}">${esc(related || "현재 매칭 반 없음")}</td><td>${outside ? "대상 외 보유" : q===0 ? "미배부" : q===1 ? "배부" : "추가배부"}</td><td><b>${q}권</b></td></tr>`}).join("") || '<tr><td colspan="4">해당 학생 없음</td></tr>'}</tbody></table></div>`}`
               : '<p class="muted">과목·관리주체 다음에 교재를 직접 선택하세요.</p>'
           }</section>`;
+        if (b) {
+          const heading=document.querySelector("#screen h2"); if(heading) heading.textContent=`현재 조회 교재 · ${b.subject} · ${b.teacher || "미지정"} · ${b.name}`;
+          const table=document.querySelector("#bookStudentRows")?.closest("table"); if(table) table.insertAdjacentHTML("beforebegin",`<h3>${esc(b.name)} 학생 명단</h3>`);
+        }
       }
       function matchingBooksForPicker(value) {
         const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"),
@@ -4144,6 +4167,14 @@
       }
       function filterBookPicker(value) {
         window.bookNameQuery = value;
+        if (S.books?.[window.statusBookId]?.name !== String(value || "")) {
+          window.statusBookId = "";
+          const filter = document.querySelector("#screen .book-filter"), section = filter?.closest("section");
+          if (filter && section) {
+            while (filter.nextSibling) filter.nextSibling.remove();
+            section.insertAdjacentHTML("beforeend", '<div class="flow-placeholder">교재를 검색한 뒤 아래 목록에서 정확한 교재를 선택하세요.</div>');
+          }
+        }
         const matches = matchingBooksForPicker(value),
           box = document.querySelector("#bookPickerResults");
         if (box)
@@ -4195,9 +4226,16 @@
         input.value = decodeURIComponent(encoded);
         closeManagedCombo(id);
         if (id === "newClassSubject" || id === "newClassTeacher") {
+          window.newClassExistingId = "";
           window.newClassBookChoice = "";
+          window.newClassBooks = [];
           const search = document.getElementById("newClassBookSearch");
           if (search) search.value = "";
+          const name = document.getElementById("newClassName");
+          if (name) name.value = "";
+          const list = document.getElementById("newClassBookList");
+          if (list) list.innerHTML = classBookDraftHtml();
+          refreshExistingClassNames();
         }
         if (id === "newBookSubject") {
           const teacher = document.getElementById("newBookTeacher");
@@ -4207,6 +4245,12 @@
           const teacher = document.getElementById("newClassTeacher");
           if (teacher) teacher.value = "";
         }
+      }
+      function refreshExistingClassNames() {
+        const list = document.getElementById("existingClassNames");
+        if (!list) return;
+        const pid = selectedPeriodId(), subject = String(document.getElementById("newClassSubject")?.value || "").trim(), teacher = String(document.getElementById("newClassTeacher")?.value || "").trim();
+        list.innerHTML = arr(S.classes).filter((c) => c.periodId === pid && c.active !== false && c.systemCommon !== true && (!subject || c.subject === subject) && (!teacher || c.teacher === teacher)).sort((a,b)=>a.name.localeCompare(b.name,"ko")).map((c)=>`<option value="${esc(c.name)}">${esc(c.subject)} · ${esc(c.teacher || "미지정")}</option>`).join("");
       }
       function closeManagedCombo(id) {
         const box = document.getElementById(`${id}Results`);
@@ -4269,14 +4313,15 @@
             <button class="btn" onclick="createBook()">저장</button>
           </div></section>
           <section class="panel catalog-step"><div class="catalog-step-head"><b>2</b><h2>새 반 등록·교재 매칭</h2></div><div class="catalog-class-row">
+            <label>연결 유형<select id="newClassType" onchange="setClassConnectionType()"><option value="GENERAL">기존·새 일반반</option><option value="COMMON">전체 학생 공통</option></select></label>
             ${managedComboField("newClassSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newClassTeacher","강사",teachersAll,"선택하거나 입력")}
-            <label>반명<input id="newClassName" list="existingClassNames" placeholder="기존 반 검색 또는 새 반명 입력"><datalist id="existingClassNames">${classes.filter((c)=>c.active!==false).map((c)=>`<option value="${esc(c.name)}">${esc(c.subject)} · ${esc(c.teacher||"미지정")}</option>`).join("")}</datalist></label>
+            <label>반명<input id="newClassName" list="existingClassNames" placeholder="기존 반 검색 또는 새 반명 입력" oninput="syncClassCandidate()"><datalist id="existingClassNames">${classes.filter((c)=>c.active!==false&&c.systemCommon!==true).map((c)=>`<option value="${esc(c.name)}">${esc(c.subject)} · ${esc(c.teacher||"미지정")}</option>`).join("")}</datalist></label>
             <label>매칭 교재<div class="managed-combo"><input id="newClassBookSearch" autocomplete="off" placeholder="교재명 검색" onfocus="showClassBookPicker()" oninput="showClassBookPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassBookResults');if(b)b.innerHTML=''},160)"><div id="newClassBookResults" class="picker-results"></div></div></label>
             <button onclick="addClassBook()">추가</button>
             <button class="btn" onclick="createClass()">저장</button>
           </div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div></section>
-          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td>${mapped}</td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
+          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td><button onclick="showBookClassDetail('${b.id}')">${mapped}</button></td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
@@ -4286,8 +4331,14 @@
           const cell = catalogRows[index]?.lastElementChild;
           if (!cell) return;
           const closed = bookDistributionIsClosed(book);
-          cell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button></div>`;
+          cell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button><button onclick="editUnusedBook('${book.id}')">미사용 수정</button><button onclick="deleteUnusedBook('${book.id}')">미사용 삭제</button></div>`;
         });
+      }
+      function showBookClassDetail(bid) {
+        const book = S.books?.[bid]; if (!book) return;
+        const classes = arr(S.classes).filter((c)=>c.active!==false&&classInPeriod(c,selectedPeriodId())&&arr(c.books).includes(bid));
+        const lines = classes.map((c)=>{const students=studentsForClass(c.id), distributed=students.filter((s)=>held(s.id,bid)>0).length, missing=students.length-distributed, reason=bookDistributionIsClosed(book)?"배부 종료":Number(book.stock||0)<missing?`재고 ${missing-Number(book.stock||0)}권 부족`:missing?"미배부 있음":"배부 완료";return `${c.subject} · ${c.teacher||"미지정"} · ${c.name}\n고유 ${students.length}명 · 배부 ${distributed}명 · 미배부 ${missing}명 · ${reason}`;});
+        alert(`${book.subject} · ${book.teacher||"미지정"} · ${book.name}\n연결 운영반 ${classes.length}개\n\n${lines.join("\n\n")||"연결된 운영반이 없습니다."}`);
       }
       function operatingClassManagement() {
         const pid = selectedPeriodId(), classes = arr(S.classes).filter((c)=>classInPeriod(c,pid)).sort((a,b)=>a.name.localeCompare(b.name,"ko")),
@@ -4295,8 +4346,15 @@
           teachers = uniq(classes.filter((c)=>subject === "전체" || c.subject === subject).map((c)=>c.teacher || "미지정")).sort((a,b)=>a.localeCompare(b,"ko")),
           teacher = teachers.includes(window.operationTeacher) ? window.operationTeacher : "전체", state = window.operationState || "운영",
           query = String(window.operationQuery || "").trim().toLocaleLowerCase("ko"), rows = classes.filter((c)=>(subject === "전체" || c.subject === subject) && (teacher === "전체" || (c.teacher || "미지정") === teacher) && (state === "전체" || (state === "운영" ? c.active !== false : c.active === false)) && (!query || `${c.subject} ${c.teacher || "미지정"} ${c.name}`.toLocaleLowerCase("ko").includes(query)));
-        document.querySelector("#screen").innerHTML = `<section class="panel"><h2>운영 반</h2><div class="catalog-filter"><label>과목<select onchange="operationSubject=this.value;operationTeacher='전체';operatingClassManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===subject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="operationTeacher=this.value;operatingClassManagement()"><option>전체</option>${teachers.map((x)=>`<option ${x===teacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="operationState=this.value;operatingClassManagement()">${["운영","종료","전체"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.operationQuery || "")}" placeholder="반명 입력" oninput="operationQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(operatingClassManagement,180)"></label></div><div class="list">${rows.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i><button onclick="${c.active===false?`reopenClass('${c.id}')`:`closeClass('${c.id}')`}">${c.active===false?"재운영":"종료"}</button></div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
+        document.querySelector("#screen").innerHTML = `<section class="panel"><h2>운영 반</h2><div class="catalog-filter"><label>과목<select onchange="operationSubject=this.value;operationTeacher='전체';operatingClassManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===subject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="operationTeacher=this.value;operatingClassManagement()"><option>전체</option>${teachers.map((x)=>`<option ${x===teacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="operationState=this.value;operatingClassManagement()">${["운영","종료","전체"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.operationQuery || "")}" placeholder="반명 입력" oninput="operationQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(operatingClassManagement,180)"></label></div><div class="list">${rows.map((c)=>`<div class="row"><span><button style="text-align:left;white-space:normal" onclick="openOperatingClassDetail('${c.id}')"><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b> · 고유 ${studentsForClass(c.id).length}명</button><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.systemCommon===true?'<i class="badge">자동관리</i>':`<button onclick="${c.active===false?`reopenClass('${c.id}')`:`closeClass('${c.id}')`}">${c.active===false?"재운영":"종료"}</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
       }
+      function openOperatingClassDetail(cid) {
+        const c=S.classes?.[cid]; if(!c)return;
+        const students=arr(S.students).filter((s)=>s.active!==false&&activePeriodClassIds(S,s.id,c.periodId).includes(cid));
+        const bookRows=Object.keys(c.books||{}).map((bid)=>{const b=S.books?.[bid], distributed=students.filter((s)=>held(s.id,bid)>0).length, missing=students.length-distributed, reason=bookDistributionIsClosed(b)?"배부 종료":Number(b?.stock||0)<missing?`재고 ${missing-Number(b?.stock||0)}권 부족`:missing?"미배부 있음":"배부 완료";return `${b?.name||bid}: 대상 ${students.length}명 · 배부 ${distributed}명 · 미배부 ${missing}명 · ${reason}`;});
+        alert(`${c.name}\n고유 대상 ${students.length}명\n${bookRows.join("\n")||"연결 교재 없음"}`);
+      }
+      function studentsForClass(cid){const c=S.classes?.[cid];return c?arr(S.students).filter((s)=>s.active!==false&&activePeriodClassIds(S,s.id,c.periodId).includes(cid)):[];}
       function classManagement() {
         const pid = selectedPeriodId(),
           books = arr(S.books)
@@ -4370,16 +4428,35 @@
         );
         newClassBookList.innerHTML = classBookDraftHtml();
       }
+      function setClassConnectionType() {
+        window.newClassExistingId = "";
+        const common = document.getElementById("newClassType")?.value === "COMMON";
+        for (const [id, value] of [["newClassSubject", "공통"], ["newClassTeacher", "공통"], ["newClassName", "공통"]]) {
+          const field = document.getElementById(id);
+          if (!field) continue;
+          field.disabled = common;
+          if (common) field.value = value;
+        }
+      }
+      function syncClassCandidate() {
+        window.newClassExistingId = "";
+        if (document.getElementById("newClassType")?.value === "COMMON") return;
+        const pid=selectedPeriodId(), name=String(document.getElementById("newClassName")?.value||"").trim(), subject=String(document.getElementById("newClassSubject")?.value||"").trim(), teacher=String(document.getElementById("newClassTeacher")?.value||"").trim();
+        const matches=arr(S.classes).filter((c)=>c.periodId===pid&&c.active!==false&&c.systemCommon!==true&&c.name===name&&c.subject===subject&&c.teacher===teacher);
+        if(matches.length===1) window.newClassExistingId=matches[0].id;
+      }
       async function createClass() {
         const pid = selectedPeriodId(),
-          subject = newClassSubject.value.trim(),
-          teacher = newClassTeacher.value.trim(),
-          systemCommon = teacher === "공통",
-          name = newClassName.value.trim(),
+          commonMode = document.getElementById("newClassType")?.value === "COMMON",
+          subject = commonMode ? "공통" : newClassSubject.value.trim(),
+          teacher = commonMode ? "공통" : newClassTeacher.value.trim(),
+          name = commonMode ? "공통" : newClassName.value.trim(),
           bids = window.newClassBooks || [];
         if (!pid || !subject || !teacher || !name || !bids.length)
           return alert("과목·강사·반명·교재를 모두 입력하세요.");
-        const existingClass = arr(S.classes).find(
+        if (bids.some((bookId) => !S.books?.[bookId] || S.books[bookId].active === false || (!commonMode && S.books[bookId].subject !== subject)))
+          return alert("종료된 교재이거나 일반반 과목과 교재 과목이 다릅니다.");
+        const existingClass = commonMode ? S.classes?.[systemCommonClassId(pid)] : arr(S.classes).find(
           (c) => c.periodId === pid && c.name === name,
         );
         if (
@@ -4389,14 +4466,23 @@
           return alert("같은 반명이 다른 과목·강사로 등록되어 있습니다. 기존 반의 과목·강사를 확인하세요.");
         let mergedExisting = false,
           classConflict = false;
-        const cid = id("C", `${pid}|${name}`),
-          r = await transaction((st) => {
+        const cid = commonMode ? systemCommonClassId(pid) : id("C", `${pid}|${name}`),
+          targetCount = commonMode ? studentRosterAtDate(S,pid,localDateKey()).rows.length : (window.newClassExistingId ? studentsForClass(window.newClassExistingId).length : 0);
+        if (!(await askConfirm(`${commonMode?"전체 학생 공통":name}에 교재 ${bids.length}종(${bids.map((bookId)=>S.books?.[bookId]?.name||bookId).join(" · ")})을 연결할까요?\n현재 고유 대상 ${targetCount}명 · 재고와 보유수량은 변경되지 않습니다.`))) return;
+        const r = await transaction((st) => {
             st.classes = st.classes || {};
-            const target = Object.values(st.classes).find(
-              (c) => c?.periodId === pid && c?.name === name,
-            );
+            if (bids.some((bookId) => !st.books?.[bookId] || st.books[bookId].active === false || (!commonMode && st.books[bookId].subject !== subject))) return false;
+            if (commonMode) {
+              const commonId = ensureSystemCommonClass(st, pid), target = st.classes[commonId];
+              bids.forEach((bookId) => (target.books[bookId] = bookId));
+              mergedExisting = true;
+              return;
+            }
+            const named = Object.values(st.classes).filter((c) => c?.periodId === pid && c?.name === name);
+            if (named.length > 1) { classConflict=true; return false; }
+            const target = window.newClassExistingId ? st.classes?.[window.newClassExistingId] : named[0];
             if (target) {
-              if (target.subject !== subject || target.teacher !== teacher) {
+              if (target.subject !== subject || target.teacher !== teacher || target.systemCommon === true || target.active === false) {
                 classConflict = true;
                 return false;
               }
@@ -4418,8 +4504,8 @@
               name,
               books,
               active: true,
-              systemCommon,
-              source: systemCommon ? "SYSTEM_COMMON" : "MANUAL",
+              systemCommon: false,
+              source: "MANUAL",
               createdAt: now(),
               createdBy: actor,
             };
@@ -4442,13 +4528,14 @@
         render();
       }
       async function closeClass(cid) {
+        if (S.classes?.[cid]?.systemCommon === true) return alert("전체 학생 공통반은 종료할 수 없습니다. 교재별 배부 종료일을 사용하세요.");
         const memo = await askPrompt("반 종료 사유를 입력하세요.");
         if (memo == null) return;
         if (!memo.trim()) return alert("반 종료 사유를 입력하세요.");
         if (!(await askConfirm("반을 종료할까요? 학생 보유와 재고는 유지되며 신규 배정·배부 대상에서만 제외됩니다."))) return;
         const r = await transaction((st) => {
           const c = st.classes?.[cid];
-          if (!c || c.active === false) return false;
+          if (!c || c.active === false || c.systemCommon === true) return false;
           c.active = false;
           c.closedAt = now();
           c.closedBy = actor;
@@ -4461,11 +4548,12 @@
         render();
       }
       async function reopenClass(cid) {
+        if (S.classes?.[cid]?.systemCommon === true) return alert("전체 학생 공통반은 자동 관리됩니다.");
         const memo = await askPrompt("재운영 사유를 입력하세요.");
         if (memo == null) return;
         if (!memo.trim()) return alert("재운영 사유를 입력하세요.");
         const r = await transaction((st)=>{
-          const c=st.classes?.[cid]; if(!c || c.active !== false) return false;
+          const c=st.classes?.[cid]; if(!c || c.active !== false || c.systemCommon === true) return false;
           c.active=true; c.reopenedAt=now(); c.reopenedBy=actor; c.reopenMemo=memo.trim();
           st.classEvents=st.classEvents||{}; const eid="CE"+crypto.randomUUID();
           st.classEvents[eid]={id:eid,type:"반재운영",classId:cid,className:c.name,periodId:c.periodId||selectedPeriodId(),actor,memo:memo.trim(),time:now()};
@@ -4602,8 +4690,9 @@
           teacher = newBookTeacher.value.trim() || "학원 공통",
           name = newBookName.value.trim(),
           priceRaw = newBookPrice.value.trim(),
-          price = priceRaw === "" ? null : Number(priceRaw);
-        if (!subject || !name) return alert("과목과 교재명을 입력하세요.");
+          price = priceRaw === "" ? null : Number(priceRaw),
+          pid = selectedPeriodId();
+        if (!pid || !subject || !name) return alert("현재 대상·과목·교재명을 확인하세요.");
         if (price != null && (!Number.isInteger(price) || price < 0))
           return alert("교재비는 0원 이상의 정수로 입력하세요.");
         if (arr(S.books).some((b) => b.name === name))
@@ -4611,9 +4700,10 @@
             "같은 교재명이 있습니다. 연도·차수를 포함해 구분하세요.",
           );
         const bid = id("B", name),
-          pid = selectedPeriodId(),
+          normalizedName = name.normalize("NFKC").trim().toLocaleLowerCase("ko"),
           r = await transaction((st) => {
             st.books = st.books || {};
+            if (st.books[bid] || arr(st.books).some((book) => String(book.name || "").normalize("NFKC").trim().toLocaleLowerCase("ko") === normalizedName)) return false;
             st.books[bid] = {
               id: bid,
               subject,
@@ -4628,6 +4718,59 @@
             };
           });
         alert(r.committed ? "교재 등록 완료 — 입고 전 재고 0" : "등록 실패");
+        render();
+      }
+      function unusedBookBlockers(st, bid) {
+        const blockers = [];
+        if (Number(st.books?.[bid]?.stock || 0) !== 0) blockers.push("재고");
+        if (arr(st.students).some((s) => Number(s.holdings?.[bid] || 0) !== 0)) blockers.push("학생보유");
+        if (arr(st.classes).some((c) => Object.prototype.hasOwnProperty.call(c.books || {}, bid))) blockers.push("반연결");
+        if (arr(st.movements).some((m) => m.bookId === bid || Object.prototype.hasOwnProperty.call(m.bookIds || {}, bid))) blockers.push("원장");
+        if (arr(st.refundTasks).some((t) => Object.prototype.hasOwnProperty.call(t.books || {}, bid)) || arr(st.chargeTasks).some((t) => t.bookId === bid)) blockers.push("대기업무");
+        return blockers;
+      }
+      async function editUnusedBook(bid) {
+        const book = S.books?.[bid];
+        if (!book) return alert("교재를 찾을 수 없습니다.");
+        const pre = unusedBookBlockers(S, bid);
+        if (pre.length) return alert(`과목·강사·교재명 수정 불가: ${pre.join(" · ")}\n교재비는 표의 저장 버튼으로 수정하세요.`);
+        const subject = await askPrompt("과목", book.subject || ""); if (subject == null) return;
+        const teacher = await askPrompt("강사", book.teacher || "학원 공통"); if (teacher == null) return;
+        const name = await askPrompt("교재명", book.name || ""); if (name == null) return;
+        const next = { subject:String(subject).trim(), teacher:String(teacher).trim() || "학원 공통", name:String(name).trim() };
+        if (!next.subject || !next.name) return alert("과목과 교재명을 입력하세요.");
+        let blocked = [];
+        const normalized = next.name.normalize("NFKC").trim().toLocaleLowerCase("ko");
+        const r = await transaction((st) => {
+          const target = st.books?.[bid]; if (!target) return false;
+          blocked = unusedBookBlockers(st, bid); if (blocked.length) return false;
+          if (arr(st.books).some((item) => item.id !== bid && String(item.name || "").normalize("NFKC").trim().toLocaleLowerCase("ko") === normalized)) { blocked=["동일 교재명"]; return false; }
+          st.catalogAudit = st.catalogAudit || {};
+          const auditId="CA"+crypto.randomUUID(); st.catalogAudit[auditId]={id:auditId,type:"BOOK_EDIT_UNUSED",bookId:bid,before:{...target},after:{...next},actor,time:now()};
+          target.subject=next.subject; target.teacher=next.teacher; target.name=next.name; target.updatedAt=now(); target.updatedBy=actor;
+        });
+        if (r.committed) S=r.snapshot.val();
+        alert(r.committed ? "미사용 교재 정보를 수정하고 감사기록을 남겼습니다." : `수정 차단: ${blocked.join(" · ") || "상태 변경"}`); render();
+      }
+      async function deleteUnusedBook(bid) {
+        const book = S.books?.[bid];
+        if (!book) return alert("교재를 찾을 수 없습니다.");
+        const pre = unusedBookBlockers(S, bid);
+        if (pre.length) return alert(`삭제할 수 없습니다: ${pre.join(" · ")}`);
+        if (!(await askConfirm(`${book.name} 교재를 삭제할까요? 미사용 교재만 삭제됩니다.`))) return;
+        let blocked = [];
+        const r = await transaction((st) => {
+          const target = st.books?.[bid];
+          if (!target) return false;
+          blocked = unusedBookBlockers(st, bid);
+          if (blocked.length) return false;
+          st.catalogAudit = st.catalogAudit || {};
+          const auditId = "CA" + crypto.randomUUID();
+          st.catalogAudit[auditId] = { id:auditId, type:"BOOK_DELETE_UNUSED", bookId:bid, before:{...target}, actor, time:now() };
+          delete st.books[bid];
+        });
+        if (r.committed) S = r.snapshot.val();
+        alert(r.committed ? "미사용 교재를 삭제하고 감사기록을 남겼습니다." : `삭제 차단: ${blocked.join(" · ") || "상태 변경"}`);
         render();
       }
       async function archiveBook(bid) {
@@ -6571,10 +6714,12 @@
 
       // 이코딩은 재고를 자동 변경하지 않고 신규·반이동·퇴반 명단만 자동 감지한다.
       const ECODING_AUTO_SYNC_INTERVAL = 60 * 1000;
+      const ECODING_AUTO_SYNC_ENABLED = false;
       let ecodingAutoSyncRunning = false;
       let ecodingAutoSyncLastAttempt = 0;
       let ecodingAutoSyncTimer = 0;
       async function runEcodingAutoSync(force = false) {
+        if (!ECODING_AUTO_SYNC_ENABLED) return { skipped: true, reason: "NOT_ACTIVATED" };
         if (!actor || !firebase.auth().currentUser || ecodingAutoSyncRunning || document.hidden) return;
         const currentTime = Date.now();
         if (!force && currentTime - ecodingAutoSyncLastAttempt < ECODING_AUTO_SYNC_INTERVAL - 1000) return;
