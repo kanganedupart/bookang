@@ -112,6 +112,8 @@
       /* 2026-08 batch usability: fit wide staff tables without removing fallback scroll. */
       .catalog-class-row,.catalog-class-row label,.catalog-class-row input,.catalog-class-row select{min-width:0}
       .catalog-status-line{flex-wrap:wrap}
+      tr.book-picker-selected>td{background:#eaf3ff!important;box-shadow:inset 0 1px #9fc5f8,inset 0 -1px #9fc5f8}
+      .condition-book-picker{position:relative}.condition-book-picker .picker-results{left:0;right:0;min-width:240px}
       @media(max-width:720px){.catalog-class-row,.catalog-book-row{grid-template-columns:1fr}.catalog-class-row button,.catalog-book-row button{width:100%}}
       @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(360px,1.5fr) minmax(210px,.75fr) 70px 86px}.student-status-panel .student-table{min-width:0;width:100%;table-layout:fixed}.student-status-panel .scroll{overflow-x:auto}}
     </style>
@@ -1364,33 +1366,41 @@
             for (const bid of arr(c.books)) ids.add(bid);
         return ids;
       }
-      function systemCommonClassId(pid) {
-        return pid ? id("C", `${pid}|SYSTEM_COMMON`) : "";
+      function systemCommonClassId(pid, subject = "") {
+        const category = String(subject || "").normalize("NFKC").trim();
+        return pid ? id("C", category ? `${pid}|SYSTEM_COMMON|${category}` : `${pid}|SYSTEM_COMMON`) : "";
       }
-      function ensureSystemCommonClass(st, pid) {
+      function ensureSystemCommonClass(st, pid, subject = "") {
         if (!pid) return "";
         st.classes = st.classes || {};
-        const cid = systemCommonClassId(pid), current = st.classes[cid] || {};
+        const category = String(subject || "").normalize("NFKC").trim(), cid = systemCommonClassId(pid, category), current = st.classes[cid] || {};
         st.classes[cid] = {
           ...current,
           id: cid,
           periodId: pid,
-          subject: "공통",
+          subject: category || "공통",
           teacher: "공통",
-          name: "공통",
+          name: category ? "공통반" : "공통",
           books: current.books || {},
           active: true,
           source: "SYSTEM_COMMON",
           systemCommon: true,
         };
-        for (const legacy of Object.values(st.classes)) {
+        if (category) for (const legacy of Object.values(st.classes)) {
           if (!legacy || legacy.id === cid || legacy.periodId !== pid || legacy.systemCommon !== true || legacy.active === false) continue;
-          for (const bookId of Object.keys(legacy.books || {})) st.classes[cid].books[bookId] = bookId;
-          legacy.active = false;
-          legacy.mergedInto = cid;
-          legacy.mergedAt = now();
-          legacy.mergedBy = actor;
-          legacy.mergeReason = "SYSTEM_COMMON_EXACT_ONE";
+          legacy.books = legacy.books || {};
+          for (const bookId of Object.keys(legacy.books)) {
+            if (st.books?.[bookId]?.subject !== category) continue;
+            st.classes[cid].books[bookId] = bookId;
+            delete legacy.books[bookId];
+          }
+          if (!Object.keys(legacy.books).length) {
+            legacy.active = false;
+            legacy.mergedInto = cid;
+            legacy.mergedAt = now();
+            legacy.mergedBy = actor;
+            legacy.mergeReason = "SYSTEM_COMMON_SUBJECT_MIGRATION";
+          }
         }
         return cid;
       }
@@ -1870,10 +1880,85 @@
           row.setAttribute("aria-selected", String(row.classList.contains("selected")));
         }
       }
+      function conditionBookPicker(input, rows, options = {}) {
+        if (!input || input.dataset.conditionPickerReady === "1") return;
+        if (input.parentElement?.querySelector(":scope > .picker-results")) return;
+        input.dataset.conditionPickerReady = "1";
+        input.setAttribute("autocomplete", "off");
+        const host = document.createElement("div");
+        host.className = "picker-results";
+        input.parentElement.classList.add("condition-book-picker");
+        input.insertAdjacentElement("afterend", host);
+        const rowInfo = () => rows().map(options.info).filter((x) => x?.id);
+        const clearChoice = () => {
+          window[options.choiceKey] = "";
+          for (const x of rows()) x.classList.remove("book-picker-selected");
+          options.clear?.();
+        };
+        const choose = (item) => {
+          clearChoice();
+          window[options.choiceKey] = item.id;
+          input.value = item.name;
+          window[options.queryKey] = item.name;
+          item.row.classList.add("book-picker-selected");
+          host.innerHTML = "";
+          item.row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          options.choose?.(item);
+        };
+        const show = () => {
+          const q = input.value.trim().toLocaleLowerCase("ko");
+          window[options.queryKey] = input.value;
+          const matches = rowInfo().filter((x) => !q || x.name.toLocaleLowerCase("ko").includes(q));
+          host.innerHTML = matches.slice(0, 100).map((x, index) => `<button type="button" data-picker-index="${index}">${esc(x.name)}${x.meta ? `<small>${esc(x.meta)}</small>` : ""}</button>`).join("") || '<small>조건에 맞는 교재가 없습니다.</small>';
+          host.querySelectorAll("button").forEach((button) => button.onmousedown = (event) => { event.preventDefault(); choose(matches[Number(button.dataset.pickerIndex)]); });
+        };
+        input.oninput = () => { clearChoice(); options.filter?.(input.value); show(); };
+        input.onfocus = show;
+        input.onblur = () => setTimeout(() => { host.innerHTML = ""; }, 160);
+        const selected = rowInfo().find((x) => x.id === window[options.choiceKey]);
+        if (selected) selected.row.classList.add("book-picker-selected");
+      }
+      function enhanceConditionBookSearches() {
+        const studentInput = document.querySelector(".student-process-filter label:nth-child(3) input");
+        conditionBookPicker(studentInput, () => [...document.querySelectorAll(".student-process-list tbody tr[onclick]")], {
+          choiceKey: "bid", queryKey: "processStudentBookQuery",
+          info: (row) => { const match = String(row.getAttribute("onclick") || "").match(/bid='([^']+)'/); return match ? { id: match[1], name: row.querySelector("td:nth-child(2) b")?.textContent || "", meta: row.querySelector("td:nth-child(1)")?.textContent || "", row } : null; },
+          clear: () => { window.action = ""; selected = []; window.receipt = null; window.lastStudentReceipt = null; },
+          choose: (item) => item.row.click(),
+          filter: (value) => { const q=String(value||"").trim().toLocaleLowerCase("ko"); for(const row of document.querySelectorAll(".student-process-list tbody tr[onclick]")) row.style.display=!q||row.textContent.toLocaleLowerCase("ko").includes(q)?"":"none"; },
+        });
+        if (studentInput) for (const select of document.querySelectorAll(".student-process-filter select")) select.addEventListener("change", () => { window.processStudentBookQuery=""; window.bid=""; window.action=""; selected=[]; window.receipt=null; window.lastStudentReceipt=null; }, { capture:true, once:true });
+        const catalogSection = [...document.querySelectorAll("#screen section")].find((section) => section.querySelector("h2")?.textContent.trim() === "교재 관리"),
+          catalogInput = catalogSection?.querySelector(".catalog-filter input");
+        conditionBookPicker(catalogInput, () => [...(catalogSection?.querySelectorAll("tbody tr") || [])], {
+          choiceKey:"bookManageChoice", queryKey:"bookManageQuery",
+          info:(row)=>{const match=String(row.querySelector("button[onclick^='showBookClassDetail']")?.getAttribute("onclick")||"").match(/'([^']+)'/);return match?{id:match[1],name:row.querySelector("td:nth-child(3) b")?.textContent||"",meta:[row.children[0]?.textContent,row.children[1]?.textContent].filter(Boolean).join(" · "),row}:null;},
+          clear:()=>{window.bookManageDetail="";},
+          choose:(item)=>item.row.querySelector("button[onclick^='showBookClassDetail']")?.focus(),
+          filter:(value)=>{const q=String(value||"").trim().toLocaleLowerCase("ko");for(const row of catalogSection?.querySelectorAll("tbody tr")||[])row.style.display=!q||(row.querySelector("td:nth-child(3)")?.textContent||"").toLocaleLowerCase("ko").includes(q)?"":"none";},
+        });
+        if (catalogSection) for (const select of catalogSection.querySelectorAll(".catalog-filter select")) select.addEventListener("change",()=>{window.bookManageQuery="";window.bookManageChoice="";window.bookManageDetail="";},{capture:true,once:true});
+        const inventoryInput=document.getElementById("inventoryBookSearch");
+        conditionBookPicker(inventoryInput,()=>[...document.querySelectorAll("#inventoryRows tr")],{
+          choiceKey:"inventoryBookChoice",queryKey:"invQuery",
+          info:(row)=>{const match=String(row.querySelector("button[onclick^='audit']")?.getAttribute("onclick")||"").match(/'([^']+)'/);return match?{id:match[1],name:row.children[2]?.textContent||"",meta:[row.children[0]?.textContent,row.children[1]?.textContent].filter(Boolean).join(" · "),row}:null;},
+          clear:()=>{window.inventoryBookDetail="";},choose:(item)=>item.row.querySelector("input")?.focus(),filter:filterInventoryRows,
+        });
+        if(inventoryInput)for(const select of document.querySelectorAll(".inventory-filter select"))select.addEventListener("change",()=>{window.invQuery="";window.inventoryBookChoice="";window.inventoryBookDetail="";},{capture:true,once:true});
+        const studentStatusInput=document.getElementById("studentBookQuery");
+        conditionBookPicker(studentStatusInput,()=>[...document.querySelectorAll("#studentBookRows tr")].filter((row)=>!row.hidden),{
+          choiceKey:"studentBookChoice",queryKey:"studentBookQuery",
+          info:(row)=>({id:row.dataset.bookId,name:row.dataset.book||"",meta:[row.dataset.subject,row.dataset.state==="HELD"?"배부":"미배부"].filter(Boolean).join(" · "),row}),
+          clear:()=>{window.studentBookDetail="";},
+          choose:(item)=>item.row.focus(),
+          filter:()=>syncStudentBookFilters("query"),
+        });
+      }
       const renderBeforeMobileStudentProcess = render;
       render = function () {
         const result = renderBeforeMobileStudentProcess.apply(this, arguments);
         makeStudentProcessRowsAccessible();
+        enhanceConditionBookSearches();
         return result;
       };
       function studentProcessBookPanel(sid, allBooks, selectedBookId) {
@@ -1929,7 +2014,7 @@
         window.processStudentBookTeacher = teacher;
         window.processStudentBookState = state;
         const priceSummary = studentDistributionSummary(sid);
-        return `${transition ? `<div class="receipt"><b>반변경 교재 처리</b><br>새 배부 ${(transition.distributeIds || []).length}종 · 회수 검토 ${(transition.returnIds || []).length}종만 표시합니다. 교재를 선택하면 처리 종류와 재고 전·후가 표시됩니다.<div class="action-row"><button onclick="studentTransition=null;bid='';action='';render()">전체 교재 보기</button></div></div>` : ""}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" oninput="processStudentBookQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(render,180)"></label><label>상태<select onchange="processStudentBookState=this.value;bid='';action='';selected=[];render()"><option ${state === "전체" ? "selected" : ""}>전체</option><option ${state === "미배부" ? "selected" : ""}>미배부</option><option ${state === "배부" ? "selected" : ""}>배부</option></select></label></div><p class="muted">미배부 교재부터 표시 · ${rows.length}종</p><div class="scroll student-process-list"><table class="student-table"><thead><tr><th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th></tr></thead><tbody>${rows.map(({ book, teachers, classNames }) => { const quantity = held(sid, book.id), suggestedAction = transition?.returnIds?.includes(book.id) ? "RETURN" : transition?.distributeIds?.includes(book.id) ? "DISTRIBUTE" : ""; return `<tr class="${book.id === selectedBookId ? "selected" : ""}" onclick="bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';selected=[];receipt=null;lastStudentReceipt=null;render()"><td>${esc(book.subject || "")}</td><td><b>${esc(book.name)}</b>${suggestedAction ? `<small>${suggestedAction === "RETURN" ? "회수 검토" : "새 배부"}</small>` : ""}</td><td>${esc(teachers.join(" · ") || "-")}<small>${esc(classNames.join(" · ") || (suggestedAction === "RETURN" ? "이전 반 · 회수검토" : "이전 반·추가배부"))}</small></td><td><b class="${quantity ? "success" : "danger"}">${quantity ? "배부" : "미배부"}</b></td><td><b>${quantity}권</b></td></tr>`; }).join("") || '<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>`;
+        return `${transition ? `<div class="receipt"><b>반변경 교재 처리</b><br>새 배부 ${(transition.distributeIds || []).length}종 · 회수 검토 ${(transition.returnIds || []).length}종만 표시합니다. 교재를 선택하면 처리 종류와 재고 전·후가 표시됩니다.<div class="action-row"><button onclick="studentTransition=null;bid='';action='';render()">전체 교재 보기</button></div></div>` : ""}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';processStudentBookQuery='';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<div class="managed-combo"><input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" onfocus="showStudentProcessBookPicker(this.value)" oninput="processStudentBookQuery=this.value;bid='';action='';selected=[];showStudentProcessBookPicker(this.value);clearTimeout(searchTimer);searchTimer=setTimeout(render,180)" onblur="setTimeout(()=>{const b=document.getElementById('studentProcessBookResults');if(b)b.innerHTML=''},160)"><div id="studentProcessBookResults" class="picker-results"></div></div></label><label>상태<select onchange="processStudentBookState=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()"><option ${state === "전체" ? "selected" : ""}>전체</option><option ${state === "미배부" ? "selected" : ""}>미배부</option><option ${state === "배부" ? "selected" : ""}>배부</option></select></label></div><p class="muted">미배부 교재부터 표시 · ${rows.length}종</p><div class="scroll student-process-list"><table class="student-table"><thead><tr><th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th></tr></thead><tbody>${rows.map(({ book, teachers, classNames }) => { const quantity = held(sid, book.id), suggestedAction = transition?.returnIds?.includes(book.id) ? "RETURN" : transition?.distributeIds?.includes(book.id) ? "DISTRIBUTE" : ""; return `<tr data-book-id="${book.id}" class="${book.id === selectedBookId ? "selected" : ""}" onclick="bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';selected=[];receipt=null;lastStudentReceipt=null;render()"><td>${esc(book.subject || "")}</td><td><b>${esc(book.name)}</b>${suggestedAction ? `<small>${suggestedAction === "RETURN" ? "회수 검토" : "새 배부"}</small>` : ""}</td><td>${esc(teachers.join(" · ") || "-")}<small>${esc(classNames.join(" · ") || (suggestedAction === "RETURN" ? "이전 반 · 회수검토" : "이전 반·추가배부"))}</small></td><td><b class="${quantity ? "success" : "danger"}">${quantity ? "배부" : "미배부"}</b></td><td><b>${quantity}권</b></td></tr>`; }).join("") || '<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>`;
       }
       function studentReceiptBox(sid) {
         const r = window.lastStudentReceipt;
@@ -1996,6 +2081,8 @@
         const processBookTeacher = bookTeachers.includes(window.processBookTeacher)
           ? window.processBookTeacher
           : bookTeachers[0] || "";
+        window.processBookSubject = processBookSubject;
+        window.processBookTeacher = processBookTeacher;
         const processBooks = books.filter(
           (b) =>
             b.subject === processBookSubject &&
@@ -2084,7 +2171,7 @@
         }
         document.querySelector("#screen").innerHTML =
           `${tab === "학생" && window.studentHubView === "process" && sid ? studentProcessContext(sid) : ""}<div class="grid"><section class="panel process-target-panel process-${view}"><h2>${tab === "학생" && window.studentHubView === "process" ? "학생 교재현황" : "대상 선택"}</h2>${tab === "학생" && window.studentHubView === "process" ? "" : `<div class="tabs"><button class="${view === "academy" ? "on" : ""}" onclick="view='academy';academyBulkMode='DISTRIBUTE';receipt=null;selected=[];render()">전체</button><button class="${view === "class" ? "on" : ""}" onclick="view='class';action='DISTRIBUTE';receipt=null;selected=[];render()">반</button><button class="${view === "book" ? "on" : ""}" onclick="view='book';action='DISTRIBUTE';receipt=null;selected=[];render()">교재</button><button class="${view === "bundle" ? "on" : ""}" onclick="view='bundle';bundleMode='DISTRIBUTE';receipt=null;selected=[];render()">학생 묶음</button></div>`}
- ${view === "student" ? (tab === "학생" && window.studentHubView === "process" && sid ? studentProcessBookPanel(sid, available, window.bid) : `<label>학생명 검색</label><input value="${esc(processQuery)}" placeholder="학생명 입력 후 Enter" onchange="processStudentQuery=this.value;sid='';selected=[];render()">${studentMatches.length ? sel("학생", studentMatches, sid, "sid") : '<p class="error">검색된 학생이 없습니다.</p>'}`) : view === "academy" ? academyTargetSummary() : view === "class" ? `<div class="process-filter-row"><label>① 과목<select onchange="processClassSubject=this.value;processClassTeacher='';cid='';selected=[];render()">${classSubjects.map((x) => `<option ${x === classSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="processClassTeacher=this.value;cid='';selected=[];render()">${classTeachers.map((x) => `<option ${x === classTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 반<select onchange="cid=this.value;bid='';selected=[];render()"><option value="">반을 직접 선택하세요</option>${classes.map((x) => `<option value="${x.id}" ${x.id === cid ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label></div>${cid ? classRosterSummaryHtml(cid) : ""}` : view === "bundle" ? bundlePicker() : `<div class="process-filter-row"><label>① 과목<select onchange="window.processBookSubject=this.value;window.processBookTeacher='';bid='';selected=[];render()">${bookSubjects.map((x) => `<option ${x === processBookSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="window.processBookTeacher=this.value;bid='';selected=[];render()">${bookTeachers.map((x) => `<option ${x === processBookTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<select onchange="bid=this.value;selected=[];render()"><option value="">교재를 직접 선택하세요</option>${available.map((b) => `<option value="${b.id}" ${b.id === window.bid ? "selected" : ""}>${esc(b.name)} (재고 ${b.stock || 0})</option>`).join("")}</select></label></div>`}
+ ${view === "student" ? (tab === "학생" && window.studentHubView === "process" && sid ? studentProcessBookPanel(sid, available, window.bid) : `<label>학생명 검색</label><input value="${esc(processQuery)}" placeholder="학생명 입력 후 Enter" onchange="processStudentQuery=this.value;sid='';selected=[];render()">${studentMatches.length ? sel("학생", studentMatches, sid, "sid") : '<p class="error">검색된 학생이 없습니다.</p>'}`) : view === "academy" ? academyTargetSummary() : view === "class" ? `<div class="process-filter-row"><label>① 과목<select onchange="processClassSubject=this.value;processClassTeacher='';cid='';selected=[];render()">${classSubjects.map((x) => `<option ${x === classSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="processClassTeacher=this.value;cid='';selected=[];render()">${classTeachers.map((x) => `<option ${x === classTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 반<select onchange="cid=this.value;bid='';selected=[];render()"><option value="">반을 직접 선택하세요</option>${classes.map((x) => `<option value="${x.id}" ${x.id === cid ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label></div>${cid ? classRosterSummaryHtml(cid) : ""}` : view === "bundle" ? bundlePicker() : `<div class="process-filter-row"><label>① 과목<select onchange="window.processBookSubject=this.value;window.processBookTeacher='';window.processBookQuery='';bid='';selected=[];render()">${bookSubjects.map((x) => `<option ${x === processBookSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="window.processBookTeacher=this.value;window.processBookQuery='';bid='';selected=[];render()">${bookTeachers.map((x) => `<option ${x === processBookTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input value="${esc(window.processBookQuery||S.books[window.bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showProcessBookPicker(this.value)" oninput="processBookQuery=this.value;bid='';selected=[];showProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('processBookResults');if(b)b.innerHTML=''},160)"><div id="processBookResults" class="picker-results"></div></div></label></div>`}
  ${view === "bundle" || view === "class" || view === "book" || view === "academy" || (view === "student" && tab === "학생") ? "" : `<label>교재</label><select onchange="bid=this.value;selected=[];render()"><option value="">교재를 직접 선택하세요</option>${available.map((b) => `<option value="${b.id}" ${b.id === window.bid ? "selected" : ""}>${esc(b.name)} (재고 ${b.stock || 0})</option>`).join("")}</select>`}
  ${view === "book" && window.bid ? bookEligibilitySummaryHtml(window.bid) : ""}
  ${
@@ -2106,6 +2193,8 @@
  }</section>
  <section class="panel"><h2>${view === "student" && tab === "학생" ? "처리 및 재고 흐름" : "배부·회수 및 재고 흐름"}</h2>${view === "academy" ? academyBulkBox() : ""}${view === "bundle" ? bundleActionBox() : ""}${view === "class" && cid ? bulkClassBox(cid) : ""}${view === "book" && book ? bookReturnBox(book.id) : ""}${view === "book" && book ? `<div class="receipt"><b>교재 중심 일괄배부</b><br>대상 반 전체의 미배부 학생을 선택한 뒤 ‘가능 대상 전체선택’을 사용하세요.</div>` : ""}${view === "student" && sid && window.studentProcessScope === "ALL" ? studentAllActionBox(sid, S.students[sid]?.active === false ? "RETURN" : window.action || "DISTRIBUTE") : book && view !== "class" ? actionBox(book, targets) : view === "class" && cid ? "" : view === "academy" || view === "book" || view === "bundle" ? "" : view === "student" && sid ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='${S.students[sid]?.active === false ? "RETURN" : "DISTRIBUTE"}';render()">전체 교재</button></div></div><div class="operation-guide">한 권은 왼쪽 교재를 선택하고, 여러 권은 ‘전체 교재’를 선택하세요.</div>` : '<p class="muted">대상을 선택한 뒤 교재를 선택하세요.</p>'}${view === "student" && sid ? studentReceiptBox(sid) : ""}</section></div>`;
       }
+      function showProcessBookPicker(value){const box=document.getElementById("processBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"),subject=window.processBookSubject||"",teacher=window.processBookTeacher||"";box.innerHTML=arr(S.books).filter((b)=>(b.active!==false||b.stock||arr(S.students).some((s)=>held(s.id,b.id)))&&b.subject===subject&&(b.teacher||"미지정")===teacher&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseProcessBook")).join("");}
+      function chooseProcessBook(id){const book=S.books?.[id];if(!book)return;window.bid=id;window.processBookQuery=book.name;window.selected=[];render();}
       function sel(label, rows, value, key) {
         return `<label>${label}</label><select onchange="${key}=this.value;selected=[];render()"><option value="">직접 선택하세요</option>${rows.map((x) => `<option value="${x.id}" ${x.id === value ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
       }
@@ -4200,8 +4289,38 @@
       window.managementComboOptions = window.managementComboOptions || {};
       function managedComboField(id, label, values, placeholder) {
         window.managementComboOptions[id] = uniq(values.filter(Boolean)).sort((a,b)=>a.localeCompare(b,"ko"));
-        return `<label>${label}<div class="managed-combo"><input id="${id}" autocomplete="off" placeholder="${esc(placeholder || "선택하거나 입력")}" onfocus="showManagedCombo('${id}')" oninput="showManagedCombo('${id}')" onblur="setTimeout(()=>closeManagedCombo('${id}'),160)"><div id="${id}Results" class="picker-results"></div></div></label>`;
+        return `<label>${label}<div class="managed-combo"><input id="${id}" autocomplete="off" placeholder="${esc(placeholder || "선택하거나 입력")}" onfocus="showManagedCombo('${id}')" oninput="managedComboChanged('${id}')" onblur="setTimeout(()=>closeManagedCombo('${id}'),160)"><div id="${id}Results" class="picker-results"></div></div></label>`;
       }
+      function managedComboChanged(id) {
+        if (id === "newClassSubject" || id === "newClassTeacher") {
+          window.newClassExistingId = "";
+          window.newClassBookChoice = "";
+          window.newClassBooks = [];
+          const name=document.getElementById("newClassName"), search=document.getElementById("newClassBookSearch"), list=document.getElementById("newClassBookList");
+          if(name)name.value=document.getElementById("newClassType")?.value==="COMMON"?"공통반":""; if(search)search.value=""; if(list)list.innerHTML=classBookDraftHtml();
+          if(id === "newClassSubject"){const teacher=document.getElementById("newClassTeacher");if(teacher)teacher.value=document.getElementById("newClassType")?.value==="COMMON"?"공통":"";}
+          refreshExistingClassNames();
+        }
+        if(id === "newBookSubject"){const teacher=document.getElementById("newBookTeacher");if(teacher)teacher.value="";}
+        showManagedCombo(id);
+      }
+      function bookPickerButton(book, handler) {
+        return `<button type="button" onmousedown="event.preventDefault()" onclick="${handler}('${book.id}')"><b>${esc(book.name)}</b><small>${esc(book.subject || "미지정")} · ${esc(book.teacher || "학원 공통")}</small></button>`;
+      }
+      function catalogBookCandidates(value) {
+        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체";
+        return arr(S.books).filter((book) => (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && (state === "전체" || (state === "배부 가능" ? book.active !== false && !bookDistributionIsClosed(book) : book.active === false || bookDistributionIsClosed(book))) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
+      }
+      function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
+      function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; catalogManagement(); requestAnimationFrame(()=>{const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}}); }
+      function inventoryBookCandidates(value) {
+        const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject=window.invSubject||"전체", teacher=window.invTeacher||"전체", state=window.invState||"전체", relevant=periodBookIds();
+        return arr(S.books).filter((book)=>relevant.has(book.id)&&(subject==="전체"||book.subject===subject)&&(teacher==="전체"||(book.teacher||"미지정")===teacher)&&(state==="전체"||(state==="재고있음"&&Number(book.stock||0)>0)||(state==="재고0"&&Number(book.stock||0)===0)||(state==="차이있음"&&Number(book.audit?.diff||0)!==0)||(state==="미실사"&&book.audit?.physical==null))&&(!q||`${book.subject} ${book.teacher||"미지정"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
+      }
+      function showInventoryBookPicker(value){const box=document.getElementById("inventoryBookResults");if(box)box.innerHTML=inventoryBookCandidates(value).map((b)=>bookPickerButton(b,"chooseInventoryBook")).join("");}
+      function chooseInventoryBook(id){const book=S.books?.[id];if(!book)return;window.inventoryBookChoice=id;window.invQuery=book.name;inventory();requestAnimationFrame(()=>{const row=document.querySelector(`#inventoryRows tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}});}
+      function showStudentProcessBookPicker(value){const box=document.getElementById("studentProcessBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko");const seen=new Set();const books=[...document.querySelectorAll(".student-process-list tr[data-book-id]")].map((row)=>S.books?.[row.dataset.bookId]).filter((book)=>book&&!seen.has(book.id)&&seen.add(book.id)&&(!q||book.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q)));box.innerHTML=books.slice(0,40).map((b)=>bookPickerButton(b,"chooseStudentProcessBook")).join("");}
+      function chooseStudentProcessBook(id){const book=S.books?.[id];if(!book)return;window.processStudentBookQuery=book.name;window.bid=id;window.selected=[];render();}
       function showManagedCombo(id) {
         const input = document.getElementById(id), box = document.getElementById(`${id}Results`);
         if (!input || !box) return;
@@ -4232,7 +4351,7 @@
           const search = document.getElementById("newClassBookSearch");
           if (search) search.value = "";
           const name = document.getElementById("newClassName");
-          if (name) name.value = "";
+          if (name) name.value = document.getElementById("newClassType")?.value === "COMMON" ? "공통반" : "";
           const list = document.getElementById("newClassBookList");
           if (list) list.innerHTML = classBookDraftHtml();
           refreshExistingClassNames();
@@ -4243,7 +4362,7 @@
         }
         if (id === "newClassSubject") {
           const teacher = document.getElementById("newClassTeacher");
-          if (teacher) teacher.value = "";
+          if (teacher) teacher.value = document.getElementById("newClassType")?.value === "COMMON" ? "공통" : "";
         }
       }
       function refreshExistingClassNames() {
@@ -4259,13 +4378,14 @@
       function classBookMatches(value) {
         const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"),
           subject = String(document.getElementById("newClassSubject")?.value || "").trim(),
-          teacher = String(document.getElementById("newClassTeacher")?.value || "").trim();
+          teacher = String(document.getElementById("newClassTeacher")?.value || "").trim(),
+          commonMode = document.getElementById("newClassType")?.value === "COMMON";
         return arr(S.books).filter((book)=>{
           if (book.active === false || bookDistributionIsClosed(book))
             return false;
-          const subjectOk = !subject || book.subject === subject || book.subject === "공통";
+          const subjectOk = !subject || book.subject === subject || (!commonMode && book.subject === "공통");
           const teacherName = book.teacher || "학원 공통";
-          const teacherOk = !teacher || teacherName === teacher || teacherName === "학원 공통" || teacherName === "공통";
+          const teacherOk = commonMode ? ["공통","학원 공통"].includes(teacherName) : (!teacher || teacherName === teacher || teacherName === "학원 공통" || teacherName === "공통");
           const text = `${book.subject} ${teacherName} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko");
           return subjectOk && teacherOk && (!q || text.includes(q));
         }).sort((a,b)=>a.subject.localeCompare(b.subject,"ko") || a.name.localeCompare(b.name,"ko")).slice(0,30);
@@ -4313,7 +4433,7 @@
             <button class="btn" onclick="createBook()">저장</button>
           </div></section>
           <section class="panel catalog-step"><div class="catalog-step-head"><b>2</b><h2>새 반 등록·교재 매칭</h2></div><div class="catalog-class-row">
-            <label>연결 유형<select id="newClassType" onchange="setClassConnectionType()"><option value="GENERAL">기존·새 일반반</option><option value="COMMON">전체 학생 공통</option></select></label>
+            <label>연결 유형<select id="newClassType" onchange="setClassConnectionType()"><option value="GENERAL">일반반</option><option value="COMMON">공통반</option></select></label>
             ${managedComboField("newClassSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newClassTeacher","강사",teachersAll,"선택하거나 입력")}
             <label>반명<input id="newClassName" list="existingClassNames" placeholder="기존 반 검색 또는 새 반명 입력" oninput="syncClassCandidate()"><datalist id="existingClassNames">${classes.filter((c)=>c.active!==false&&c.systemCommon!==true).map((c)=>`<option value="${esc(c.name)}">${esc(c.subject)} · ${esc(c.teacher||"미지정")}</option>`).join("")}</datalist></label>
@@ -4321,18 +4441,26 @@
             <button onclick="addClassBook()">추가</button>
             <button class="btn" onclick="createClass()">저장</button>
           </div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div></section>
-          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td><button onclick="showBookClassDetail('${b.id}')">${mapped}</button></td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td><span class="badge ${b.active===false?"":"ok"}">${b.active===false?"종료":"사용"}</span>${b.active===false?"":`<button onclick="archiveBook('${b.id}')">종료</button>`}</td></tr>`}).join("") || '<tr><td colspan="8">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
+          <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';bookManageQuery='';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;bookManageQuery='';catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;bookManageQuery='';catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;bookManageQuery='';catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showCatalogBookPicker(this.value)" oninput="bookManageQuery=this.value;showCatalogBookPicker(this.value);clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)" onblur="setTimeout(()=>{const b=document.getElementById('bookManageResults');if(b)b.innerHTML=''},160)"><div id="bookManageResults" class="picker-results"></div></div></label></div><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th><th>교재 관리</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td><button onclick="showBookClassDetail('${b.id}')">${mapped}</button></td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td></td><td></td></tr>`}).join("") || '<tr><td colspan="9">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
           "#screen > section:nth-of-type(4) tbody tr",
         );
         shownBooks.forEach((book, index) => {
-          const cell = catalogRows[index]?.lastElementChild;
-          if (!cell) return;
+          const row = catalogRows[index];
+          if (row) row.dataset.bookId = book.id;
+          const statusCell = row?.children[7], manageCell = row?.children[8];
+          if (!statusCell || !manageCell) return;
           const closed = bookDistributionIsClosed(book);
-          cell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button><button onclick="editUnusedBook('${book.id}')">미사용 수정</button><button onclick="deleteUnusedBook('${book.id}')">미사용 삭제</button></div>`;
+          statusCell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button></div>`;
+          const unused = unusedBookBlockers(S, book.id).length === 0;
+          manageCell.innerHTML = unused ? `<div class="row-actions"><button onclick="editUnusedBook('${book.id}')">수정</button><button onclick="deleteUnusedBook('${book.id}')">삭제</button></div>` : '<span class="muted">사용 중</span>';
+          if (window.bookManageChoice === book.id) row.classList.add("book-picker-selected");
         });
+        const catalogChoice = S.books?.[window.bookManageChoice];
+        if (catalogChoice && (window.bookManageQuery !== catalogChoice.name || !shownBooks.some((book)=>book.id===catalogChoice.id))) window.bookManageChoice = "";
+        enhanceConditionBookSearches();
       }
       function showBookClassDetail(bid) {
         const book = S.books?.[bid]; if (!book) return;
@@ -4431,12 +4559,17 @@
       function setClassConnectionType() {
         window.newClassExistingId = "";
         const common = document.getElementById("newClassType")?.value === "COMMON";
-        for (const [id, value] of [["newClassSubject", "공통"], ["newClassTeacher", "공통"], ["newClassName", "공통"]]) {
+        for (const [id, value] of [["newClassSubject", ""], ["newClassTeacher", "공통"], ["newClassName", "공통반"]]) {
           const field = document.getElementById(id);
           if (!field) continue;
-          field.disabled = common;
+          field.disabled = common && id !== "newClassSubject";
           if (common) field.value = value;
         }
+        window.newClassBookChoice = "";
+        window.newClassBooks = [];
+        const search=document.getElementById("newClassBookSearch"), list=document.getElementById("newClassBookList");
+        if(search)search.value=""; if(list)list.innerHTML=classBookDraftHtml();
+        if(common) showManagedCombo("newClassSubject");
       }
       function syncClassCandidate() {
         window.newClassExistingId = "";
@@ -4448,15 +4581,15 @@
       async function createClass() {
         const pid = selectedPeriodId(),
           commonMode = document.getElementById("newClassType")?.value === "COMMON",
-          subject = commonMode ? "공통" : newClassSubject.value.trim(),
+          subject = newClassSubject.value.trim(),
           teacher = commonMode ? "공통" : newClassTeacher.value.trim(),
-          name = commonMode ? "공통" : newClassName.value.trim(),
+          name = commonMode ? "공통반" : newClassName.value.trim(),
           bids = window.newClassBooks || [];
         if (!pid || !subject || !teacher || !name || !bids.length)
           return alert("과목·강사·반명·교재를 모두 입력하세요.");
-        if (bids.some((bookId) => !S.books?.[bookId] || S.books[bookId].active === false || (!commonMode && S.books[bookId].subject !== subject)))
-          return alert("종료된 교재이거나 일반반 과목과 교재 과목이 다릅니다.");
-        const existingClass = commonMode ? S.classes?.[systemCommonClassId(pid)] : arr(S.classes).find(
+        if (bids.some((bookId) => !S.books?.[bookId] || S.books[bookId].active === false || S.books[bookId].subject !== subject))
+          return alert("종료된 교재이거나 선택한 과목과 교재 과목이 다릅니다.");
+        const existingClass = commonMode ? S.classes?.[systemCommonClassId(pid, subject)] : arr(S.classes).find(
           (c) => c.periodId === pid && c.name === name,
         );
         if (
@@ -4466,15 +4599,18 @@
           return alert("같은 반명이 다른 과목·강사로 등록되어 있습니다. 기존 반의 과목·강사를 확인하세요.");
         let mergedExisting = false,
           classConflict = false;
-        const cid = commonMode ? systemCommonClassId(pid) : id("C", `${pid}|${name}`),
+        const cid = commonMode ? systemCommonClassId(pid, subject) : id("C", `${pid}|${name}`),
           targetCount = commonMode ? studentRosterAtDate(S,pid,localDateKey()).rows.length : (window.newClassExistingId ? studentsForClass(window.newClassExistingId).length : 0);
         if (!(await askConfirm(`${commonMode?"전체 학생 공통":name}에 교재 ${bids.length}종(${bids.map((bookId)=>S.books?.[bookId]?.name||bookId).join(" · ")})을 연결할까요?\n현재 고유 대상 ${targetCount}명 · 재고와 보유수량은 변경되지 않습니다.`))) return;
         const r = await transaction((st) => {
             st.classes = st.classes || {};
-            if (bids.some((bookId) => !st.books?.[bookId] || st.books[bookId].active === false || (!commonMode && st.books[bookId].subject !== subject))) return false;
+            if (bids.some((bookId) => !st.books?.[bookId] || st.books[bookId].active === false || st.books[bookId].subject !== subject)) return false;
             if (commonMode) {
-              const commonId = ensureSystemCommonClass(st, pid), target = st.classes[commonId];
-              bids.forEach((bookId) => (target.books[bookId] = bookId));
+              const commonId = ensureSystemCommonClass(st, pid, subject), target = st.classes[commonId];
+              bids.forEach((bookId) => {
+                target.books[bookId] = bookId;
+                for (const other of Object.values(st.classes)) if (other?.id !== commonId && other?.periodId === pid && other?.systemCommon === true && other.books?.[bookId]) delete other.books[bookId];
+              });
               mergedExisting = true;
               return;
             }
@@ -5473,11 +5609,10 @@
         render();
       }
       function intakePreview() {
-        const bookInput = document.querySelector("#inBook"),
-          qtyInput = document.querySelector("#inQty"),
+        const qtyInput = document.querySelector("#inQty"),
           memoInput = document.querySelector("#inMemo"),
           confirmButton = document.querySelector("#intakeConfirm"),
-          b = S.books?.[bookInput?.value],
+          b = S.books?.[window.inBid],
           q = Number(qtyInput?.value || 0),
           validQuantity = Number.isInteger(q) && q > 0;
         if (b)
@@ -5489,9 +5624,11 @@
       }
       async function doIntake(button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
-        const bid = inBook.value,
+        const bid = window.inBid,
           q = Number(inQty.value),
           memo = inMemo.value.trim(),
+          intakeSubject = window.inSubject,
+          intakeOwner = window.inOwner,
           opId = operationId(button),
           shownStock = Number(S.books?.[bid]?.stock || 0);
         if (!Number.isInteger(q) || q < 1) return alert("수량을 확인하세요.");
@@ -5505,8 +5642,12 @@
               msg = st.processedOperations[opId].message;
               return false;
             }
-            const b = st.books[bid],
-              before = b.stock || 0;
+            const b = st.books[bid];
+            if (!b || b.active === false || b.subject !== intakeSubject || (b.teacher || "학원 공통") !== intakeOwner) {
+              msg = "선택한 조건과 교재가 달라졌습니다. 교재를 다시 선택하세요.";
+              return false;
+            }
+            const before = b.stock || 0;
             if (Number(before) !== shownStock) {
               msg =
                 "미리보기 후 재고가 변경되었습니다. 새 화면에서 입고 전·후 수치를 다시 확인하세요.";
@@ -5598,7 +5739,7 @@
                 a.name.localeCompare(b.name, "ko"),
             );
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="한글·영문 포함검색" oninput="filterInventoryRows(this.value)"></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
+          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';invQuery='';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;invQuery='';inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;invQuery='';inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showInventoryBookPicker(this.value)" oninput="invQuery=this.value;showInventoryBookPicker(this.value);filterInventoryRows(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('inventoryBookResults');if(b)b.innerHTML=''},160)"><div id="inventoryBookResults" class="picker-results"></div></div></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
             .map((b) => {
               const a = b.audit || {};
               const needsAdjustment = !!a.id && Number(a.diff || 0) !== 0;
@@ -5606,6 +5747,10 @@
               return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher || "")}</td><td>${esc(b.name)}</td><td><b>${b.stock || 0}</b></td><td>${arr(S.students).reduce((n, s) => n + held(s.id, b.id), 0)}</td><td><input id="p${b.id}" type="number" value="${a.physical ?? ""}" data-audit-id="${esc(a.id || "")}" data-audit-system="${a.system ?? ""}" data-audit-physical="${a.physical ?? ""}" oninput="previewAuditDiff('${b.id}',this.value)"></td><td id="d${b.id}">${a.diff ?? ""}</td><td><input id="a${b.id}" value="${esc(a.memo || "")}"><small>${esc(a.actor || "")} ${a.time ? fmt(a.time) : ""}</small></td><td><div class="row-actions"><button class="btn" onclick="audit('${b.id}')">확인</button><button class="${needsAdjustment ? "danger-btn" : ""}" onclick="adjustToPhysical('${b.id}')" ${needsAdjustment ? "" : "disabled"}>차이조정</button><button onclick="showAuditHistory('${b.id}')">이력 ${auditCount}</button></div></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
+        [...document.querySelectorAll("#inventoryRows tr")].forEach((row,index)=>{const book=rows[index];if(!book)return;row.dataset.bookId=book.id;if(window.inventoryBookChoice===book.id)row.classList.add("book-picker-selected");});
+        const inventoryChoice=S.books?.[window.inventoryBookChoice];
+        if(inventoryChoice&&(window.invQuery!==inventoryChoice.name||!rows.some((book)=>book.id===inventoryChoice.id)))window.inventoryBookChoice="";
+        enhanceConditionBookSearches();
       }
       function previewAuditDiff(bid, value) {
         const cell = document.querySelector(`#d${bid}`),
@@ -5665,6 +5810,10 @@
       }
       function filterInventoryRows(value) {
         window.invQuery = value;
+        if (S.books?.[window.inventoryBookChoice]?.name !== value) {
+          window.inventoryBookChoice = "";
+          for (const row of document.querySelectorAll("#inventoryRows tr")) row.classList.remove("book-picker-selected");
+        }
         const q = String(value || "").trim().toLocaleLowerCase("ko"),
           rows = [...document.querySelectorAll("#inventoryRows tr")];
         let shown = 0;
@@ -7277,6 +7426,8 @@
             (b) =>
               b.subject === subject && (b.teacher || "학원 공통") === owner,
           );
+        window.inSubject = subject;
+        window.inOwner = owner;
         const bid = books.some((b) => b.id === window.inBid)
             ? window.inBid
             : "",
@@ -7285,7 +7436,7 @@
         document.querySelector("#screen").innerHTML =
           `<div class="workspace-split"><section class="panel"><h2>입고 대상</h2><p class="muted">새 교재는 관리 › 반·교재에서 먼저 등록한 뒤 입고합니다.</p>${
             mode === "existing"
-              ? `<div class="intake-fields"><label>① 과목<select onchange="inSubject=this.value;inOwner='';inBid='';intake()"><option value="">선택</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="inOwner=this.value;inBid='';intake()"><option value="">선택</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<select id="inBook" onchange="inBid=this.value;intakePreview()"><option value="">교재를 선택하세요</option>${books.map((b) => `<option value="${b.id}" ${b.id === bid ? "selected" : ""}>${esc(b.name)} · 현재 ${b.stock || 0}</option>`).join("")}</select></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항" oninput="intakePreview()"></label></div>`
+              ? `<div class="intake-fields"><label>① 과목<select onchange="inSubject=this.value;inOwner='';inBid='';inBookQuery='';intake()"><option value="">선택</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="inOwner=this.value;inBid='';inBookQuery='';intake()"><option value="">선택</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input id="inBookSearch" value="${esc(window.inBookQuery||S.books[bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showIntakeBookPicker(this.value)" oninput="inBookQuery=this.value;inBid='';showIntakeBookPicker(this.value);intakePreview()" onblur="setTimeout(()=>{const b=document.getElementById('inBookResults');if(b)b.innerHTML=''},160)"><div id="inBookResults" class="picker-results"></div></div></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항" oninput="intakePreview()"></label></div>`
               : `<div class="intake-fields"><label>과목<input id="nbiSubject"></label><label>강사<input id="nbiTeacher" placeholder="공통교재는 공통"></label><label>교재명<input id="nbiName"></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="nbiQty" type="number" min="1" step="1" oninput="newBookIntakePreview()"></label><label style="grid-column:span 2">입고 메모<input id="nbiMemo" placeholder="입고처·차수·특이사항"></label></div>`
           }</section><section class="panel workspace-side"><h2>입고 전·후 재고</h2>${
             mode === "existing"
@@ -7296,6 +7447,8 @@
           }</section></div>`;
         if (mode === "existing" && bid) intakePreview();
       }
+      function showIntakeBookPicker(value){const box=document.getElementById("inBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko");box.innerHTML=arr(S.books).filter((b)=>b.active!==false&&b.subject===window.inSubject&&(b.teacher||"학원 공통")===window.inOwner&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseIntakeBook")).join("");}
+      function chooseIntakeBook(id){const book=S.books?.[id];if(!book)return;window.inBid=id;window.inBookQuery=book.name;intake();}
       function newBookIntake() {
         window.intakeMode = "new";
         window.intakeReceipt = "";
@@ -7431,6 +7584,12 @@
         const query = document.getElementById("studentBookQuery");
         const rows = [...document.querySelectorAll("#studentBookRows tr")];
         if (!subject || !teacher || !classSelect) return;
+        if (changed !== "query") {
+          if (query) query.value = "";
+          window.studentBookQuery = "";
+          window.studentBookChoice = "";
+          for (const row of rows) row.classList.remove("book-picker-selected");
+        }
         if (changed === "subject") {
           const previous = teacher.value;
           const values = new Set();
@@ -7587,7 +7746,7 @@
       const quantity = held(s.id, book.id);
       const isExitBook = exitBooks.some((item) => item.id === book.id);
       const price = bookPriceValue(book);
-      return `<tr data-subject="${esc(book.subject || "")}" data-teachers="${esc(relatedTeachers.join("|"))}" data-classes="${esc(relatedClasses.join("|"))}" data-book="${esc(book.name || "")}" data-state="${quantity ? "HELD" : "MISSING"}"><td>${esc(book.subject)}</td><td><b>${esc(book.name)}</b></td><td>${related.map((item) => `${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}`).join("<br>") || (s.active === false && isExitBook ? "퇴반 전 교재" : "이전 반·추가배부")}</td><td><b class="${quantity ? "success" : "danger"}">${quantity ? "배부" : "미배부"}</b></td><td><b>${price == null ? "금액 미등록" : won(price)}</b></td><td><b>${quantity}권</b></td></tr>`;
+      return `<tr data-book-id="${book.id}" data-subject="${esc(book.subject || "")}" data-teachers="${esc(relatedTeachers.join("|"))}" data-classes="${esc(relatedClasses.join("|"))}" data-book="${esc(book.name || "")}" data-state="${quantity ? "HELD" : "MISSING"}"><td>${esc(book.subject)}</td><td><b>${esc(book.name)}</b></td><td>${related.map((item) => `${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}`).join("<br>") || (s.active === false && isExitBook ? "퇴반 전 교재" : "이전 반·추가배부")}</td><td><b class="${quantity ? "success" : "danger"}">${quantity ? "배부" : "미배부"}</b></td><td><b>${price == null ? "금액 미등록" : won(price)}</b></td><td><b>${quantity}권</b></td></tr>`;
     })
     .join("")}</tbody></table></div>
   <details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details>
@@ -7603,6 +7762,7 @@
               window.studentRefundFocusSid = "";
             }
             syncStudentBookFilters("subject");
+            enhanceConditionBookSearches();
           }
         });
       }
