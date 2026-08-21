@@ -1062,6 +1062,7 @@
       let bookflowListenerStarted = false;
       let remoteRenderFrame = 0;
       let remoteRenderTimer = 0;
+      let catalogRemoteLastInputAt = 0;
       // Firebase root transactions may emit intermediate value events. Do not
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
@@ -1073,8 +1074,20 @@
           remoteRenderTimer = 0;
           remoteRenderFrame = requestAnimationFrame(() => {
             remoteRenderFrame = 0;
+            const catalogSearch=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input"), preserveCatalogFocus=document.activeElement===catalogSearch&&catalogSearch?{value:catalogSearch.value,start:catalogSearch.selectionStart,end:catalogSearch.selectionEnd,composing:catalogSearch.dataset.composing==="1"}:null;
+            if(preserveCatalogFocus && (preserveCatalogFocus.composing || Date.now()-catalogRemoteLastInputAt<800)){
+              if(catalogSearch.dataset.remoteRenderPending!=="1"){
+                catalogSearch.dataset.remoteRenderPending="1";
+                catalogSearch.addEventListener("blur",()=>{if(catalogSearch.dataset.remoteRenderPending==="1"){catalogSearch.dataset.remoteRenderPending="";scheduleRemoteRender();}},{once:true});
+              }
+              clearTimeout(remoteRenderTimer);
+              remoteRenderTimer=setTimeout(scheduleRemoteRender,preserveCatalogFocus.composing?250:Math.max(100,800-(Date.now()-catalogRemoteLastInputAt)));
+              return;
+            }
+            if(catalogSearch)catalogSearch.dataset.remoteRenderPending="";
             renderActor();
             actor ? render() : staffLoginScreen();
+            if(preserveCatalogFocus)requestAnimationFrame(()=>{const next=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(next){next.value=preserveCatalogFocus.value;window.bookManageQuery=preserveCatalogFocus.value;filterCatalogBookRows(preserveCatalogFocus.value,false);next.focus({preventScroll:true});next.setSelectionRange(preserveCatalogFocus.start,preserveCatalogFocus.end);}});
           });
         }, 120);
       }
@@ -4312,7 +4325,19 @@
         return arr(S.books).filter((book) => (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && (state === "전체" || (state === "배부 가능" ? book.active !== false && !bookDistributionIsClosed(book) : book.active === false || bookDistributionIsClosed(book))) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
-      function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; catalogManagement(); requestAnimationFrame(()=>{const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}}); }
+      function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; const input=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(input)input.value=book.name;filterCatalogBookRows(book.name,false);const box=document.getElementById("bookManageResults");if(box)box.innerHTML="";requestAnimationFrame(()=>{const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}}); }
+      function filterCatalogBookRows(value, showPicker = true) {
+        window.bookManageQuery = value;
+        if(showPicker)showCatalogBookPicker(value);
+        const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko");
+        let shown=0;
+        for(const row of document.querySelectorAll(".catalog-table tbody tr[data-book-id]")){
+          const book=S.books?.[row.dataset.bookId], text=`${book?.subject||""} ${book?.teacher||""} ${book?.name||""}`.normalize("NFKC").toLocaleLowerCase("ko"), visible=!q||text.includes(q);
+          row.style.display=visible?"":"none"; if(visible)shown++;
+        }
+        let empty=document.getElementById("catalogBookEmpty")||document.querySelector(".catalog-table tbody tr:not([data-book-id])");if(empty)empty.id="catalogBookEmpty";
+        if(!shown){if(!empty){empty=document.createElement("tr");empty.id="catalogBookEmpty";empty.innerHTML='<td colspan="9">조건에 맞는 교재가 없습니다.</td>';document.querySelector(".catalog-table tbody")?.appendChild(empty);}empty.hidden=false;}else if(empty)empty.hidden=true;
+      }
       function inventoryBookCandidates(value) {
         const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject=window.invSubject||"전체", teacher=window.invTeacher||"전체", state=window.invState||"전체", relevant=periodBookIds();
         return arr(S.books).filter((book)=>relevant.has(book.id)&&(subject==="전체"||book.subject===subject)&&(teacher==="전체"||(book.teacher||"미지정")===teacher)&&(state==="전체"||(state==="재고있음"&&Number(book.stock||0)>0)||(state==="재고0"&&Number(book.stock||0)===0)||(state==="차이있음"&&Number(book.audit?.diff||0)!==0)||(state==="미실사"&&book.audit?.physical==null))&&(!q||`${book.subject} ${book.teacher||"미지정"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
@@ -4417,7 +4442,7 @@
           bookQuery = String(window.bookManageQuery || "").trim().toLocaleLowerCase("ko"),
           bookState = window.bookManageState || "배부 가능",
           bookPriceState = window.bookManagePriceState || "전체",
-          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && (bookState === "전체" || (bookState === "배부 가능" ? b.active !== false && !bookDistributionIsClosed(b) : b.active === false || bookDistributionIsClosed(b))) && (bookPriceState === "전체" || bookPriceValue(b) == null) && (!bookQuery || `${b.subject} ${b.teacher || "학원 공통"} ${b.name}`.toLocaleLowerCase("ko").includes(bookQuery))),
+          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && (bookState === "전체" || (bookState === "배부 가능" ? b.active !== false && !bookDistributionIsClosed(b) : b.active === false || bookDistributionIsClosed(b))) && (bookPriceState === "전체" || bookPriceValue(b) == null)),
           classSubject = window.classManageSubject || "전체",
           classTeachers = uniq(classes.filter((c)=>classSubject === "전체" || c.subject === classSubject).map((c)=>c.teacher || "미지정")).sort((a,b)=>a.localeCompare(b,"ko")),
           classTeacher = classTeachers.includes(window.classManageTeacher) ? window.classManageTeacher : "전체",
@@ -4460,6 +4485,13 @@
         });
         const catalogChoice = S.books?.[window.bookManageChoice];
         if (catalogChoice && (window.bookManageQuery !== catalogChoice.name || !shownBooks.some((book)=>book.id===catalogChoice.id))) window.bookManageChoice = "";
+        const catalogSearch=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");
+        if(catalogSearch){
+          catalogSearch.oncompositionstart=()=>{catalogSearch.dataset.composing="1";catalogRemoteLastInputAt=Date.now();};
+          catalogSearch.oncompositionend=()=>{catalogSearch.dataset.composing="";catalogRemoteLastInputAt=Date.now();filterCatalogBookRows(catalogSearch.value);};
+          catalogSearch.oninput=()=>{catalogRemoteLastInputAt=Date.now();if(catalogSearch.dataset.composing!=="1")filterCatalogBookRows(catalogSearch.value);};
+        }
+        filterCatalogBookRows(bookQuery, false);
         enhanceConditionBookSearches();
       }
       function showBookClassDetail(bid) {
@@ -4853,8 +4885,17 @@
               createdBy: actor,
             };
           });
-        alert(r.committed ? "교재 등록 완료 — 입고 전 재고 0" : "등록 실패");
-        render();
+        if(r.committed){
+          S=r.snapshot.val();
+          window.bookManageSubject=subject;
+          window.bookManageTeacher=teacher;
+          window.bookManageState="배부 가능";
+          window.bookManagePriceState="전체";
+          window.bookManageQuery=name;
+          window.bookManageChoice=bid;
+        }
+        alert(r.committed ? "교재 등록 완료 — 아래 교재 관리에서 저장된 교재를 표시합니다." : "등록 실패");
+        catalogManagement();
       }
       function unusedBookBlockers(st, bid) {
         const blockers = [];
