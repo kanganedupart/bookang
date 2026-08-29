@@ -2301,6 +2301,9 @@
         if (result.committed) { S = result.snapshot.val(); render(); }
       }
       function actionBox(book) {
+        // 학생 교재처리는 선택한 교재·처리유형을 바꿔도
+        // 현재 학생이 처리 대상에서 빠지면 안 된다.
+        if (view === "student" && sid) selected = [sid];
         const qty = selected.length,
           returnOnly =
             view === "student" &&
@@ -5900,12 +5903,12 @@
                 a.name.localeCompare(b.name, "ko"),
             );
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';invQuery='';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;invQuery='';inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;invQuery='';inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showInventoryBookPicker(this.value)" oninput="invQuery=this.value;showInventoryBookPicker(this.value);filterInventoryRows(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('inventoryBookResults');if(b)b.innerHTML=''},160)"><div id="inventoryBookResults" class="picker-results"></div></div></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
+          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="receipt"><b>실사 순서</b><br>1. 실물재고와 메모 입력 → 2. <b>실사 확인(기록만)</b> → 3. 두 번 세어도 차이가 확실할 때만 <b>전산재고 맞춤</b><small>실사 확인은 재고를 바꾸지 않습니다. 전산재고 맞춤만 실물수량으로 강제 조정하고 조정원장을 남깁니다.</small></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';invQuery='';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;invQuery='';inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;invQuery='';inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showInventoryBookPicker(this.value)" oninput="invQuery=this.value;showInventoryBookPicker(this.value);filterInventoryRows(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('inventoryBookResults');if(b)b.innerHTML=''},160)"><div id="inventoryBookResults" class="picker-results"></div></div></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
             .map((b) => {
               const a = b.audit || {};
               const needsAdjustment = !!a.id && Number(a.diff || 0) !== 0;
               const auditCount = arr(S.audits).filter((x) => x.bookId === b.id).length;
-              return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher || "")}</td><td>${esc(b.name)}</td><td><b>${b.stock || 0}</b></td><td>${arr(S.students).reduce((n, s) => n + held(s.id, b.id), 0)}</td><td><input id="p${b.id}" type="number" value="${a.physical ?? ""}" data-audit-id="${esc(a.id || "")}" data-audit-system="${a.system ?? ""}" data-audit-physical="${a.physical ?? ""}" oninput="previewAuditDiff('${b.id}',this.value)"></td><td id="d${b.id}">${a.diff ?? ""}</td><td><input id="a${b.id}" value="${esc(a.memo || "")}"><small>${esc(a.actor || "")} ${a.time ? fmt(a.time) : ""}</small></td><td><div class="row-actions"><button class="btn" onclick="audit('${b.id}')">확인</button><button class="${needsAdjustment ? "danger-btn" : ""}" onclick="adjustToPhysical('${b.id}')" ${needsAdjustment ? "" : "disabled"}>차이조정</button><button onclick="showAuditHistory('${b.id}')">이력 ${auditCount}</button></div></td></tr>`;
+              return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher || "")}</td><td>${esc(b.name)}</td><td><b>${b.stock || 0}</b></td><td>${arr(S.students).reduce((n, s) => n + held(s.id, b.id), 0)}</td><td><input id="p${b.id}" type="number" value="${a.physical ?? ""}" data-audit-id="${esc(a.id || "")}" data-audit-system="${a.system ?? ""}" data-audit-physical="${a.physical ?? ""}" oninput="previewAuditDiff('${b.id}',this.value)"></td><td id="d${b.id}">${a.diff ?? ""}</td><td><input id="a${b.id}" value="${esc(a.memo || "")}"><small>${esc(a.actor || "")} ${a.time ? fmt(a.time) : ""}</small></td><td><div class="row-actions"><button class="btn" onclick="audit('${b.id}')">실사 확인(기록만)</button><button class="${needsAdjustment ? "danger-btn" : ""}" onclick="adjustToPhysical('${b.id}')" ${needsAdjustment ? "" : "disabled"}>전산재고 맞춤</button><button onclick="showAuditHistory('${b.id}')">이력 ${auditCount}</button></div></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
         [...document.querySelectorAll("#inventoryRows tr")].forEach((row,index)=>{const book=rows[index];if(!book)return;row.dataset.bookId=book.id;if(window.inventoryBookChoice===book.id)row.classList.add("book-picker-selected");});
@@ -5946,13 +5949,16 @@
         );
       }
       async function audit(bid) {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const p = Number(document.querySelector(`#p${bid}`).value),
           memo = document.querySelector(`#a${bid}`).value.trim();
         if (!Number.isInteger(p) || p < 0 || !memo)
           return alert("실물재고와 검수 메모를 입력하세요.");
-        await transaction((st) => {
-          const b = st.books[bid],
-            x = {
+        operationBusy = true;
+        try {
+          await transaction((st) => {
+            const b = st.books[bid],
+              x = {
               id: "A" + crypto.randomUUID(),
               bookId: bid,
               periodId: selectedPeriodId() || st.currentPeriodId || "",
@@ -5962,12 +5968,15 @@
               memo,
               actor,
               time: now(),
-            };
-          b.audit = x;
-          st.audits = st.audits || {};
-          st.audits[x.id] = x;
-        });
-        render();
+              };
+            b.audit = x;
+            st.audits = st.audits || {};
+            st.audits[x.id] = x;
+          });
+          render();
+        } finally {
+          operationBusy = false;
+        }
       }
       function filterInventoryRows(value) {
         window.invQuery = value;
@@ -5998,6 +6007,7 @@
           return alert("실물재고와 조정 사유를 입력하세요.");
         if (!auditId || auditedPhysical !== p)
           return alert("확인을 먼저 눌러 기준재고를 고정하세요.");
+        if (!(await askConfirm(`전산재고를 실물재고에 맞추기 위해 ${expected}권 → ${p}권으로 강제 조정할까요?\n\n학생 보유수량과 기존 배부·회수이력은 변경하지 않으며, 차이 ${p - expected}권은 재고조정 원장으로 남습니다.`))) return;
         operationBusy = true;
         let msg = "";
         try {
@@ -6033,9 +6043,11 @@
             const mid = "M" + crypto.randomUUID();
             st.movements[mid] = {
               id: mid,
+              operationId: auditId,
               batchId: "B" + crypto.randomUUID(),
               type: "ADJUST",
               bookId: bid,
+              bookName: b.name || "",
               studentId: null,
               quantity: delta,
               stockBefore: before,
