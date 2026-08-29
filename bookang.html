@@ -4198,9 +4198,10 @@
         classNames.innerHTML = `<div class="receipt"><b>${mode === "done" ? "배부" : "미배부"} ${rows.length}명</b><br>${rows.map((s) => esc(s.name)).join(" · ") || "없음"}</div>`;
       }
       function bookStatus() {
-        const subjects = orderedSubjects(
+        const relevantBookIds = periodBookIds(),
+          subjects = orderedSubjects(
             arr(S.books)
-              .filter((b) => b.active !== false)
+              .filter((b) => relevantBookIds.has(b.id) && b.active !== false)
               .map((b) => b.subject),
           ),
           subject = subjects.includes(window.bookSubject)
@@ -4208,7 +4209,7 @@
             : subjects[0] || "",
           teachers = uniq(
             arr(S.books)
-              .filter((b) => b.active !== false && b.subject === subject)
+              .filter((b) => relevantBookIds.has(b.id) && b.active !== false && b.subject === subject)
               .map((b) => b.teacher || "미지정"),
           ),
           teacher = teachers.includes(window.bookTeacher)
@@ -4217,6 +4218,7 @@
           books = arr(S.books)
             .filter(
               (b) =>
+                relevantBookIds.has(b.id) &&
                 b.active !== false &&
                 b.subject === subject &&
                 (b.teacher || "미지정") === teacher,
@@ -4302,11 +4304,12 @@
       function matchingBooksForPicker(value) {
         const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"),
            subject = window.bookSubject || "",
-           teacher = window.bookTeacher || "";
+           teacher = window.bookTeacher || "",
+           relevant = periodBookIds();
         return arr(S.books)
           .filter((b) => {
             const name = b.name.normalize("NFKC").toLocaleLowerCase("ko");
-            return b.active !== false &&
+            return relevant.has(b.id) && b.active !== false &&
               (!subject || b.subject === subject) &&
               (!teacher || (b.teacher || "미지정") === teacher) &&
               (!q || name.includes(q));
@@ -4374,8 +4377,8 @@
         return `<button type="button" onmousedown="event.preventDefault()" onclick="${handler}('${book.id}')"><b>${esc(book.name)}</b><small>${esc(book.subject || "미지정")} · ${esc(book.teacher || "학원 공통")}</small></button>`;
       }
       function catalogBookCandidates(value) {
-        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체";
-        return arr(S.books).filter((book) => (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && (state === "전체" || (state === "배부 가능" ? book.active !== false && !bookDistributionIsClosed(book) : book.active === false || bookDistributionIsClosed(book))) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
+        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
+        return arr(S.books).filter((book) => relevant.has(book.id) && (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && (state === "전체" || (state === "배부 가능" ? book.active !== false && !bookDistributionIsClosed(book) : book.active === false || bookDistributionIsClosed(book))) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
       function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; window.bookManageDraftQuery=book.name; const input=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(input)input.value=book.name;filterCatalogBookRows(book.name,false);const box=document.getElementById("bookManageResults");if(box)box.innerHTML="";requestAnimationFrame(()=>{const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}}); }
@@ -4489,10 +4492,11 @@
         const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"),
           subject = String(document.getElementById("newClassSubject")?.value || "").trim(),
           teacher = String(document.getElementById("newClassTeacher")?.value || "").trim(),
-          commonMode = document.getElementById("newClassType")?.value === "COMMON";
+          commonMode = document.getElementById("newClassType")?.value === "COMMON",
+          relevant = periodBookIds();
         if (!subject || !teacher) return [];
         return arr(S.books).filter((book)=>{
-          if (book.active === false || bookDistributionIsClosed(book))
+          if (!relevant.has(book.id) || book.active === false || bookDistributionIsClosed(book))
             return false;
           const subjectOk = book.subject === subject;
           const teacherName = book.teacher || "학원 공통";
@@ -4518,7 +4522,7 @@
         if (box) box.innerHTML = "";
       }
       function catalogManagement() {
-        const pid = selectedPeriodId(), rosterDate = window.commonRosterDate || localDateKey(), roster = studentRosterAtDate(S, pid, rosterDate), allBooks = arr(S.books).sort((a,b)=>compareSubjects(a.subject,b.subject) || a.name.localeCompare(b.name,"ko")),
+        const pid = selectedPeriodId(), rosterDate = window.commonRosterDate || localDateKey(), roster = studentRosterAtDate(S, pid, rosterDate), relevantBookIds = periodBookIds(pid), allBooks = arr(S.books).filter((book)=>relevantBookIds.has(book.id)).sort((a,b)=>compareSubjects(a.subject,b.subject) || a.name.localeCompare(b.name,"ko")),
           activeBooks = allBooks.filter(
             (book) => book.active !== false && !bookDistributionIsClosed(book),
           ),
