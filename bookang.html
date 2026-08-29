@@ -2005,7 +2005,7 @@
               classNames = uniq(related.map((c) => c.name));
             return { book, teachers, classNames };
           }),
-          subjects = ["전체", ...uniq(enriched.map((x) => x.book.subject || "미지정"))],
+          subjects = ["전체", ...orderedSubjects(enriched.map((x) => x.book.subject || "미지정"))],
           subject = subjects.includes(window.processStudentBookSubject)
             ? window.processStudentBookSubject
             : "전체",
@@ -2067,7 +2067,7 @@
               .filter((c) => c.active !== false && classInPeriod(c))
               .sort((a, b) => a.name.localeCompare(b.name, "ko"))
           : [];
-        const classSubjects = uniq(allClasses.map((c) => c.subject));
+        const classSubjects = orderedSubjects(allClasses.map((c) => c.subject));
         const classSubject = classSubjects.includes(window.processClassSubject)
           ? window.processClassSubject
           : classSubjects[0] || "";
@@ -2093,7 +2093,7 @@
               )
               .sort((a, b) => a.name.localeCompare(b.name))
           : [];
-        const bookSubjects = uniq(books.map((b) => b.subject));
+        const bookSubjects = orderedSubjects(books.map((b) => b.subject));
         const processBookSubject = bookSubjects.includes(window.processBookSubject)
           ? window.processBookSubject
           : bookSubjects[0] || "";
@@ -4096,11 +4096,40 @@
           String(a).localeCompare(String(b), "ko"),
         );
       }
+      const SUBJECT_DISPLAY_ORDER = [
+        "공통",
+        "국어",
+        "수학",
+        "영어",
+        "탐구",
+        "모의고사",
+        "주간월간",
+      ];
+      function normalizedSubjectOrderKey(value) {
+        return String(value || "").normalize("NFKC").replace(/[·\s]/g, "");
+      }
+      function compareSubjects(a, b) {
+        const ak = normalizedSubjectOrderKey(a), bk = normalizedSubjectOrderKey(b),
+          ai = SUBJECT_DISPLAY_ORDER.indexOf(ak), bi = SUBJECT_DISPLAY_ORDER.indexOf(bk),
+          ar = ai < 0 ? SUBJECT_DISPLAY_ORDER.length : ai,
+          br = bi < 0 ? SUBJECT_DISPLAY_ORDER.length : bi;
+        return ar - br || String(a).localeCompare(String(b), "ko");
+      }
+      function orderedSubjects(values) {
+        return [...new Set(values.filter(Boolean))].sort(compareSubjects);
+      }
+      function orderedTeachers(values) {
+        return [...new Set(values.filter(Boolean))].sort((a, b) => {
+          const ar = /^(공통|학원 공통)$/.test(String(a)) ? 0 : 1,
+            br = /^(공통|학원 공통)$/.test(String(b)) ? 0 : 1;
+          return ar - br || String(a).localeCompare(String(b), "ko");
+        });
+      }
       function classStatus() {
         const periodClasses = arr(S.classes).filter(
             (c) => c.active !== false && classInPeriod(c),
           ),
-          subjects = uniq(periodClasses.map((c) => c.subject)),
+          subjects = orderedSubjects(periodClasses.map((c) => c.subject)),
           subject = subjects.includes(window.classSubject)
             ? window.classSubject
             : subjects[0] || "",
@@ -4156,7 +4185,7 @@
         classNames.innerHTML = `<div class="receipt"><b>${mode === "done" ? "배부" : "미배부"} ${rows.length}명</b><br>${rows.map((s) => esc(s.name)).join(" · ") || "없음"}</div>`;
       }
       function bookStatus() {
-        const subjects = uniq(
+        const subjects = orderedSubjects(
             arr(S.books)
               .filter((b) => b.active !== false)
               .map((b) => b.subject),
@@ -4476,15 +4505,15 @@
         if (box) box.innerHTML = "";
       }
       function catalogManagement() {
-        const pid = selectedPeriodId(), rosterDate = window.commonRosterDate || localDateKey(), roster = studentRosterAtDate(S, pid, rosterDate), allBooks = arr(S.books).sort((a,b)=>a.subject.localeCompare(b.subject,"ko") || a.name.localeCompare(b.name,"ko")),
+        const pid = selectedPeriodId(), rosterDate = window.commonRosterDate || localDateKey(), roster = studentRosterAtDate(S, pid, rosterDate), allBooks = arr(S.books).sort((a,b)=>compareSubjects(a.subject,b.subject) || a.name.localeCompare(b.name,"ko")),
           activeBooks = allBooks.filter(
             (book) => book.active !== false && !bookDistributionIsClosed(book),
           ),
           classes = arr(S.classes).filter((c)=>classInPeriod(c,pid)).sort((a,b)=>a.name.localeCompare(b.name,"ko")),
-          subjects = uniq([...allBooks.map((b)=>b.subject),...classes.map((c)=>c.subject)].filter(Boolean)).sort((a,b)=>a.localeCompare(b,"ko")),
+          subjects = orderedSubjects([...allBooks.map((b)=>b.subject),...classes.map((c)=>c.subject)].filter(Boolean)),
           teachersAll = uniq([...allBooks.map((b)=>b.teacher || "학원 공통"),...classes.map((c)=>c.teacher)].filter(Boolean)).sort((a,b)=>a.localeCompare(b,"ko")),
           bookSubject = window.bookManageSubject || "전체",
-          bookTeachers = uniq(allBooks.filter((b)=>bookSubject === "전체" || b.subject === bookSubject).map((b)=>b.teacher || "학원 공통")).sort((a,b)=>a.localeCompare(b,"ko")),
+          bookTeachers = orderedTeachers(allBooks.filter((b)=>bookSubject === "전체" || b.subject === bookSubject).map((b)=>b.teacher || "학원 공통")),
           bookTeacher = bookTeachers.includes(window.bookManageTeacher) ? window.bookManageTeacher : "전체",
           bookQuery = String(window.bookManageQuery || "").trim().toLocaleLowerCase("ko"),
           bookState = window.bookManageState || "배부 가능",
@@ -4549,7 +4578,7 @@
       }
       function operatingClassManagement() {
         const pid = selectedPeriodId(), classes = arr(S.classes).filter((c)=>classInPeriod(c,pid)).sort((a,b)=>a.name.localeCompare(b.name,"ko")),
-          subjects = uniq(classes.map((c)=>c.subject).filter(Boolean)).sort((a,b)=>a.localeCompare(b,"ko")), subject = window.operationSubject || "전체",
+          subjects = orderedSubjects(classes.map((c)=>c.subject).filter(Boolean)), subject = window.operationSubject || "전체",
           teachers = uniq(classes.filter((c)=>subject === "전체" || c.subject === subject).map((c)=>c.teacher || "미지정")).sort((a,b)=>a.localeCompare(b,"ko")),
           teacher = teachers.includes(window.operationTeacher) ? window.operationTeacher : "전체", state = window.operationState || "운영",
           query = String(window.operationQuery || "").trim().toLocaleLowerCase("ko"), rows = classes.filter((c)=>(subject === "전체" || c.subject === subject) && (teacher === "전체" || (c.teacher || "미지정") === teacher) && (state === "전체" || (state === "운영" ? c.active !== false : c.active === false)) && (!query || `${c.subject} ${c.teacher || "미지정"} ${c.name}`.toLocaleLowerCase("ko").includes(query)));
@@ -4602,15 +4631,15 @@
           classes = arr(S.classes)
             .filter((c) => classInPeriod(c, pid))
             .sort((a, b) => a.name.localeCompare(b.name, "ko")),
-          classSubjects = uniq([
+          classSubjects = orderedSubjects([
             ...books.map((b) => b.subject),
             ...classes.map((c) => c.subject),
-          ].filter(Boolean)).sort((a, b) => a.localeCompare(b, "ko")),
+          ].filter(Boolean)),
           classTeachers = uniq([
             ...books.map((b) => b.teacher || "학원 공통"),
             ...classes.map((c) => c.teacher),
           ].filter(Boolean)).sort((a, b) => a.localeCompare(b, "ko")),
-          manageSubjects = uniq(classes.map((c) => c.subject).filter(Boolean)).sort((a, b) => a.localeCompare(b, "ko")),
+          manageSubjects = orderedSubjects(classes.map((c) => c.subject).filter(Boolean)),
           manageTeachers = uniq(classes.map((c) => c.teacher).filter(Boolean)).sort((a, b) => a.localeCompare(b, "ko"));
         document.querySelector("#screen").innerHTML =
           `<datalist id="classSubjectOptions">${classSubjects.map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><datalist id="classTeacherOptions">${classTeachers.map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><div class="grid"><section class="panel"><h2>새 반 등록</h2><p class="muted">반 등록만으로 배부·회수·재고는 변하지 않습니다.</p><div class="class-create-row"><label>과목<input id="newClassSubject" list="classSubjectOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>강사<input id="newClassTeacher" list="classTeacherOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>반명<input id="newClassName"></label><label>매칭 교재<select id="newClassBook"><option value="">교재 선택</option>${books.map((b) => `<option value="${b.id}">${esc(b.subject)} · ${esc(b.teacher || "학원 공통")} · ${esc(b.name)}</option>`).join("")}</select></label><button onclick="addClassBook()">추가</button></div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div><button class="btn" style="width:100%" onclick="createClass()">새 반 저장</button></section><section class="panel"><h2>운영 반 관리</h2><div class="filter-row"><label>과목<select id="classManageSubject" onchange="filterClassManagementRows()"><option value="">전체</option>${manageSubjects.map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>강사<select id="classManageTeacher" onchange="filterClassManagementRows()"><option value="">전체</option>${manageTeachers.map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input id="classManageQuery" placeholder="반명 입력" oninput="filterClassManagementRows()"></label></div><p class="muted">종료해도 학생 보유와 창고 재고는 유지되며 이후 신규 배부 대상에서만 제외됩니다.</p><div class="list" id="classManageRows">${
@@ -4808,7 +4837,7 @@
             a.subject.localeCompare(b.subject, "ko") ||
             a.name.localeCompare(b.name, "ko"),
           ),
-          subjects = uniq(allBooks.map((book) => book.subject)),
+          subjects = orderedSubjects(allBooks.map((book) => book.subject)),
           selectedSubject = window.bookManageSubject || "전체",
           teachers = uniq(
             allBooks
@@ -5057,7 +5086,7 @@
           sk = mode + "PickSubject",
           tk = mode + "PickTeacher",
           ck = mode + "PickClass",
-          subjects = uniq(classes.map((c) => c.subject)),
+          subjects = orderedSubjects(classes.map((c) => c.subject)),
           subject = subjects.includes(window[sk])
             ? window[sk]
             : subjects[0] || "",
@@ -5819,7 +5848,7 @@
                 b.stock ||
                 arr(S.students).some((s) => held(s.id, b.id))),
           ),
-          subjects = ["전체", ...uniq(all.map((b) => b.subject))],
+          subjects = ["전체", ...orderedSubjects(all.map((b) => b.subject))],
           subject = subjects.includes(window.invSubject)
             ? window.invSubject
             : "전체",
@@ -7529,7 +7558,7 @@
         const all = arr(S.books)
             .filter((b) => b.active !== false)
             .sort((a, b) => a.name.localeCompare(b.name, "ko")),
-          subjects = uniq(all.map((b) => b.subject));
+          subjects = orderedSubjects(all.map((b) => b.subject));
         const subject = subjects.includes(window.inSubject)
             ? window.inSubject
             : subjects[0] || "",
@@ -7831,8 +7860,7 @@
                 arr(movement.studentNames).includes(s.name),
             )
             .slice(0, 30);
-          const subjects = [...new Set(books.map((book) => book.subject).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, "ko"));
+          const subjects = orderedSubjects(books.map((book) => book.subject).filter(Boolean));
           const teachers = [
             ...new Set(classes.map((item) => item.teacher).filter(Boolean)),
           ].sort((a, b) => a.localeCompare(b, "ko"));
