@@ -1252,6 +1252,14 @@
         );
       }
       function transaction(mutator) {
+        if (navigator.onLine === false) {
+          alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
+          return Promise.resolve({
+            committed: false,
+            offline: true,
+            snapshot: { val: () => S },
+          });
+        }
         // Keep the server-side root transaction as the final atomic authority,
         // but show the exact same mutation from the current snapshot immediately.
         // The previous implementation waited for the complete (large) root payload
@@ -2671,15 +2679,18 @@
             const b = st.books?.[bid];
             if (!b || b.active === false || bookDistributionIsClosed(b))
               return null;
-            const ids = students
+            const eligibleStudents = students.filter(
+                (s) => !studentBookIsExcluded(st, s.id, bid, c.periodId || selectedPeriodId()),
+              ),
+              ids = eligibleStudents
               .filter((s) => Number(s.holdings?.[bid] || 0) === 0)
               .map((s) => s.id);
             return {
               bid,
               name: b.name,
               stock: Number(b.stock || 0),
-              total: students.length,
-              distributed: students.length - ids.length,
+              total: eligibleStudents.length,
+              distributed: eligibleStudents.length - ids.length,
               studentIds: ids,
               need: ids.length,
               after: Number(b.stock || 0) - ids.length,
@@ -2985,7 +2996,8 @@
               s.active !== false &&
               !s.pendingReturn &&
               Number(s.holdings?.[bid] || 0) === 0 &&
-              eligibleIn(st, s.id, bid),
+              eligibleIn(st, s.id, bid) &&
+              !studentBookIsExcluded(st, s.id, bid, selectedPeriodId() || st.currentPeriodId),
           )
           .map((s) => s.id)
           .sort();
@@ -3022,6 +3034,7 @@
           for (const cid of activePeriodClassIds(st, s.id, pid))
             for (const id of classBooks.get(cid) || []) bookIds.add(id);
           for (const id of bookIds) {
+            if (studentBookIsExcluded(st, s.id, id, pid)) continue;
             if (!eligibleByBook.has(id)) eligibleByBook.set(id, []);
             eligibleByBook.get(id).push(s);
           }
@@ -6869,6 +6882,22 @@
         }
         try {
           const fresh = await fetchEcodingSnapshot(),
+            rosterIdsAreUnique = (rows) => {
+              const seen = new Set();
+              for (const student of rows || []) {
+                const externalId = normalizeExternalId(student?.id);
+                if (!externalId || seen.has(externalId)) return false;
+                seen.add(externalId);
+              }
+              return true;
+            };
+          if (!rosterIdsAreUnique(snap.students) || !rosterIdsAreUnique(fresh.students)) {
+            const message = "이코딩 자료에 학생 ID 중복 또는 누락이 있어 자동 연동을 차단했습니다. 학생·반·교재·재고는 변경하지 않았습니다.";
+            if (!silent) alert(message);
+            else console.warn(message);
+            return { blocked: true, reason: "DUPLICATE_EXTERNAL_ID" };
+          }
+          const
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)]));
           const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
