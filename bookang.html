@@ -6594,6 +6594,10 @@
       }
       function rebuildStudentClasses(student){const merged={};for(const periodClasses of Object.values(student.periodClasses||{}))for(const classId of Object.keys(periodClasses||{}))merged[classId]=classId;student.classes=merged;return student;}
       function ecodingStudentExited(student, dateKey = localDateKey()) {
+        const classes = Array.isArray(student?.classes)
+          ? student.classes
+          : Object.values(student?.classes || {});
+        if (classes.some((cls) => cls?.active === true)) return false;
         const rawExitDate = String(student?.exitDate || "").trim(),
           exitDate = /^\d{4}-\d{2}-\d{2}/.test(rawExitDate)
             ? rawExitDate.slice(0, 10)
