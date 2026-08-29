@@ -253,6 +253,13 @@
           .toLowerCase()
           .replace(/\s+/g, "");
       }
+      function normalizeNameKey(value) {
+        return String(value || "")
+          .normalize("NFKC")
+          .trim()
+          .toLocaleLowerCase("ko")
+          .replace(/\s+/g, " ");
+      }
       function normalizedStudentName(studentOrName) {
         const rawName = String(
           typeof studentOrName === "object" && studentOrName
