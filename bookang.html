@@ -6982,7 +6982,7 @@
 
       // 이코딩은 재고를 자동 변경하지 않고 신규·반이동·퇴반 명단만 자동 감지한다.
       const ECODING_AUTO_SYNC_INTERVAL = 60 * 1000;
-      const ECODING_AUTO_SYNC_ENABLED = false;
+      const ECODING_AUTO_SYNC_ENABLED = true;
       let ecodingAutoSyncRunning = false;
       let ecodingAutoSyncLastAttempt = 0;
       let ecodingAutoSyncTimer = 0;
@@ -6995,7 +6995,7 @@
         ecodingAutoSyncRunning = true;
         try {
           const periodIds = arr(S.periods)
-            .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status))
+            .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status) && period.ecodingAutoSyncEnabled === true)
             .map((period) => period.id)
             .filter((periodId) => S.ecodingBaselines?.[periodId] && Object.keys(S.ecodingClassMappings?.[periodId] || {}).length);
           for (const periodId of periodIds) await runEcodingDiff(true, periodId);
