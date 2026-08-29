@@ -6551,7 +6551,31 @@
         const button=document.querySelector('button[onclick="refreshEcodingPreview()"]');
         const originalText=button?.textContent||'이코딩 반 불러오기';
         if(button){button.disabled=true;button.textContent='불러오는 중...';}
-        try{ const body=await fetchEcodingSnapshot(); const r=await transaction(st=>{st.ecodingSnapshots=st.ecodingSnapshots||{};ensureSystemCommonClass(st,pid); st.ecodingSnapshots[pid]={...body,periodId:pid};}); if(r.committed){S=r.snapshot.val();suggestExistingEcodingClassLinks(pid,ecodingDraftState());const summary=ecodingSnapshotSummary(body,pid,S);alert(`이코딩 연결 확인 완료\n전체 원자료 ${summary.rawStudentCount}명 · ${summary.rawClassCount}개 반 (퇴원·미사용 반 포함)\n현재 사용 설정 ${summary.enabledClassCount}개 반 · 고유 재원 ${summary.matchedUniqueStudentCount}명\n교재관리 ${periodLabel(S.periods?.[pid])} 고유 재원 ${summary.localUniqueRosterCount}명\n반 중복 소속은 전체인원에 중복 합산하지 않습니다. 재고 변화는 없습니다.`);targetManagement();}}
+        try{
+          const body=await fetchEcodingSnapshot(); let renamedCount=0;
+          const r=await transaction(st=>{
+            st.ecodingSnapshots=st.ecodingSnapshots||{}; ensureSystemCommonClass(st,pid);
+            const incomingById=new Map(arr(body.classes).map((item)=>[String(item.id),item]));
+            const renamed=[];
+            for(const localClass of arr(st.classes)){
+              if(localClass.periodId!==pid||!localClass.externalClassId) continue;
+              const incoming=incomingById.get(String(localClass.externalClassId)), nextName=String(incoming?.name||'').trim();
+              if(!nextName||nextName===localClass.name) continue;
+              renamed.push({classId:localClass.id,externalClassId:String(localClass.externalClassId),before:localClass.name||'',after:nextName});
+              localClass.name=nextName; localClass.updatedAt=now(); localClass.updatedBy='이코딩 반명 동기화';
+            }
+            for(const mapping of Object.values(st.ecodingClassMappings?.[pid]||{})){
+              const incoming=incomingById.get(String(mapping.externalClassId||'')), nextName=String(incoming?.name||'').trim();
+              if(nextName) mapping.externalClassName=nextName;
+            }
+            if(renamed.length){
+              st.catalogAudit=st.catalogAudit||{}; const auditId='CA'+crypto.randomUUID();
+              st.catalogAudit[auditId]={id:auditId,type:'ECODING_CLASS_NAME_SYNC',periodId:pid,count:renamed.length,renamed,actor,time:now()};
+            }
+            renamedCount=renamed.length; st.ecodingSnapshots[pid]={...body,periodId:pid};
+          });
+          if(r.committed){S=r.snapshot.val();suggestExistingEcodingClassLinks(pid,ecodingDraftState());const summary=ecodingSnapshotSummary(body,pid,S);alert(`이코딩 연결 확인 완료\n반명 갱신 ${renamedCount}개 (같은 반 ID만 이름 변경)\n전체 원자료 ${summary.rawStudentCount}명 · ${summary.rawClassCount}개 반 (퇴원·미사용 반 포함)\n현재 사용 설정 ${summary.enabledClassCount}개 반 · 고유 재원 ${summary.matchedUniqueStudentCount}명\n교재관리 ${periodLabel(S.periods?.[pid])} 고유 재원 ${summary.localUniqueRosterCount}명\n학생·교재 연결·재고·배부 이력은 변경하지 않았습니다.`);targetManagement();}
+        }
         catch(error){alert(error.message)}
         finally{if(button?.isConnected){button.disabled=false;button.textContent=originalText;}}
       }
