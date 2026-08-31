@@ -6861,6 +6861,22 @@
           rows.push({ before: removed[index] || "", after: added[index] || "" });
         return { kept, removed, added, rows };
       }
+      function ecodingClassChangeLabel(event, changed = ecodingChangedClassRows(event)) {
+        if (event.type === "NEW") return "신규 입반";
+        if (changed.removed.length && changed.added.length)
+          return changed.removed.length === 1 && changed.added.length === 1 ? "반 교체" : "복합 변경";
+        if (changed.added.length) return "반 추가";
+        if (changed.removed.length) return "반 제외";
+        return "변경 없음";
+      }
+      function ecodingFinalClassRows(event, changed = ecodingChangedClassRows(event)) {
+        return Object.keys(event.afterClassIds || {})
+          .map((classId) => ({ classId, cls: S.classes?.[classId], changed: changed.added.includes(classId) }))
+          .sort((a, b) =>
+            String(a.cls?.subject || "").localeCompare(String(b.cls?.subject || ""), "ko") ||
+            String(a.cls?.name || a.classId).localeCompare(String(b.cls?.name || b.classId), "ko"),
+          );
+      }
       function ecodingTransitionBookPreview(event) {
         const student = ecodingEventLocalStudent(event),
           beforeBooks = new Set(Object.keys(event.beforeClassIds || {}).flatMap((cid) => Object.keys(S.classes?.[cid]?.books || {}))),
@@ -6884,12 +6900,15 @@
           currentMatchesBefore = ecodingEventClassSignature(currentIds) === ecodingEventClassSignature(event.beforeClassIds),
           previewOpen = window.ecodingPreviewEventId === event.id,
           bookPreview = ecodingTransitionBookPreview(event),
-          className = (id) => id ? (S.classes?.[id]?.name || id) : "없음";
-        return `<div class="student-head"><div><h2>${esc(event.studentName)}</h2><span>${esc(deskPeriodName(event.periodId))}</span></div><span class="badge ${event.type === "NEW" ? "ok" : "warn"}">${event.type === "NEW" ? "신규" : "반이동"}</span></div>
-          <div class="summary-row"><div class="summary-item"><span>이코딩 입학일</span><b>${esc(source?.admissionDate || "미확인")}</b></div><div class="summary-item"><span>변경 감지</span><b>${esc(fmt(event.createdAt))}</b></div><div class="summary-item"><span>실제 변경일</span><b>이코딩 미제공</b></div><div class="summary-item"><span>교재 프로그램 적용</span><b>최종 반영 즉시</b></div></div>
+          finalRows = ecodingFinalClassRows(event, changed),
+          changeLabel = ecodingClassChangeLabel(event, changed),
+          className = (id) => id ? (S.classes?.[id]?.name || id) : "";
+        return `<div class="student-head"><div><h2>${esc(event.studentName)}</h2><span>${esc(deskPeriodName(event.periodId))}</span></div><span class="badge ${event.type === "NEW" ? "ok" : "warn"}">${esc(changeLabel)}</span></div>
+          <div class="summary-row"><div class="summary-item"><span>이코딩 입학일</span><b>${esc(source?.admissionDate || "미확인")}</b></div><div class="summary-item"><span>변경 감지</span><b>${esc(fmt(event.createdAt))}</b></div></div>
           <div class="receipt"><b>현재 교재 프로그램 상태</b><br>${event.type === "NEW" && !local ? "아직 입반 전" : currentMatchesBefore ? "이전 반 상태 · 아직 변경 전" : "현재 반정보가 대기자료와 달라 최종 반영 차단 대상"}<small>학생을 선택하거나 아래 미리보기를 눌러도 저장되지 않습니다.</small></div>
-          <h3>변경되는 반만 1:1 비교</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>변경 전</th><th></th><th>변경 후</th></tr></thead><tbody>${changed.rows.map((row) => `<tr><td class="diff-before">${esc(className(row.before))}</td><td class="diff-arrow">→</td><td class="diff-after">${esc(className(row.after))}</td></tr>`).join("")}</tbody></table></div><p class="muted">그대로 유지되는 반 ${changed.kept.length}개는 위 비교에서 제외했습니다.</p>
-          ${!previewOpen ? `<button class="btn" onclick="ecodingPreviewEventId='${event.id}';render()">변경 내용 미리보기 (저장 안 됨)</button>` : `<div class="receipt"><b>미리보기 · 아직 저장되지 않음</b><small>반정보·교재·학생보유·재고·원장을 변경하지 않았습니다.</small></div><h3>교재 처리 예상</h3><div class="scroll"><table><thead><tr><th>이전 반 교재</th><th></th><th>변경 후 교재</th></tr></thead><tbody>${bookPreview.rows.map((row) => `<tr><td>${row.oldBid ? `${esc(S.books?.[row.oldBid]?.name || row.oldBid)}<small>${row.oldHeld ? `보유 ${row.oldHeld}권 · 회수 검토` : "미배부 해제 · 재고 변화 없음"}</small>` : "없음"}</td><td class="diff-arrow">→</td><td>${row.newBid ? `${esc(S.books?.[row.newBid]?.name || row.newBid)}<small>${row.newHeld ? `이미 보유 ${row.newHeld}권 · 유지` : "새 미배부 · 배부 전까지 재고 변화 없음"}</small>` : "없음"}</td></tr>`).join("")}</tbody></table></div><p class="muted">같은 교재 ${bookPreview.kept.length}종은 그대로 유지됩니다. 최종 반영을 해도 교재 배부·회수와 재고는 자동으로 바뀌지 않습니다.</p><div class="action-row"><button onclick="ecodingPreviewEventId='';render()">미리보기 닫기</button><button class="danger-btn" onclick="requestApplyEcodingEvent('${event.id}')">반정보 최종 반영</button></div>`}`;
+          <h3>변경되는 반 · ${esc(changeLabel)}</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>빠지는 반</th><th></th><th>새로 들어가는 반</th></tr></thead><tbody>${changed.rows.map((row) => `<tr><td class="diff-before">${row.before ? esc(className(row.before)) : "빠지는 반 없음 · 기존 반 유지"}</td><td class="diff-arrow">→</td><td class="diff-after">${row.after ? esc(className(row.after)) : "새로 들어가는 반 없음"}</td></tr>`).join("")}</tbody></table></div>
+          <h3>승인 후 최종 반 전체 · ${finalRows.length}개</h3><div class="scroll"><table><thead><tr><th>구분</th><th>과목</th><th>강사</th><th>반명</th></tr></thead><tbody>${finalRows.map((row) => `<tr><td><span class="badge ${row.changed ? "warn" : "ok"}">${row.changed ? (event.type === "NEW" ? "입반" : changed.removed.length ? "변경" : "추가") : "유지"}</span></td><td>${esc(row.cls?.subject || "미지정")}</td><td>${esc(row.cls?.teacher || "미지정")}</td><td><b>${esc(row.cls?.name || row.classId)}</b></td></tr>`).join("") || '<tr><td colspan="4">승인 후 반이 없습니다.</td></tr>'}</tbody></table></div>
+          ${!previewOpen ? `<button class="btn" onclick="ecodingPreviewEventId='${event.id}';render()">변경 내용 미리보기 (저장 안 됨)</button>` : `<div class="receipt"><b>미리보기 · 아직 저장되지 않음</b><small>반정보·교재·학생보유·재고·원장을 변경하지 않았습니다.</small></div><h3>교재 처리 예상</h3><div class="scroll"><table><thead><tr><th>이전 반 교재</th><th></th><th>변경 후 교재</th></tr></thead><tbody>${bookPreview.rows.map((row) => `<tr><td>${row.oldBid ? `${esc(S.books?.[row.oldBid]?.name || row.oldBid)}<small>${row.oldHeld ? `보유 ${row.oldHeld}권 · 회수 검토` : "미배부 해제 · 재고 변화 없음"}</small>` : "해당 없음"}</td><td class="diff-arrow">→</td><td>${row.newBid ? `${esc(S.books?.[row.newBid]?.name || row.newBid)}<small>${row.newHeld ? `이미 보유 ${row.newHeld}권 · 유지` : "새 미배부 · 배부 전까지 재고 변화 없음"}</small>` : "해당 없음"}</td></tr>`).join("")}</tbody></table></div><p class="muted">같은 교재 ${bookPreview.kept.length}종은 그대로 유지됩니다.</p><div class="receipt"><b>최종 반영 안내</b><br>이 버튼을 눌러야 교재 프로그램의 반정보가 변경됩니다.<small>교재 배부·회수와 재고는 변경되지 않으며 다음 화면에서 별도로 처리합니다.</small></div><div class="action-row"><button onclick="ecodingPreviewEventId='';render()">미리보기 닫기</button><button class="danger-btn" onclick="requestApplyEcodingEvent('${event.id}')">반정보 최종 반영</button></div>`}`;
       }
       async function requestApplyEcodingEvent(eventId){
         const event=S.ecodingEvents?.[eventId];
