@@ -95,6 +95,7 @@
       .student-book-toolbar{display:grid;grid-template-columns:140px 150px minmax(180px,1fr) minmax(180px,1fr) 150px auto;gap:10px;align-items:center;margin:16px 0 10px}.student-book-toolbar select,.student-book-toolbar input{max-width:none}.student-book-toolbar>b{color:var(--blue);text-align:right;white-space:nowrap}
       .student-book-scroll{max-height:440px}.history-details{margin-top:16px}.history-compact{max-height:330px;overflow:auto;padding:0 12px 8px}
       .student-workspace-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.student-workspace-actions button{margin:0}.student-process-list{max-height:520px}.student-process-list tr{cursor:pointer}.student-process-list tr:hover{background:#f4f8fc}.student-process-list tr.selected{background:#eaf3ff;outline:2px solid #8fb7e8;outline-offset:-2px}.student-process-list td{vertical-align:middle}.student-process-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.student-process-filter select,.student-process-filter input{max-width:none}.student-state-flow{margin:12px 0}.student-state-flow .flow+ .flow{margin-top:8px}.operation-guide{padding:12px 14px;border:1px dashed var(--line2);border-radius:8px;background:#fafbfd;color:var(--muted);text-align:center}.completed-state{margin-top:14px;border-left:4px solid var(--good)}.completed-state table{margin-top:8px}.student-action-kind{margin-top:8px}.student-action-kind button:disabled{opacity:.45;background:#f3f5f7;color:#8995a1;border-color:#dce2e8}.scope-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 14px;padding:8px 10px;background:#f7f9fb;border:1px solid var(--line);border-radius:8px}.scope-switch b{font-size:13px}.scope-switch .tabs{margin:0}
+      .class-diff-table{width:100%;table-layout:fixed;min-width:0}.class-diff-table th:first-child,.class-diff-table th:last-child,.class-diff-table td:first-child,.class-diff-table td:last-child{width:46%;white-space:normal;word-break:keep-all;overflow-wrap:anywhere}.class-diff-table th:nth-child(2),.class-diff-table td:nth-child(2){width:8%;text-align:center}.class-diff-table .diff-before{background:#fff8f7;color:#8e342b}.class-diff-table .diff-after{background:#f3fbf6;color:#17643a}.diff-arrow{text-align:center;color:#7d8995;font-weight:700}.class-diff-table td{padding:14px 12px;line-height:1.55}
       .new-student-workspace{grid-template-columns:minmax(620px,1.15fr) minmax(480px,.85fr)}.new-entry-row{display:grid;grid-template-columns:minmax(260px,1fr) 170px auto;gap:14px;align-items:end;margin-bottom:22px}.new-entry-row label{margin:0}.new-entry-row textarea,.new-entry-row input{max-width:none}.new-entry-row button{margin-bottom:1px}.assignment-box{border-top:1px solid var(--line);padding-top:4px}.stock-side{position:sticky;top:12px}.stock-side-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}.stock-side-head h2{margin:0}.stock-side-head span{color:var(--muted);font-size:13px}.stock-plan{max-height:360px}.stock-side>.btn,.stock-side>.done-btn,.stock-side>.shortage-btn{display:block;width:100%;margin-top:14px}.stage-assign{background:#edf4fc!important;border-color:#8db6df!important;color:var(--blue)!important}.stock-side .stage-assign{background:var(--blue)!important;border-color:var(--blue)!important;color:#fff!important}.stage-distribute{background:var(--go)!important;border-color:var(--go)!important;color:#fff!important}.done-btn{background:#fff!important;border-color:#9aa7b5!important;color:#455467!important}.shortage-btn{background:var(--warn-soft)!important;border-color:#dfc16b!important;color:#6d4c00!important}.cancel-btn{background:#fff!important;border-color:#dda7a2!important;color:var(--bad)!important}.row-actions{display:flex;justify-content:center;gap:6px;flex-wrap:wrap}.row-actions button{margin:0}.selected-row{background:#eef5fd}.empty-stock-state{min-height:260px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);background:#fafbfd}.transaction-result{margin-bottom:0}
       .process-target-panel.process-class>.three,.process-target-panel.process-book>.three{display:inline-grid;width:min(600px,calc(100% - 272px));max-width:none;vertical-align:bottom}.process-target-panel.process-class>.three+label,.process-target-panel.process-book>.three+label{display:inline-block;width:260px;margin:0 0 0 12px;vertical-align:bottom}.process-target-panel.process-class>.three+label select,.process-target-panel.process-book>.three+label select{display:block;max-width:none;margin-top:6px}.process-target-panel.process-class>.list,.process-target-panel.process-book>.list{margin-top:10px}
       .process-target-panel.process-student>.list{display:none}.more-actions{display:inline-block;position:relative}.more-actions>summary{cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:8px 12px;list-style:none}.more-actions[open]{display:block;width:100%}
@@ -1029,6 +1030,18 @@
           return derivedValue("pendingRefundRows", () => pendingRefundRowsUncached(st));
         return pendingRefundRowsUncached(st);
       }
+      function refundTaskHasActivePendingReentry(st, task) {
+        if (!task || task.status !== "PENDING" || task.source !== "ECODING") return false;
+        const student = st.students?.[task.studentId], externalId = normalizeExternalId(student?.externalId);
+        if (!externalId) return false;
+        return arr(st.ecodingEvents).some((event) =>
+          event.type === "NEW" && event.status === "PENDING" &&
+          event.periodId === task.periodId &&
+          normalizeExternalId(event.externalStudentId) === externalId &&
+          Object.keys(event.afterClassIds || {}).length > 0 &&
+          String(event.createdAt || "") >= String(task.createdAt || "")
+        );
+      }
       function pendingRefundRowsUncached(st = S) {
         const activeIds = deskPeriodIds(st);
         const scopedTasks = arr(st.refundTasks).filter(
@@ -1054,7 +1067,9 @@
               );
           }
         }
-        return [...tasks.values()].filter((task) => task.status === "PENDING");
+        return [...tasks.values()].filter((task) =>
+          task.status === "PENDING" && !refundTaskHasActivePendingReentry(st, task)
+        );
       }
       function pendingRefundCount() {
         const count = pendingRefundRows().length;
@@ -1067,7 +1082,8 @@
         return arr(st.refundTasks).filter(
           (task) =>
             (!activeIds.size || activeIds.has(task.periodId)) &&
-            task.status === "PENDING",
+            task.status === "PENDING" &&
+            !refundTaskHasActivePendingReentry(st, task),
         ).length;
       }
       function fastPendingRefundCount() {
@@ -1645,7 +1661,7 @@
         const ps = periods(),
           pid = selectedPeriodId(),
           p = S.periods?.[pid];
-        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span></div>`;
+        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span>${p?.bookStartDate ? `<span class="badge">교재 시작 ${esc(p.bookStartDate)}</span>` : ""}</div>`;
       }
       function hubNav(items, current, setter) {
         return `<div class="subtabs">${items.map(([key, label]) => `<button class="${current === key ? "on" : ""}" onclick="${setter}='${key}';render()">${label}</button>`).join("")}</div>`;
@@ -6462,13 +6478,29 @@
         const input=document.querySelector('input[placeholder="반명, 과목, 강사"]');
         if(!input)return;
         const section=input.closest('section');
+        const heading=section?.querySelector('h2');
+        if(heading)heading.textContent='이코딩 반·교재 최초 연결 설정';
+        if(section&&!section.querySelector('.ecoding-purpose'))
+          heading?.insertAdjacentHTML('afterend','<div class="receipt ecoding-purpose"><b>용도: 이코딩 반에 사용할 교재를 연결하는 설정 화면</b><small>아래 한 행은 교재 한 권이 아니라 이코딩 반 한 개입니다. 저장해도 입고·배부·학생보유·재고는 바뀌지 않습니다.</small></div>');
+        for(const title of section?.querySelectorAll('.receipt>b')||[])
+          if(title.textContent.trim()==='같은 교재 일괄 입력')title.textContent='같은 교재 여러 반 입력 (매칭용·배부 아님)';
         const headers=section?.querySelectorAll('.scroll thead th')||[];
-        if(headers[0])headers[0].textContent='연결';
-        if(headers[1])headers[1].textContent='일괄선택';
+        if(headers[0])headers[0].textContent='연결 저장 대상';
+        if(headers[1])headers[1].textContent='이번 일괄입력 대상';
         for(const button of section?.querySelectorAll('button')||[]){
           if(button.textContent.trim()==='해당 반 선택')button.textContent='같은 강사 반 선택';
           if(button.textContent.trim()==='선택 반에 적용')button.textContent='일괄선택 반에 입력';
           if(button.textContent.trim()==='선택 반 저장')button.textContent='연결 반 저장';
+        }
+        const tableScroll=section?.querySelector('.scroll');
+        if(tableScroll&&!section.querySelector('.ecoding-list-filter')){
+          const draft=ecodingDraftState(),subject=window.ecodingListSubject||'전체',
+            subjectRows=[...new Set(Object.values(draft).map(row=>row.subject).filter(Boolean))].sort(),
+            teacherRows=[...new Set(Object.values(draft).filter(row=>subject==='전체'||row.subject===subject).map(row=>row.teacher).filter(Boolean))].sort(),
+            teacher=teacherRows.includes(window.ecodingListTeacher)?window.ecodingListTeacher:'전체',
+            bookRows=[...new Set(Object.values(draft).filter(row=>(subject==='전체'||row.subject===subject)&&(teacher==='전체'||row.teacher===teacher)).map(row=>row.bookName).filter(Boolean))].sort(),
+            book=bookRows.includes(window.ecodingListBook)?window.ecodingListBook:'전체';
+          tableScroll.insertAdjacentHTML('beforebegin',`<div class="filter-row ecoding-list-filter"><label>과목<select onchange="ecodingListSubject=this.value;ecodingListTeacher='전체';ecodingListBook='전체';targetManagement()"><option>전체</option>${subjectRows.map(value=>`<option ${value===subject?'selected':''}>${esc(value)}</option>`).join('')}</select></label><label>강사<select onchange="ecodingListTeacher=this.value;ecodingListBook='전체';targetManagement()"><option>전체</option>${teacherRows.map(value=>`<option ${value===teacher?'selected':''}>${esc(value)}</option>`).join('')}</select></label><label>교재명<select onchange="ecodingListBook=this.value;targetManagement()"><option>전체</option>${bookRows.map(value=>`<option ${value===book?'selected':''}>${esc(value)}</option>`).join('')}</select></label><button onclick="ecodingListSubject='전체';ecodingListTeacher='전체';ecodingListBook='전체';targetManagement()">조건 초기화</button><b>과목 → 강사 → 교재명 순서로 좁혀집니다.</b></div>`);
         }
         const filter=()=>{
           window.ecodingClassQuery=input.value;
@@ -6600,9 +6632,9 @@
         targetManagement();
       }
       function ecodingTargetMarkup() {
-        const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],syncSummary=sync?ecodingSnapshotSummary(sync,pid,S):null,draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort();
+        const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],syncSummary=sync?ecodingSnapshotSummary(sync,pid,S):null,draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort(),listSubject=window.ecodingListSubject||'전체',listTeachers=[...new Set(Object.values(draft).filter(x=>listSubject==='전체'||x.subject===listSubject).map(x=>x.teacher).filter(Boolean))].sort(),listTeacher=listTeachers.includes(window.ecodingListTeacher)?window.ecodingListTeacher:'전체',listBooks=[...new Set(Object.values(draft).filter(x=>(listSubject==='전체'||x.subject===listSubject)&&(listTeacher==='전체'||x.teacher===listTeacher)).map(x=>x.bookName).filter(Boolean))].sort(),listBook=listBooks.includes(window.ecodingListBook)?window.ecodingListBook:'전체';
         const rank=c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id],configured=!!(m.subject||m.teacher);return (bulk?0:m.enabled?1:configured?2:3)};
-        const shown=classes.filter(c=>view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!draft[c.id]?.enabled:view==='UNSET'?!draft[c.id]?.enabled:true).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
+        const shown=classes.filter(c=>{const m=draft[c.id]||{},viewMatch=view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!m.enabled:view==='UNSET'?!m.enabled:true;return viewMatch&&(listSubject==='전체'||m.subject===listSubject)&&(listTeacher==='전체'||m.teacher===listTeacher)&&(listBook==='전체'||m.bookName===listBook)}).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
         return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="미입력 가능"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 ‘적용’ 체크를 해제하세요. 교재가 여러 권이면 한 권씩 적용→저장을 반복합니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결 예정</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
       }
       async function fetchEcodingSnapshot(){
@@ -6790,13 +6822,68 @@
         try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const queued=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:queued?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),queuedToRefundAt:queued?now():null};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
         catch(error){alert(error.message)}
       }
-      function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent)window.ecodingEventId='';document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';render()"><b>${esc(x.studentName)}</b> · ${esc(deskPeriodName(x.periodId))}</button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
-      function ecodingEventDetail(event){const names=ids=>Object.keys(ids||{}).map(id=>S.classes?.[id]?.name||id).join(' · ')||'없음';return `<h2>${esc(event.studentName)}</h2><div class="flow"><div>이전 반<br><b>${esc(names(event.beforeClassIds))}</b></div><div class="arrow">→</div><div>변경 반<br><b>${esc(names(event.afterClassIds))}</b></div></div><p class="muted">반정보 확인은 재고를 바꾸지 않습니다. 저장 후 학생 교재 화면에서 배부·회수를 선택하면 그때 재고 전·후가 표시됩니다.</p><button class="btn" onclick="requestApplyEcodingEvent('${event.id}')">반정보 확인 후 교재 처리</button>`;}
+      function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent){window.ecodingEventId='';window.ecodingPreviewEventId='';}document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';ecodingPreviewEventId='';render()"><b>${esc(x.studentName)}</b><small>${esc(deskPeriodName(x.periodId))} · 감지 ${esc(fmt(x.createdAt))}</small></button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
+      function ecodingEventSourceStudent(event) {
+        const rows = S.ecodingSnapshots?.[event.periodId]?.students ||
+          S.ecodingBaselines?.[event.periodId]?.students || [];
+        return rows.find((student) =>
+          normalizeExternalId(student.id) === normalizeExternalId(event.externalStudentId)
+        ) || null;
+      }
+      function ecodingEventLocalStudent(event) {
+        const matches = arr(S.students).filter((student) =>
+          normalizeExternalId(student.externalId) === normalizeExternalId(event.externalStudentId)
+        );
+        return matches.length === 1 ? matches[0] : null;
+      }
+      function ecodingChangedClassRows(event) {
+        const before = Object.keys(event.beforeClassIds || {}),
+          after = Object.keys(event.afterClassIds || {}),
+          kept = before.filter((id) => after.includes(id)),
+          removed = before.filter((id) => !after.includes(id)),
+          added = after.filter((id) => !before.includes(id)),
+          length = Math.max(removed.length, added.length, 1),
+          rows = [];
+        for (let index = 0; index < length; index++)
+          rows.push({ before: removed[index] || "", after: added[index] || "" });
+        return { kept, removed, added, rows };
+      }
+      function ecodingTransitionBookPreview(event) {
+        const student = ecodingEventLocalStudent(event),
+          beforeBooks = new Set(Object.keys(event.beforeClassIds || {}).flatMap((cid) => Object.keys(S.classes?.[cid]?.books || {}))),
+          afterBooks = new Set(Object.keys(event.afterClassIds || {}).flatMap((cid) => Object.keys(S.classes?.[cid]?.books || {}))),
+          added = [...afterBooks].filter((bid) => !beforeBooks.has(bid)),
+          removed = [...beforeBooks].filter((bid) => !afterBooks.has(bid)),
+          kept = [...beforeBooks].filter((bid) => afterBooks.has(bid));
+        return {
+          kept,
+          rows: Array.from({ length: Math.max(added.length, removed.length, 1) }, (_, index) => {
+            const oldBid = removed[index] || "", newBid = added[index] || "",
+              oldHeld = oldBid ? Number(student?.holdings?.[oldBid] || 0) : 0,
+              newHeld = newBid ? Number(student?.holdings?.[newBid] || 0) : 0;
+            return { oldBid, newBid, oldHeld, newHeld };
+          }),
+        };
+      }
+      function ecodingEventDetail(event){
+        const changed = ecodingChangedClassRows(event), source = ecodingEventSourceStudent(event),
+          local = ecodingEventLocalStudent(event), currentIds = local?.periodClasses?.[event.periodId] || {},
+          currentMatchesBefore = ecodingEventClassSignature(currentIds) === ecodingEventClassSignature(event.beforeClassIds),
+          previewOpen = window.ecodingPreviewEventId === event.id,
+          bookPreview = ecodingTransitionBookPreview(event),
+          className = (id) => id ? (S.classes?.[id]?.name || id) : "없음";
+        return `<div class="student-head"><div><h2>${esc(event.studentName)}</h2><span>${esc(deskPeriodName(event.periodId))}</span></div><span class="badge ${event.type === "NEW" ? "ok" : "warn"}">${event.type === "NEW" ? "신규" : "반이동"}</span></div>
+          <div class="summary-row"><div class="summary-item"><span>이코딩 입학일</span><b>${esc(source?.admissionDate || "미확인")}</b></div><div class="summary-item"><span>변경 감지</span><b>${esc(fmt(event.createdAt))}</b></div><div class="summary-item"><span>실제 변경일</span><b>이코딩 미제공</b></div><div class="summary-item"><span>교재 프로그램 적용</span><b>최종 반영 즉시</b></div></div>
+          <div class="receipt"><b>현재 교재 프로그램 상태</b><br>${event.type === "NEW" && !local ? "아직 입반 전" : currentMatchesBefore ? "이전 반 상태 · 아직 변경 전" : "현재 반정보가 대기자료와 달라 최종 반영 차단 대상"}<small>학생을 선택하거나 아래 미리보기를 눌러도 저장되지 않습니다.</small></div>
+          <h3>변경되는 반만 1:1 비교</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>변경 전</th><th></th><th>변경 후</th></tr></thead><tbody>${changed.rows.map((row) => `<tr><td class="diff-before">${esc(className(row.before))}</td><td class="diff-arrow">→</td><td class="diff-after">${esc(className(row.after))}</td></tr>`).join("")}</tbody></table></div><p class="muted">그대로 유지되는 반 ${changed.kept.length}개는 위 비교에서 제외했습니다.</p>
+          ${!previewOpen ? `<button class="btn" onclick="ecodingPreviewEventId='${event.id}';render()">변경 내용 미리보기 (저장 안 됨)</button>` : `<div class="receipt"><b>미리보기 · 아직 저장되지 않음</b><small>반정보·교재·학생보유·재고·원장을 변경하지 않았습니다.</small></div><h3>교재 처리 예상</h3><div class="scroll"><table><thead><tr><th>이전 반 교재</th><th></th><th>변경 후 교재</th></tr></thead><tbody>${bookPreview.rows.map((row) => `<tr><td>${row.oldBid ? `${esc(S.books?.[row.oldBid]?.name || row.oldBid)}<small>${row.oldHeld ? `보유 ${row.oldHeld}권 · 회수 검토` : "미배부 해제 · 재고 변화 없음"}</small>` : "없음"}</td><td class="diff-arrow">→</td><td>${row.newBid ? `${esc(S.books?.[row.newBid]?.name || row.newBid)}<small>${row.newHeld ? `이미 보유 ${row.newHeld}권 · 유지` : "새 미배부 · 배부 전까지 재고 변화 없음"}</small>` : "없음"}</td></tr>`).join("")}</tbody></table></div><p class="muted">같은 교재 ${bookPreview.kept.length}종은 그대로 유지됩니다. 최종 반영을 해도 교재 배부·회수와 재고는 자동으로 바뀌지 않습니다.</p><div class="action-row"><button onclick="ecodingPreviewEventId='';render()">미리보기 닫기</button><button class="danger-btn" onclick="requestApplyEcodingEvent('${event.id}')">반정보 최종 반영</button></div>`}`;
+      }
       async function requestApplyEcodingEvent(eventId){
         const event=S.ecodingEvents?.[eventId];
         if(!event||event.status!=='PENDING'||window.ecodingEventId!==eventId){alert('대기 상태가 바뀌었습니다. 명단에서 학생을 다시 선택하세요.');render();return;}
+        if(window.ecodingPreviewEventId!==eventId){alert('변경 내용 미리보기를 먼저 확인하세요.');return;}
         if(window.ecodingApplyBusy)return;
-        if(!confirm(`${event.studentName} 학생의 반정보를 최종 반영할까요?\n\n이 확인 전에는 학생·반·교재·재고가 변경되지 않습니다.`))return;
+        if(!confirm(`${event.studentName} 학생의 반정보만 최종 반영할까요?\n\n교재 배부·회수와 재고는 자동으로 변경되지 않습니다. 반영 후 별도 교재 처리 화면에서 다시 확인합니다.`))return;
         const latest=S.ecodingEvents?.[eventId];
         if(!latest||latest.status!=='PENDING'||window.ecodingEventId!==eventId){alert('확인 중 상태가 바뀌어 처리하지 않았습니다.');render();return;}
         window.ecodingApplyBusy=true;
@@ -6823,6 +6910,12 @@
           if(existing?.periodMembership?.[e.periodId]===true&&ecodingEventClassSignature(existing.periodClasses?.[e.periodId])===ecodingEventClassSignature(e.afterClassIds)){
             e.status='CANCELLED';e.closedAt=now();e.closedBy=actor;e.closeReason='ALREADY_APPLIED';outcome='ALREADY_APPLIED';return;
           }
+          const currentClassIds = existing?.periodMembership?.[e.periodId] === true
+            ? (existing.periodClasses?.[e.periodId] || {}) : {};
+          if (ecodingEventClassSignature(currentClassIds) !== ecodingEventClassSignature(e.beforeClassIds)) {
+            outcome = 'STALE_CURRENT';
+            return false;
+          }
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
@@ -6830,12 +6923,12 @@
         });
         if(r.committed){
           S=r.snapshot.val();
-          if(outcome==='ALREADY_APPLIED'){window.ecodingEventId='';alert('이미 반영된 학생이라 중복 대기만 종결했습니다. 학생·교재·재고는 변경하지 않았습니다.');render();return;}
+          if(outcome==='ALREADY_APPLIED'){window.ecodingEventId='';window.ecodingPreviewEventId='';alert('이미 반영된 학생이라 중복 대기만 종결했습니다. 학생·교재·재고는 변경하지 않았습니다.');render();return;}
           const remainingAssignedBookIds=new Set(Object.keys(S.students?.[localSid]?.classes||{}).flatMap(classId=>Object.keys(S.classes?.[classId]?.books||{})));
           distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
           returnIds=[...beforeBookIds].filter(bid=>!remainingAssignedBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
-          window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';tab='학생';view='student';selected=[];receipt=null;render();
-        }
+          window.studentTransition={sid:localSid,distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
+        } else alert(outcome==='STALE_CURRENT'?'교재 프로그램의 현재 반이 미리보기와 달라져 반영하지 않았습니다. 반이동 목록을 다시 확인하세요.':'반정보가 변경되어 처리하지 않았습니다. 다시 확인하세요.');
       }
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
       saveEcodingMappings = async function () {
@@ -7093,6 +7186,8 @@
               if (!hasClasses) continue;
               const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
               if (localMatches.length > 1) return false;
+              if (localMatches.length === 1)
+                closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
               const desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds),
                 type = desired.type,
                 eventBeforeClassIds = desired.beforeClassIds;
@@ -8478,17 +8573,12 @@
         const rows = [...allRows.values()]
             .filter((task) => {
               return (
+                !refundTaskHasActivePendingReentry(S, task) &&
                 (periodFilter === "ACTIVE_ALL" ||
                   task.periodId === periodFilter) &&
                 (status === "ALL" || task.status === status) &&
-                (!query ||
-                  [
-                    task.studentName,
-                    ...Object.values(task.books || {}).map((book) => book.bookName),
-                  ]
-                    .join(" ")
-                    .toLowerCase()
-                    .includes(query))
+                (!query || String(task.studentName || S.students?.[task.studentId]?.name || "")
+                  .toLowerCase().includes(query))
               );
             })
             .sort((a, b) =>
@@ -8518,16 +8608,16 @@
                   (sum, amount) => sum + Number(amount.total || 0),
                   0,
                 );
-              visibleBooks.forEach((book, index) => {
-                const quantity = Math.max(1, Number(book.quantity || 1)),
-                  amount = amounts[index];
-                book.bookName = `${book.bookName} · ${quantity}권 × ${amount.total == null ? "금액 미등록" : amount.unitPrice == null ? won(amount.total) : `${won(amount.unitPrice)} = ${won(amount.total)}`}`;
-              });
-              if (visibleBooks.length)
-                visibleBooks[visibleBooks.length - 1].bookName += ` · 총액 ${missing ? "확정 불가" : won(total)}`;
-              return { ...task, books };
+              return {
+                ...task,
+                books,
+                refundBookCount: visibleBooks.length,
+                refundAmount: total,
+                refundAmountMissing: missing,
+                refundMissingPriceCount: amounts.filter((amount) => amount.total == null).length,
+              };
             });
-document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">운영 중인 모든 대상의 환불대기를 한 화면에서 확인합니다. 완료 처리는 각 학생의 원래 대상에 기록되며 재고와 학생 보유수량은 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생·교재" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 교재</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => { const pendingBooks = Object.values(task.books || {}).filter((book) => book.status === "PENDING"), doneBooks = Object.values(task.books || {}).filter((book) => book.status === "DONE"); return `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td>${pendingBooks.map((book) => esc(book.bookName)).join(" · ") || doneBooks.map((book) => esc(book.bookName)).join(" · ") || "없음"}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`; }).join("") || '<tr><td colspan="6">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">목록에는 학생별 미배부 종수와 환불금액만 표시합니다. 교재명·수량·단가는 상세 확인에서 확인하며, 환불완료 전에는 재고와 학생 보유수량이 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td><b>${task.refundBookCount}종</b></td><td><b>${task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`).join("") || '<tr><td colspan="7">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
       function refundConfirmationSnapshot(state, task) {
         if (!task) return null;
