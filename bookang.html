@@ -857,6 +857,58 @@
           }
         }
       }
+      function cancelPendingChargesForReturnedDeltas(
+        st,
+        bid,
+        periodStudentDeltas,
+        batchId,
+      ) {
+        st.chargeTasks = st.chargeTasks || {};
+        st.chargeHistory = st.chargeHistory || {};
+        for (const [pid, studentDeltas] of Object.entries(
+          periodStudentDeltas || {},
+        )) {
+          for (const [sid, delta] of Object.entries(studentDeltas || {})) {
+            let remaining = -Number(delta || 0);
+            if (remaining < 1) continue;
+            const pending = arr(st.chargeTasks)
+              .filter(
+                (task) =>
+                  task.status === "PENDING" &&
+                  task.periodId === pid &&
+                  task.studentId === sid &&
+                  task.bookId === bid,
+              )
+              .sort((a, b) =>
+                String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+              );
+            for (const task of pending) {
+              if (remaining < 1) break;
+              task.status = "CANCELLED";
+              task.cancelledAt = now();
+              task.cancelledBy = actor;
+              task.cancelReason = "교재 회수로 추가결제 대기 자동취소";
+              task.returnBatchId = batchId;
+              const hid = "H" + crypto.randomUUID();
+              st.chargeHistory[hid] = {
+                id: hid,
+                type: "추가결제회수취소",
+                taskId: task.id,
+                periodId: pid,
+                studentId: sid,
+                studentName: task.studentName || st.students?.[sid]?.name || "",
+                bookId: bid,
+                bookName: task.bookName || st.books?.[bid]?.name || "",
+                batchId,
+                actor,
+                time: task.cancelledAt,
+                memo: task.cancelReason,
+              };
+              remaining -= 1;
+            }
+          }
+        }
+      }
       function held(sid, bid) {
         return Number(S.students[sid]?.holdings?.[bid] || 0);
       }
@@ -2613,6 +2665,10 @@
                 actor,
                 time: now(),
               };
+              if (isReturn)
+                cancelPendingChargesForReturnedDeltas(
+                  st, p.bid, returnAllocations[p.bid], batchId,
+                );
             }
             msg = `학생 묶음 ${isReturn ? "전량회수" : "전체배부"} ${ids.length}명 ${shown.length}종 ${total}권 · 처리번호 ${batchId}`;
             st.processedOperations[opId] = {
@@ -2936,6 +2992,9 @@
                 st, p.bid, returnAllocations[p.bid], batchId,
                 [st.classes[cid]?.name].filter(Boolean),
               );
+              cancelPendingChargesForReturnedDeltas(
+                st, p.bid, returnAllocations[p.bid], batchId,
+              );
               const mid = "M" + crypto.randomUUID();
               st.movements[mid] = {
                 id: mid,
@@ -3178,6 +3237,9 @@
             appendReturnedRefundBooksForPeriodDeltas(
               st, bid, periodStudentDeltas, batchId,
             );
+            cancelPendingChargesForReturnedDeltas(
+              st, bid, periodStudentDeltas, batchId,
+            );
             st.movements = st.movements || {};
             const mid = "M" + crypto.randomUUID();
             st.movements[mid] = {
@@ -3284,6 +3346,9 @@
                   Number(st.students[sid].holdings[p.bid] || 0) - q;
               }
               appendReturnedRefundBooksForPeriodDeltas(
+                st, p.bid, returnAllocations[p.bid], batchId,
+              );
+              cancelPendingChargesForReturnedDeltas(
                 st, p.bid, returnAllocations[p.bid], batchId,
               );
               const mid = "M" + crypto.randomUUID();
@@ -3747,6 +3812,10 @@
               appendReturnedRefundBooksForPeriodDeltas(
                 st, bid, periodStudentDeltas, batchId,
               );
+            if (isReturn)
+              cancelPendingChargesForReturnedDeltas(
+                st, bid, periodStudentDeltas, batchId,
+              );
             const mid = "M" + crypto.randomUUID();
             st.movements = st.movements || {};
             st.movements[mid] = {
@@ -3798,6 +3867,8 @@
                   studentName: st.students[sid]?.name || sid,
                   bookId: bid,
                   bookName: b.name,
+                  unitPrice: bookPriceValue(b),
+                  amount: bookPriceValue(b),
                   status: "PENDING",
                   memo,
                   createdAt: now(),
@@ -4015,6 +4086,10 @@
                 actor,
                 time: now(),
               };
+              if (isReturn)
+                cancelPendingChargesForReturnedDeltas(
+                  st, bid, periodStudentDeltas, batchId,
+                );
               details.push(`${b.name} ${before}→${b.stock}`);
             }
             if (isReturn && s.pendingReturn) {
@@ -8251,7 +8326,7 @@
               String(b.createdAt).localeCompare(String(a.createdAt)),
             );
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>추가결제 <span class="badge ${pending ? "warn" : "ok"}">미납 ${pending}건</span></h2><p class="muted">운영 중인 모든 대상을 한 화면에서 확인합니다. 완료 처리는 각 건의 원래 대상에 저장되며 재고와 학생 보유수량은 변하지 않습니다.</p><div class="filter-row"><label>대상<select onchange="chargePeriodFilter=this.value;chargeTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period)=>activeIds.has(period.id)).map((period)=>`<option value="${period.id}" ${periodFilter===period.id?"selected":""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="chargeStatus=this.value;chargeTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>미납</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input id="chargeAutoSearch" value="${esc(window.chargeQuery || "")}" oninput="filterChargeRows(this.value)" placeholder="학생·교재·메모·처리번호"></label></div>${status === "PENDING" && !rows.length ? '<div class="receipt"><b>미납 추가결제 0건</b></div>' : `<p id="chargeCount">검색 결과 ${rows.length}건</p><div class="scroll"><table><thead><tr><th>발생일</th><th>대상</th><th>학생</th><th>교재</th><th>메모</th><th>배부담당</th><th>처리</th></tr></thead><tbody id="chargeRows">${rows.map((x) => `<tr><td>${fmt(x.createdAt)}</td><td><b>${esc(deskPeriodName(x.periodId))}</b></td><td>${esc(x.studentName || S.students[x.studentId]?.name || "")}</td><td>${esc(x.bookName || S.books[x.bookId]?.name || "")}</td><td>${esc(x.memo || "")}${x.chargeMemo ? `<small>결제: ${esc(x.chargeMemo)}</small>` : ""}${x.revertReason ? `<small>되돌림: ${esc(x.revertReason)}</small>` : ""}</td><td>${esc(x.actor || "")}</td><td><button style="min-width:72px" class="${x.status === "DONE" ? "btn" : ""}" onclick="toggleCharge('${x.id}')">${x.status === "DONE" ? "완료" : "미납"}</button>${x.status === "DONE" ? `<small>${esc(x.paidOn || "")} · ${esc(x.completedBy || "")}</small>` : ""}</td></tr>`).join("")}</tbody></table></div>`}</section>`;
+          `<section class="panel"><h2>추가결제 <span class="badge ${pending ? "warn" : "ok"}">미납 ${pending}건</span></h2><p class="muted">운영 중인 모든 대상을 한 화면에서 확인합니다. 추가결제 배부 교재를 회수하면 같은 학생·교재·대상의 최신 미납 1건이 자동취소됩니다. 결제완료 기록은 자동으로 바꾸지 않습니다.</p><div class="filter-row"><label>대상<select onchange="chargePeriodFilter=this.value;chargeTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period)=>activeIds.has(period.id)).map((period)=>`<option value="${period.id}" ${periodFilter===period.id?"selected":""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="chargeStatus=this.value;chargeTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>미납</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>완료</option><option value="CANCELLED" ${status === "CANCELLED" ? "selected" : ""}>회수취소</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input id="chargeAutoSearch" value="${esc(window.chargeQuery || "")}" oninput="filterChargeRows(this.value)" placeholder="학생·교재·메모·처리번호"></label></div>${status === "PENDING" && !rows.length ? '<div class="receipt"><b>미납 추가결제 0건</b></div>' : `<p id="chargeCount">검색 결과 ${rows.length}건</p><div class="scroll"><table><thead><tr><th>발생일</th><th>대상</th><th>학생</th><th>교재</th><th>메모</th><th>배부담당</th><th>처리</th></tr></thead><tbody id="chargeRows">${rows.map((x) => `<tr><td>${fmt(x.createdAt)}</td><td><b>${esc(deskPeriodName(x.periodId))}</b></td><td>${esc(x.studentName || S.students[x.studentId]?.name || "")}</td><td>${esc(x.bookName || S.books[x.bookId]?.name || "")}</td><td>${esc(x.memo || "")}${x.chargeMemo ? `<small>결제: ${esc(x.chargeMemo)}</small>` : ""}${x.revertReason ? `<small>되돌림: ${esc(x.revertReason)}</small>` : ""}${x.cancelReason ? `<small>취소: ${esc(x.cancelReason)}</small>` : ""}</td><td>${esc(x.actor || "")}</td><td>${x.status === "CANCELLED" ? '<span class="badge">회수취소</span>' : `<button style="min-width:72px" class="${x.status === "DONE" ? "btn" : ""}" onclick="toggleCharge('${x.id}')">${x.status === "DONE" ? "완료" : "미납"}</button>${x.status === "DONE" ? `<small>${esc(x.paidOn || "")} · ${esc(x.completedBy || "")}</small>` : ""}`}</td></tr>`).join("")}</tbody></table></div>`}</section>`;
         requestAnimationFrame(() =>
           filterChargeRows(window.chargeQuery || ""),
         );
