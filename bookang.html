@@ -2297,7 +2297,7 @@
           selected = allowed ? [sid] : [];
         }
         document.querySelector("#screen").innerHTML =
-          `${tab === "학생" && window.studentHubView === "process" && sid ? studentProcessContext(sid) : ""}<div class="grid"><section class="panel process-target-panel process-${view}"><h2>${tab === "학생" && window.studentHubView === "process" ? "학생 교재현황" : "대상 선택"}</h2>${tab === "학생" && window.studentHubView === "process" ? "" : `<div class="tabs"><button class="${view === "academy" ? "on" : ""}" onclick="view='academy';academyBulkMode='DISTRIBUTE';receipt=null;selected=[];render()">전체</button><button class="${view === "class" ? "on" : ""}" onclick="view='class';action='DISTRIBUTE';receipt=null;selected=[];render()">반</button><button class="${view === "book" ? "on" : ""}" onclick="view='book';action='DISTRIBUTE';receipt=null;selected=[];render()">교재</button><button class="${view === "bundle" ? "on" : ""}" onclick="view='bundle';bundleMode='DISTRIBUTE';receipt=null;selected=[];render()">학생 묶음</button></div>`}
+          `${tab === "학생" && window.studentHubView === "process" && sid ? studentProcessContext(sid) : ""}<div class="grid"><section class="panel process-target-panel process-${view}"><h2>${tab === "학생" && window.studentHubView === "process" ? "학생 교재현황" : "대상 선택"}</h2>${tab === "학생" && window.studentHubView === "process" ? "" : `<div class="tabs"><button class="${view === "academy" ? "on" : ""}" onclick="view='academy';academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;receipt=null;selected=[];render()">전체</button><button class="${view === "class" ? "on" : ""}" onclick="view='class';action='DISTRIBUTE';receipt=null;selected=[];render()">반</button><button class="${view === "book" ? "on" : ""}" onclick="view='book';action='DISTRIBUTE';receipt=null;selected=[];render()">교재</button><button class="${view === "bundle" ? "on" : ""}" onclick="view='bundle';bundleMode='DISTRIBUTE';receipt=null;selected=[];render()">학생 묶음</button></div>`}
  ${view === "student" ? (tab === "학생" && window.studentHubView === "process" && sid ? studentProcessBookPanel(sid, available, window.bid) : `<label>학생명 검색</label><input value="${esc(processQuery)}" placeholder="학생명 입력 후 Enter" onchange="processStudentQuery=this.value;sid='';selected=[];render()">${studentMatches.length ? sel("학생", studentMatches, sid, "sid") : '<p class="error">검색된 학생이 없습니다.</p>'}`) : view === "academy" ? academyTargetSummary() : view === "class" ? `<div class="process-filter-row"><label>① 과목<select onchange="processClassSubject=this.value;processClassTeacher='';cid='';selected=[];render()">${classSubjects.map((x) => `<option ${x === classSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="processClassTeacher=this.value;cid='';selected=[];render()">${classTeachers.map((x) => `<option ${x === classTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 반<select onchange="cid=this.value;bid='';selected=[];render()"><option value="">반을 직접 선택하세요</option>${classes.map((x) => `<option value="${x.id}" ${x.id === cid ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label></div>${cid ? classRosterSummaryHtml(cid) : ""}` : view === "bundle" ? bundlePicker() : `<div class="process-filter-row"><label>① 과목<select onchange="window.processBookSubject=this.value;window.processBookTeacher='';window.processBookQuery='';bid='';selected=[];render()">${bookSubjects.map((x) => `<option ${x === processBookSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="window.processBookTeacher=this.value;window.processBookQuery='';bid='';selected=[];render()">${bookTeachers.map((x) => `<option ${x === processBookTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input value="${esc(window.processBookQuery||S.books[window.bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showProcessBookPicker(this.value)" oninput="processBookQuery=this.value;bid='';selected=[];showProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('processBookResults');if(b)b.innerHTML=''},160)"><div id="processBookResults" class="picker-results"></div></div></label></div>`}
  ${view === "bundle" || view === "class" || view === "book" || view === "academy" || (view === "student" && tab === "학생") ? "" : `<label>교재</label><select onchange="bid=this.value;selected=[];render()"><option value="">교재를 직접 선택하세요</option>${available.map((b) => `<option value="${b.id}" ${b.id === window.bid ? "selected" : ""}>${esc(b.name)} (재고 ${b.stock || 0})</option>`).join("")}</select>`}
  ${view === "book" && window.bid ? bookEligibilitySummaryHtml(window.bid) : ""}
@@ -3168,9 +3168,35 @@
           .filter((x) => x.need > 0)
           .sort((a, b) => a.name.localeCompare(b.name, "ko"));
       }
+      function academySelectableBookIds(plan) {
+        return plan.filter((x) => x.need > 0 && x.after >= 0).map((x) => x.bid);
+      }
+      function academySelectedBulkPlan(plan) {
+        const selectable = new Set(academySelectableBookIds(plan));
+        if (!Array.isArray(window.academySelectedBookIds))
+          window.academySelectedBookIds = [...selectable];
+        window.academySelectedBookIds = window.academySelectedBookIds.filter((id) =>
+          selectable.has(id),
+        );
+        const selectedIds = new Set(window.academySelectedBookIds);
+        return plan.filter((x) => selectedIds.has(x.bid));
+      }
+      function toggleAcademyBulkBook(bid, checked) {
+        const plan = academyBulkPlan(S),
+          selectable = new Set(academySelectableBookIds(plan)),
+          selectedIds = new Set(academySelectedBulkPlan(plan).map((x) => x.bid));
+        if (!selectable.has(bid)) return render();
+        if (checked) selectedIds.add(bid);
+        else selectedIds.delete(bid);
+        window.academySelectedBookIds = [...selectedIds];
+        receipt = null;
+        render();
+      }
       function academyBulkBox() {
         const plan = academyBulkPlan(S),
-          total = plan.reduce((n, x) => n + x.need, 0),
+          selectedPlan = academySelectedBulkPlan(plan),
+          selectedIds = new Set(selectedPlan.map((x) => x.bid)),
+          total = selectedPlan.reduce((n, x) => n + x.need, 0),
           short = plan.filter((x) => x.after < 0),
           returns = academyReturnPlan(S),
           returnTotal = returns.reduce((n, x) => n + x.quantity, 0),
@@ -3182,13 +3208,13 @@
         const completed = receipt
           ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(receipt)}</div>`
           : "";
-        return `${completed}<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="academyBulkMode='DISTRIBUTE';academyShortOnly=false;render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="academyBulkMode='RETURN';academyShortOnly=false;render()">전체 회수</button></div>
- <div class="summary-row"><div class="summary-item"><span>교재</span><b>${allRows.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"배부"}</span><b>${quantity}권</b></div><div class="summary-item"><span>부족</span><b>${mode==="DISTRIBUTE"?short.length:0}종</b></div></div>
+        return `${completed}<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;academyShortOnly=false;render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="academyBulkMode='RETURN';academyShortOnly=false;render()">전체 회수</button></div>
+ <div class="summary-row"><div class="summary-item"><span>${mode==="RETURN"?"교재":"선택 교재"}</span><b>${mode==="RETURN"?allRows.length:selectedPlan.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"선택 배부"}</span><b>${quantity}권</b></div><div class="summary-item"><span>자동 제외</span><b>${mode==="DISTRIBUTE"?short.length:0}종</b></div></div>
  ${mode==="DISTRIBUTE" && short.length ? `<div class="tabs shortage-filter"><button class="${shortOnly?"":"on"}" onclick="academyShortOnly=false;render()">전체 교재</button><button class="${shortOnly?"on":""}" onclick="academyShortOnly=true;render()">부족 ${short.length}종만 보기</button></div>` : ""}
- <div class="scroll" style="max-height:280px"><table><thead><tr><th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th></tr></thead><tbody>${rows.map((x)=>{const total=mode==="RETURN"?x.studentIds.length:x.total,distributed=mode==="RETURN"?x.studentIds.length:x.distributed,missing=mode==="RETURN"?0:x.missing;return `<tr><td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${distributed}명 → <b>0명</b>`:`${distributed}명 → <b>${total}명</b>`}</td><td>${mode==="RETURN"?`${missing}명 → <b>${total}명</b>`:`${missing}명 → <b>0명</b>`}</td><td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`}).join("") || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>'}</tbody></table></div>
- ${mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족 ${short.length}종 — 전체 배부를 중단합니다.</p>` : ""}
+ <div class="scroll" style="max-height:280px"><table><thead><tr>${mode==="DISTRIBUTE"?"<th>선택</th>":""}<th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th><th>처리</th></tr></thead><tbody>${rows.map((x)=>{const total=mode==="RETURN"?x.studentIds.length:x.total,distributed=mode==="RETURN"?x.studentIds.length:x.distributed,missing=mode==="RETURN"?0:x.missing,isShort=mode==="DISTRIBUTE"&&x.after<0,checked=mode==="DISTRIBUTE"&&selectedIds.has(x.bid);return `<tr>${mode==="DISTRIBUTE"?`<td><input type="checkbox" value="${esc(x.bid)}" aria-label="${esc(x.name)} 배부 선택" ${checked?"checked":""} ${isShort?"disabled":""} onchange="toggleAcademyBulkBook(this.value,this.checked)"></td>`:""}<td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${distributed}명 → <b>0명</b>`:`${distributed}명 → <b>${isShort?distributed:checked?total:distributed}명</b>`}</td><td>${mode==="RETURN"?`${missing}명 → <b>${total}명</b>`:`${missing}명 → <b>${isShort||!checked?missing:0}명</b>`}</td><td>${x.stock}권</td><td><b class="${isShort?"danger":""}">${isShort?x.stock:checked?x.after:x.stock}권</b></td><td>${isShort?`<span class="error">재고 ${Math.abs(x.after)}권 부족 · 자동 제외</span>`:mode==="DISTRIBUTE"?(checked?"배부 예정":"선택 제외"):"회수 예정"}</td></tr>`}).join("") || `<tr><td colspan="${mode==="DISTRIBUTE"?7:6}">처리할 교재가 없습니다.</td></tr>`}</tbody></table></div>
+ ${mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족 ${short.length}종은 자동 제외됩니다. 선택된 재고 충분 교재만 배부합니다.</p>` : ""}
  <label>${mode==="RETURN"?"전체 회수 사유":"전체 배부 메모"}</label><input id="${mode==="RETURN"?"academyReturnMemo":"academyBulkMemo"}" placeholder="${mode==="RETURN"?"예: 학기 종료 전체 회수":"예: 개강 전체 미배부"}">
- <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!quantity || (mode==="DISTRIBUTE"&&short.length) ? "disabled" : ""} onclick="${mode==="RETURN"?"commitAcademyReturn(this)":"commitAcademyBulk(this)"}">${quantity}권 ${mode==="RETURN"?"전체 회수":"전체 배부"} 확정</button>`;
+ <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!quantity ? "disabled" : ""} onclick="${mode==="RETURN"?"commitAcademyReturn(this)":"commitAcademyBulk(this)"}">${quantity}권 ${mode==="RETURN"?"전체 회수":"선택 교재 배부"} 확정</button>`;
       }
       function academyReturnPlan(st) {
         if (st === S)
@@ -3448,18 +3474,18 @@
       }
       async function commitAcademyBulk(button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
-        const shown = academyBulkPlan(S),
+        const fullPlan = academyBulkPlan(S),
+          shown = academySelectedBulkPlan(fullPlan),
+          selectedBookIds = shown.map((x) => x.bid),
           signature = bulkSignature(shown),
           total = shown.reduce((n, x) => n + x.need, 0),
           memo =
             document.querySelector("#academyBulkMemo")?.value.trim() ||
             "전체 미배부 교재 일괄배부";
-        if (!total) return alert("배부할 미배부 교재가 없습니다.");
-        if (shown.some((x) => x.after < 0))
-          return alert("재고 부족 교재가 있어 전체 배부를 취소합니다.");
+        if (!total) return alert("배부할 교재를 한 종 이상 선택하세요.");
         if (
           !(await askConfirm(
-            `${shown.length}종 ${total}권을 전체 학생에게 일괄배부합니다. 이 작업은 재고와 학생 보유를 동시에 변경합니다. 계속할까요?`,
+            `선택한 ${shown.length}종 ${total}권만 전체 학생에게 일괄배부합니다. 재고 부족·선택 제외 교재는 미배부로 남습니다. 계속할까요?`,
           ))
         )
           return;
@@ -3478,14 +3504,19 @@
               msg = "현재 운영기간은 신규 배부할 수 없습니다.";
               return false;
             }
-            const plan = academyBulkPlan(st);
-            if (bulkSignature(plan) !== signature) {
+            const currentFullPlan = academyBulkPlan(st),
+              currentById = new Map(currentFullPlan.map((x) => [x.bid, x])),
+              plan = selectedBookIds.map((id) => currentById.get(id)).filter(Boolean);
+            if (
+              plan.length !== selectedBookIds.length ||
+              bulkSignature(plan) !== signature
+            ) {
               msg =
-                "선택 후 재고 또는 대상 학생이 변경되었습니다. 새 화면에서 다시 확인하세요.";
+                "선택한 교재의 재고 또는 대상 학생이 변경되었습니다. 새 화면에서 다시 확인하세요.";
               return false;
             }
             if (plan.some((x) => x.after < 0)) {
-              msg = "재고 부족 교재가 있어 전체 배부를 취소했습니다.";
+              msg = "선택한 교재의 재고가 부족해 배부를 취소했습니다.";
               return false;
             }
             st.movements = st.movements || {};
@@ -3534,7 +3565,7 @@
                 time: now(),
               };
             }
-            msg = `전체 미배부 일괄배부 ${plan.length}종 ${total}권 · 처리번호 ${batchId}`;
+            msg = `선택 교재 일괄배부 ${plan.length}종 ${total}권 · 처리번호 ${batchId}`;
             st.processedOperations[opId] = {
               id: opId,
               message: msg,
