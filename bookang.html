@@ -1520,6 +1520,23 @@
         const endDate = String(book.distributionEndDate || "").trim();
         return !!endDate && endDate <= dateKey;
       }
+      function periodRefundEffectiveStartDate(st, pid) {
+        const period = st?.periods?.[pid];
+        return String(period?.refundEffectiveStartDate || "").trim();
+      }
+      function refundExitEligibility(st, pid, exitDate) {
+        const normalizedExitDate = /^\d{4}-\d{2}-\d{2}/.test(String(exitDate || ""))
+          ? String(exitDate).slice(0, 10)
+          : "";
+        const effectiveStartDate = periodRefundEffectiveStartDate(st, pid);
+        if (!normalizedExitDate && effectiveStartDate)
+          return { eligible: false, reason: "EXIT_DATE_REQUIRED", exitDate: "", effectiveStartDate };
+        if (!normalizedExitDate)
+          return { eligible: true, reason: "", exitDate: "", effectiveStartDate: "" };
+        if (effectiveStartDate && normalizedExitDate < effectiveStartDate)
+          return { eligible: false, reason: "BEFORE_EFFECTIVE_START", exitDate: normalizedExitDate, effectiveStartDate };
+        return { eligible: true, reason: "", exitDate: normalizedExitDate, effectiveStartDate };
+      }
       function studentRosterAtDate(st, pid, dateKey = localDateKey()) {
         const rowsByStudent = new Map(), unknownByStudent = new Map();
         const todayKey = localDateKey();
@@ -4626,6 +4643,8 @@
         if (box) box.innerHTML = "";
       }
       function catalogManagement() {
+        tab = "관리";
+        manageView = "catalog";
         const pid = selectedPeriodId(), rosterDate = window.commonRosterDate || localDateKey(), roster = studentRosterAtDate(S, pid, rosterDate), relevantBookIds = periodBookIds(pid), allBooks = arr(S.books).filter((book)=>relevantBookIds.has(book.id)).sort((a,b)=>compareSubjects(a.subject,b.subject) || a.name.localeCompare(b.name,"ko")),
           activeBooks = allBooks.filter(
             (book) => book.active !== false && !bookDistributionIsClosed(book),
@@ -5060,7 +5079,7 @@
         const book = S.books?.[bid], input = document.getElementById(`bookEnd_${bid}`), endDate = String(input?.value || "").trim();
         if (!book) return;
         const message = endDate
-          ? `${book.name} 교재를 ${endDate}까지 배부 가능하게 설정할까요? 다음 날부터 신규 배부 대상에서 제외됩니다.`
+          ? `${book.name} 교재를 ${endDate} 당일부터 신규 배부 대상에서 제외할까요? ${endDate} 전날까지 입학한 학생에게만 미배부로 적용됩니다.`
           : `${book.name} 교재의 예약 종료일을 삭제할까요?`;
         if (!(await askConfirm(message))) return;
         const r = await transaction((st) => {
@@ -6806,18 +6825,26 @@
             : "";
         return !!exitDate && exitDate <= dateKey;
       }
-      function normalizedEcodingStudent(student,maps){const classIds={};if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds};}
+      function normalizedEcodingStudent(student,maps){const classIds={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"";if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate};}
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
-        if(matches.length!==1)return false;
+        if(matches.length!==1)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
         const student=matches[0];
-        if(!student)return false;
+        if(!student)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
+        const rawExitDate=String(prev?.exitDate||'').trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):'',effectiveStartDate=String(st.periods?.[pid]?.refundEffectiveStartDate||'').trim(),eligibility=!exitDate&&effectiveStartDate?{eligible:false,reason:'EXIT_DATE_REQUIRED',exitDate,effectiveStartDate}:effectiveStartDate&&exitDate<effectiveStartDate?{eligible:false,reason:'BEFORE_EFFECTIVE_START',exitDate,effectiveStartDate}:{eligible:true,reason:'',exitDate,effectiveStartDate};
+        if(eligibility.reason==='EXIT_DATE_REQUIRED')return {processed:false,refundQueued:false,reason:eligibility.reason};
         student.periodMembership=student.periodMembership||{};
         student.periodClasses=student.periodClasses||{};
         student.periodMembership[pid]=false;
         student.periodClasses[pid]={};
         rebuildStudentClasses(student);
         student.active=Object.values(student.periodMembership).some(value=>value===true);
+        if(!eligibility.eligible){
+          st.refundTaskEvents=st.refundTaskEvents||{};
+          const eventId='RTE'+crypto.randomUUID();
+          st.refundTaskEvents[eventId]={id:eventId,type:'BEFORE_EFFECTIVE_START_SKIPPED',periodId:pid,studentId:student.id,studentName:student.name,exitDate:eligibility.exitDate,effectiveStartDate:eligibility.effectiveStartDate,actor:'이코딩 연동',time:now(),memo:'환불 적용 시작 전 퇴반 — 환불대기 생성 안 함'};
+          return {processed:true,refundQueued:false,reason:eligibility.reason,exitDate:eligibility.exitDate};
+        }
         st.refundTasks=st.refundTasks||{};
         const taskId=`${pid}|${student.id}${transitionId?`|${transitionId}`:''}`,books={};
         const beforeClassNames=Object.keys(prev.classIds||{}).map(cid=>st.classes?.[cid]?.name).filter(Boolean);
@@ -6827,12 +6854,12 @@
           const book=st.books?.[bid];
           books[bid]={bookId:bid,bookName:book?.name||bid,status:'PENDING',unitPrice:bookPriceValue(book)};
         }
-        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,beforeClassNames,books,status:'PENDING',source:'ECODING',createdAt:now(),createdBy:'이코딩 연동'};
-        return true;
+        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,beforeClassNames,books,status:'PENDING',source:'ECODING',exitDate:eligibility.exitDate,createdAt:now(),createdBy:'이코딩 연동'};
+        return {processed:true,refundQueued:true,reason:'',exitDate:eligibility.exitDate};
       }
       async function runEcodingDiff(){
         const pid=selectedPeriodId(),snap=S.ecodingSnapshots?.[pid],maps=S.ecodingClassMappings?.[pid]||{};if(!snap||!Object.keys(maps).length)return alert('반을 불러오고 선택 반을 먼저 저장하세요.');
-        try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const queued=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:queued?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),queuedToRefundAt:queued?now():null};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
+        try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const exitResult=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:exitResult.processed?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),exitDate:exitResult.exitDate||'',queuedToRefundAt:exitResult.refundQueued?now():null,refundDecision:exitResult.reason||'QUEUED'};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
         catch(error){alert(error.message)}
       }
       function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent){window.ecodingEventId='';window.ecodingPreviewEventId='';}document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';ecodingPreviewEventId='';render()"><b>${esc(x.studentName)}</b><small>${esc(deskPeriodName(x.periodId))} · 감지 ${esc(fmt(x.createdAt))}</small></button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
@@ -7249,12 +7276,13 @@
               const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
               const key = id("E", `${pid}|${externalId}|EXIT|${transitionStamp}`);
               if (!st.ecodingEvents[key]) {
-                const queued = queueEcodingExitRefund(st, pid, externalId, prev, key);
+                const exitResult = queueEcodingExitRefund(st, pid, externalId, prev, key);
                 st.ecodingEvents[key] = {
-                  id: key, type: "EXIT", status: queued ? "DONE" : "PENDING",
+                  id: key, type: "EXIT", status: exitResult.processed ? "DONE" : "PENDING",
                   periodId: pid, externalStudentId: externalId, studentName: prev.name,
-                  beforeClassIds: prev.classIds, afterClassIds: {}, createdAt: now(),
-                  queuedToRefundAt: queued ? now() : null,
+                  beforeClassIds: prev.classIds, afterClassIds: {}, createdAt: now(), exitDate: exitResult.exitDate || "",
+                  queuedToRefundAt: exitResult.refundQueued ? now() : null,
+                  refundDecision: exitResult.reason || "QUEUED",
                 };
                 counts.EXIT++;
               }
@@ -8198,7 +8226,7 @@
       function periodManagement() {
         const ps = periods();
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>대상 생성·선택</h2><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div><div class="section-title">등록된 대상</div><div class="scroll"><table><thead><tr><th>대상</th><th>운영상태</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
+          `<section class="panel"><h2>대상 생성·선택</h2><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div><p class="muted">환불 적용 시작일 이전 퇴반자는 해당 대상의 환불대기에 들어가지 않습니다. 퇴반일이 확인되지 않은 경우도 자동 환불대기에 넣지 않습니다.</p><div class="section-title">등록된 대상</div><div class="scroll"><table><thead><tr><th>대상</th><th>운영상태</th><th>환불 적용 시작일</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
             .map((p) => {
               const classCount = arr(S.classes).filter(
                   (c) => c.periodId === p.id,
@@ -8206,9 +8234,29 @@
                 pending = arr(S.chargeTasks).filter(
                   (x) => x.periodId === p.id && x.status === "PENDING",
                 ).length;
-              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
+              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="action-row"><input id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div><small>해당 날짜 포함 이후 퇴반만 환불대기</small></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
+      }
+      async function savePeriodRefundEffectiveStartDate(pid) {
+        const period = S.periods?.[pid], input = document.getElementById(`refundStart_${pid}`), dateKey = String(input?.value || "").trim();
+        if (!period) return alert("대상을 찾을 수 없습니다.");
+        if (dateKey && !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return alert("날짜를 확인하세요.");
+        const message = dateKey
+          ? `${periodLabel(period)}의 환불 적용 시작일을 ${dateKey}로 저장할까요? 이 날짜를 포함해 이후 퇴반한 학생만 자동 환불대기에 들어갑니다.`
+          : `${periodLabel(period)}의 환불 적용 시작일을 삭제할까요? 삭제하면 날짜가 확인된 모든 퇴반이 환불대상이 될 수 있습니다.`;
+        if (!(await askConfirm(message))) return;
+        const r = await transaction((st) => {
+          const target = st.periods?.[pid];
+          if (!target) return false;
+          if (dateKey) target.refundEffectiveStartDate = dateKey;
+          else delete target.refundEffectiveStartDate;
+          target.refundScheduleUpdatedAt = now();
+          target.refundScheduleUpdatedBy = actor;
+        });
+        if (r.committed) S = r.snapshot.val();
+        alert(r.committed ? "환불 적용 시작일을 저장했습니다." : "저장하지 못했습니다.");
+        render();
       }
       async function addPeriod() {
         const year = Number(periodYear.value),
@@ -8649,7 +8697,7 @@
                 refundMissingPriceCount: amounts.filter((amount) => amount.total == null).length,
               };
             });
-document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">목록에는 학생별 미배부 종수와 환불금액만 표시합니다. 교재명·수량·단가는 상세 확인에서 확인하며, 환불완료 전에는 재고와 학생 보유수량이 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => `<tr><td>${fmt(task.createdAt)}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td><b>${task.refundBookCount}종</b></td><td><b>${task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`).join("") || '<tr><td colspan="7">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+document.querySelector("#screen").innerHTML = `<section class="panel"><h2>환불 <span class="badge ${pendingRefundCount() ? "warn" : "ok"}">대기 ${pendingRefundCount()}명</span></h2><p class="muted">목록에는 학생별 미배부 종수와 환불금액만 표시합니다. 교재명·수량·단가는 상세 확인에서 확인하며, 환불완료 전에는 재고와 학생 보유수량이 바뀌지 않습니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>환불대기</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>환불완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => `<tr><td>${task.exitDate ? esc(task.exitDate) : `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>`}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b><small><span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span></small></td><td><b>${task.refundBookCount}종</b></td><td><b>${task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.status !== "DONE" ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>'}</td><td><button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button></td></tr>`).join("") || '<tr><td colspan="7">해당 환불 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
       function refundConfirmationSnapshot(state, task) {
         if (!task) return null;
