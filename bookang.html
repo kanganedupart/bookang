@@ -1689,8 +1689,9 @@
           "statusBookId",
           "processStudentQuery",
           "bundleSelected",
+          "bundleSelectedBookIds",
         ])
-          window[k] = k === "bundleSelected" ? [] : "";
+          window[k] = ["bundleSelected", "bundleSelectedBookIds"].includes(k) ? [] : "";
       }
       function renderPeriodBar() {
         if (!window.periodBar) return;
@@ -2315,7 +2316,7 @@
           selected = allowed ? [sid] : [];
         }
         document.querySelector("#screen").innerHTML =
-          `${tab === "학생" && window.studentHubView === "process" && sid ? studentProcessContext(sid) : ""}<div class="grid"><section class="panel process-target-panel process-${view}"><h2>${tab === "학생" && window.studentHubView === "process" ? "학생 교재현황" : "대상 선택"}</h2>${tab === "학생" && window.studentHubView === "process" ? "" : `<div class="tabs"><button class="${view === "academy" ? "on" : ""}" onclick="view='academy';academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;receipt=null;selected=[];render()">전체</button><button class="${view === "class" ? "on" : ""}" onclick="view='class';action='DISTRIBUTE';receipt=null;selected=[];render()">반</button><button class="${view === "book" ? "on" : ""}" onclick="view='book';action='DISTRIBUTE';receipt=null;selected=[];render()">교재</button><button class="${view === "bundle" ? "on" : ""}" onclick="view='bundle';bundleMode='DISTRIBUTE';receipt=null;selected=[];render()">학생 묶음</button></div>`}
+          `${tab === "학생" && window.studentHubView === "process" && sid ? studentProcessContext(sid) : ""}<div class="grid"><section class="panel process-target-panel process-${view}"><h2>${tab === "학생" && window.studentHubView === "process" ? "학생 교재현황" : "대상 선택"}</h2>${tab === "학생" && window.studentHubView === "process" ? "" : `<div class="tabs"><button class="${view === "academy" ? "on" : ""}" onclick="view='academy';academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;receipt=null;selected=[];render()">전체</button><button class="${view === "class" ? "on" : ""}" onclick="view='class';action='DISTRIBUTE';receipt=null;selected=[];render()">반</button><button class="${view === "book" ? "on" : ""}" onclick="view='book';action='DISTRIBUTE';receipt=null;selected=[];render()">교재</button><button class="${view === "bundle" ? "on" : ""}" onclick="view='bundle';bundleMode='DISTRIBUTE';bundleSelectedBookIds=[];receipt=null;selected=[];render()">학생 묶음</button></div>`}
  ${view === "student" ? (tab === "학생" && window.studentHubView === "process" && sid ? studentProcessBookPanel(sid, available, window.bid) : `<label>학생명 검색</label><input value="${esc(processQuery)}" placeholder="학생명 입력 후 Enter" onchange="processStudentQuery=this.value;sid='';selected=[];render()">${studentMatches.length ? sel("학생", studentMatches, sid, "sid") : '<p class="error">검색된 학생이 없습니다.</p>'}`) : view === "academy" ? academyTargetSummary() : view === "class" ? `<div class="process-filter-row"><label>① 과목<select onchange="processClassSubject=this.value;processClassTeacher='';cid='';selected=[];render()">${classSubjects.map((x) => `<option ${x === classSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="processClassTeacher=this.value;cid='';selected=[];render()">${classTeachers.map((x) => `<option ${x === classTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 반<select onchange="cid=this.value;bid='';selected=[];render()"><option value="">반을 직접 선택하세요</option>${classes.map((x) => `<option value="${x.id}" ${x.id === cid ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label></div>${cid ? classRosterSummaryHtml(cid) : ""}` : view === "bundle" ? bundlePicker() : `<div class="process-filter-row"><label>① 과목<select onchange="window.processBookSubject=this.value;window.processBookTeacher='';window.processBookQuery='';bid='';selected=[];render()">${bookSubjects.map((x) => `<option ${x === processBookSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="window.processBookTeacher=this.value;window.processBookQuery='';bid='';selected=[];render()">${bookTeachers.map((x) => `<option ${x === processBookTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input value="${esc(window.processBookQuery||S.books[window.bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showProcessBookPicker(this.value)" oninput="processBookQuery=this.value;bid='';selected=[];showProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('processBookResults');if(b)b.innerHTML=''},160)"><div id="processBookResults" class="picker-results"></div></div></label></div>`}
  ${view === "bundle" || view === "class" || view === "book" || view === "academy" || (view === "student" && tab === "학생") ? "" : `<label>교재</label><select onchange="bid=this.value;selected=[];render()"><option value="">교재를 직접 선택하세요</option>${available.map((b) => `<option value="${b.id}" ${b.id === window.bid ? "selected" : ""}>${esc(b.name)} (재고 ${b.stock || 0})</option>`).join("")}</select>`}
  ${view === "book" && window.bid ? bookEligibilitySummaryHtml(window.bid) : ""}
@@ -2580,6 +2581,82 @@
           })
           .sort((a, b) => a.name.localeCompare(b.name, "ko"));
       }
+      function bundleSpecificBookOptions(st, studentIds, isReturn) {
+        const ids = new Set();
+        if (isReturn) {
+          for (const sid of studentIds)
+            for (const [bid, quantity] of Object.entries(st.students?.[sid]?.holdings || {}))
+              if (Number(quantity || 0) > 0) ids.add(bid);
+        } else {
+          for (const sid of studentIds)
+            for (const bid of assignedBooksIn(st, sid)) ids.add(bid);
+        }
+        return [...ids]
+          .map((bid) => st.books?.[bid])
+          .filter(Boolean)
+          .sort((a, b) => `${a.subject || ""}|${a.teacher || ""}|${a.name || ""}`.localeCompare(`${b.subject || ""}|${b.teacher || ""}|${b.name || ""}`, "ko"));
+      }
+      function setBundleSpecificBook(bid, checked) {
+        const mode = window.bundleMode || "DISTRIBUTE",
+          max = mode === "SPECIFIC_RETURN" ? 1 : 3,
+          current = new Set(window.bundleSelectedBookIds || []);
+        if (checked) {
+          if (current.size >= max && !current.has(bid)) {
+            alert(mode === "SPECIFIC_RETURN" ? "선택 교재 회수는 한 번에 1종만 선택할 수 있습니다." : "선택 교재 배부는 한 번에 최대 3종까지 선택할 수 있습니다.");
+            setTimeout(render, 0);
+            return;
+          }
+          current.add(bid);
+        } else current.delete(bid);
+        window.bundleSelectedBookIds = [...current];
+        setTimeout(render, 0);
+      }
+      function setBundleMode(mode) {
+        window.bundleMode = mode;
+        window.bundleSelectedBookIds = [];
+        receipt = null;
+        render();
+      }
+      function bundleSpecificPlan(st, studentIds, bookIds, isReturn) {
+        const rows = [];
+        for (const bid of bookIds) {
+          const book = st.books?.[bid];
+          if (!book) continue;
+          const quantities = {}, excluded = [];
+          for (const sid of studentIds) {
+            const student = st.students?.[sid];
+            let reason = "", quantity = 0;
+            if (!student) reason = "학생 없음";
+            else if (isReturn) {
+              quantity = Number(student.holdings?.[bid] || 0);
+              if (quantity <= 0) reason = "미보유";
+            } else if (student.active === false) reason = "퇴반 학생";
+            else if (student.pendingReturn) reason = "퇴반 처리 중";
+            else if (!activePeriodClassIds(st, sid).length) reason = "현재 대상 반 없음";
+            else if (book.active === false) reason = "미사용 교재";
+            else if (bookDistributionIsClosed(book)) reason = "배부 종료";
+            else if (!assignedBooksIn(st, sid).includes(bid)) reason = "반 미매칭";
+            else if (Number(student.holdings?.[bid] || 0) > 0) reason = "이미 보유";
+            else quantity = 1;
+            if (reason) excluded.push({ sid, reason });
+            else quantities[sid] = quantity;
+          }
+          const studentIdsForBook = Object.keys(quantities).sort(),
+            quantity = Object.values(quantities).reduce((sum, value) => sum + Number(value || 0), 0),
+            stock = Number(book.stock || 0);
+          rows.push({
+            bid,
+            name: book.name || bid,
+            stock,
+            quantities,
+            studentIds: studentIdsForBook,
+            quantity,
+            after: stock + (isReturn ? quantity : -quantity),
+            excluded,
+          });
+        }
+        return rows.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      }
       function bundleActionBox() {
         const ids = window.bundleSelected || [],
           dp = bundleDistributionPlan(S, ids),
@@ -2587,21 +2664,32 @@
           dTotal = dp.reduce((n, x) => n + x.quantity, 0),
           rTotal = rp.reduce((n, x) => n + x.quantity, 0),
           short = dp.filter((x) => x.after < 0),
-          mode = window.bundleMode === "RETURN" ? "RETURN" : "DISTRIBUTE",
-          plan = mode === "RETURN" ? rp : dp,
-          total = mode === "RETURN" ? rTotal : dTotal;
+          mode = ["DISTRIBUTE", "SPECIFIC_DISTRIBUTE", "SPECIFIC_RETURN", "RETURN"].includes(window.bundleMode) ? window.bundleMode : "DISTRIBUTE",
+          specific = mode.startsWith("SPECIFIC_"),
+          isReturn = mode === "RETURN" || mode === "SPECIFIC_RETURN",
+          selectedBookIds = window.bundleSelectedBookIds || [],
+          specificPlan = specific ? bundleSpecificPlan(S, ids, selectedBookIds, isReturn) : [],
+          plan = specific ? specificPlan : isReturn ? rp : dp,
+          total = specific ? specificPlan.reduce((n, x) => n + x.quantity, 0) : isReturn ? rTotal : dTotal;
         const completed = receipt
           ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(receipt)}</div>`
           : "";
         if (!ids.length)
           return `${completed}<div class="empty-stock-state">왼쪽에서 명단을 확인하세요.</div>`;
-        return `<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="bundleMode='DISTRIBUTE';render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="bundleMode='RETURN';render()">전체 회수</button></div>
- <div class="summary-row"><div class="summary-item"><span>학생</span><b>${ids.length}명</b></div><div class="summary-item"><span>교재</span><b>${plan.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"배부"}</span><b>${total}권</b></div></div>
- <div class="scroll"><table><thead><tr><th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th></tr></thead><tbody>${plan.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${x.quantity}명 → 0명`:`0명 → ${x.quantity}명`}</td><td>${mode==="RETURN"?`0명 → ${x.quantity}명`:`${x.quantity}명 → 0명`}</td><td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`).join("") || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>'}</tbody></table></div>
- ${mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족으로 전체 중단: ${short.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
- <label>메모</label><input id="bundleMemo" placeholder="${mode==="RETURN"?"예: 결석 미수령 회수":"예: 결석생 다음날 배부"}">
- ${mode==="RETURN" ? '<label>회수 유형</label><select id="bundleReturnReason"><option value="NORMAL">일반</option><option value="MISDISTRIBUTION">실수</option><option value="OTHER">기타</option></select>' : ""}
- <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!total || (mode==="DISTRIBUTE"&&short.length) ? "disabled" : ""} onclick="commitBundle('${mode}',this)">${ids.length}명 ${total}권 ${mode==="RETURN"?"전체 회수":"전체 배부"} 확정</button>${completed}`;
+        const bookQuery = String(window.bundleBookQuery || "").trim().toLocaleLowerCase("ko"),
+          bookOptions = specific ? bundleSpecificBookOptions(S, ids, isReturn).filter((book) => !bookQuery || `${book.subject || ""} ${book.teacher || ""} ${book.name || ""}`.toLocaleLowerCase("ko").includes(bookQuery)) : [],
+          specificShort = specific && !isReturn ? specificPlan.filter((x) => x.after < 0) : [],
+          excluded = specificPlan.flatMap((row) => row.excluded.map((item) => ({ ...item, bookName: row.name })));
+        return `<div class="tabs bundle-operation-tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="setBundleMode('DISTRIBUTE')">전체 미배부 배부</button><button class="${mode==="SPECIFIC_DISTRIBUTE"?"on":""}" onclick="setBundleMode('SPECIFIC_DISTRIBUTE')">선택 교재 배부</button><button class="${mode==="SPECIFIC_RETURN"?"on":""}" onclick="setBundleMode('SPECIFIC_RETURN')">선택 교재 회수</button><button class="${mode==="RETURN"?"on":""}" onclick="setBundleMode('RETURN')">보유 교재 전체 회수</button></div>
+ ${specific ? `<div class="receipt"><b>${isReturn ? "회수할 교재 1종" : "배부할 교재 1~3종"} 선택</b><div class="filter-row"><label>과목·강사·교재명 검색<input id="bundleBookQueryInput" value="${esc(window.bundleBookQuery || "")}" placeholder="검색어 입력 후 검색"></label><button onclick="window.bundleBookQuery=document.querySelector('#bundleBookQueryInput').value;render()">검색</button><button onclick="window.bundleBookQuery='';render()">전체 보기</button></div><div class="scroll bundle-book-picker"><table><thead><tr><th>선택</th><th>과목</th><th>강사</th><th>교재명</th><th>현재 재고</th></tr></thead><tbody>${bookOptions.map((book) => `<tr><td><input class="check" type="checkbox" ${selectedBookIds.includes(book.id)?"checked":""} onchange="setBundleSpecificBook('${esc(book.id)}',this.checked)"></td><td>${esc(book.subject || "미지정")}</td><td>${esc(book.teacher || "미지정")}</td><td><b>${esc(book.name)}</b></td><td>${Number(book.stock || 0)}권</td></tr>`).join("") || '<tr><td colspan="5">선택 가능한 교재가 없습니다.</td></tr>'}</tbody></table></div><small>${isReturn ? "선택 학생이 실제 보유한 교재만 표시합니다. 다른 보유 교재는 회수하지 않습니다." : "선택 학생의 반에 매칭된 교재만 표시합니다. 다른 미배부 교재는 배부하지 않습니다."}</small></div>` : ""}
+ <div class="summary-row"><div class="summary-item"><span>입력 학생</span><b>${ids.length}명</b></div><div class="summary-item"><span>처리 교재</span><b>${plan.length}종</b></div><div class="summary-item"><span>${isReturn?"회수":"배부"}</span><b>${total}권</b></div></div>
+ <div class="scroll"><table><thead><tr><th>교재</th><th>처리 학생</th>${specific?"<th>제외</th>":""}<th>재고 전</th><th>재고 후</th></tr></thead><tbody>${plan.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명 · ${x.quantity}권</td>${specific?`<td>${x.excluded.length}건</td>`:""}<td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`).join("") || `<tr><td colspan="${specific?5:4}">${specific && !selectedBookIds.length ? "위에서 교재를 선택하세요." : "처리할 교재가 없습니다."}</td></tr>`}</tbody></table></div>
+ ${specific && excluded.length ? `<details class="compact-details"><summary>제외 ${excluded.length}건 확인</summary><div class="scroll"><table><thead><tr><th>학생</th><th>교재</th><th>제외 사유</th></tr></thead><tbody>${excluded.map((item)=>`<tr><td>${esc(S.students?.[item.sid]?.name || item.sid)}</td><td>${esc(item.bookName)}</td><td>${esc(item.reason)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+ ${!specific && mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족으로 전체 중단: ${short.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
+ ${specificShort.length ? `<p class="error">재고 부족으로 선택 교재 배부 전체 중단: ${specificShort.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
+ <label>메모</label><input id="bundleMemo" placeholder="${isReturn?"예: 결석생 선택 교재 회수":"예: 결석생 다음날 선택 교재 배부"}">
+ ${isReturn ? '<label>회수 유형</label><select id="bundleReturnReason"><option value="NORMAL">일반</option><option value="MISDISTRIBUTION">실수</option><option value="OTHER">기타</option></select>' : ""}
+ <button class="${isReturn?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!total || (!specific&&mode==="DISTRIBUTE"&&short.length) || specificShort.length ? "disabled" : ""} onclick="${specific?`commitBundleSpecific('${mode}',this)`:`commitBundle('${mode}',this)`}">${ids.length}명 ${total}권 ${mode==="RETURN"?"전체 회수":mode==="SPECIFIC_RETURN"?"선택 1종 회수":mode==="SPECIFIC_DISTRIBUTE"?"선택 교재 배부":"전체 배부"} 확정</button>${completed}`;
       }
       async function commitBundle(type, button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
@@ -2744,6 +2832,133 @@
             window.bundleSelected = [];
             window.bundleNamesDraft = "";
             selected = [];
+          }
+          render();
+        } finally {
+          operationBusy = false;
+        }
+      }
+      async function commitBundleSpecific(type, button) {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
+        const ids = [...(window.bundleSelected || [])].sort(),
+          bookIds = [...(window.bundleSelectedBookIds || [])].sort(),
+          isReturn = type === "SPECIFIC_RETURN",
+          max = isReturn ? 1 : 3,
+          shown = bundleSpecificPlan(S, ids, bookIds, isReturn),
+          total = shown.reduce((sum, row) => sum + row.quantity, 0),
+          signature = isReturn
+            ? returnSignature(shown)
+            : bulkSignature(shown.map((row) => ({ ...row, need: row.quantity }))),
+          memo = document.querySelector("#bundleMemo")?.value.trim() || "",
+          reason = isReturn
+            ? document.querySelector("#bundleReturnReason")?.value || "NORMAL"
+            : "NORMAL";
+        if (!ids.length) return alert("처리할 학생 명단을 먼저 확인하세요.");
+        if (!bookIds.length || bookIds.length > max)
+          return alert(isReturn ? "회수할 교재 1종을 선택하세요." : "배부할 교재를 1~3종 선택하세요.");
+        if (!total) return alert("조건에 맞는 처리 대상이 없습니다. 제외 사유를 확인하세요.");
+        if (isReturn && !memo) return alert("선택 교재 회수 사유를 입력하세요.");
+        if (!isReturn && shown.some((row) => row.after < 0))
+          return alert("재고 부족 교재가 있어 선택 교재 배부 전체를 취소합니다.");
+        const excludedCount = shown.reduce((sum, row) => sum + row.excluded.length, 0);
+        if (
+          !(await askConfirm(
+            `${ids.length}명에게 선택한 ${shown.length}종 ${total}권을 ${isReturn ? "회수" : "배부"}합니다.${excludedCount ? ` 제외 ${excludedCount}건은 처리하지 않습니다.` : ""} 계속할까요?`,
+          ))
+        )
+          return;
+        operationBusy = true;
+        const opId = operationId(button),
+          batchId = "B" + crypto.randomUUID();
+        let msg = "";
+        try {
+          const result = await transaction((st) => {
+            st.processedOperations = st.processedOperations || {};
+            if (st.processedOperations[opId]) {
+              msg = st.processedOperations[opId].message;
+              return false;
+            }
+            if (!periodAllows(st, isReturn ? "RETURN" : "DISTRIBUTE")) {
+              msg = "현재 운영기간에서는 이 처리를 할 수 없습니다.";
+              return false;
+            }
+            const plan = bundleSpecificPlan(st, ids, bookIds, isReturn),
+              currentSignature = isReturn
+                ? returnSignature(plan)
+                : bulkSignature(plan.map((row) => ({ ...row, need: row.quantity })));
+            if (currentSignature !== signature) {
+              msg = "선택 후 학생 보유·반·재고 정보가 변경되었습니다. 다시 확인하세요.";
+              return false;
+            }
+            if (!isReturn && plan.some((row) => row.after < 0)) {
+              msg = "재고 부족으로 선택 교재 배부 전체를 취소했습니다.";
+              return false;
+            }
+            st.movements = st.movements || {};
+            const returnAllocations = {};
+            if (isReturn) {
+              for (const row of plan) {
+                returnAllocations[row.bid] = returnPeriodDeltas(
+                  st,
+                  row.bid,
+                  row.quantities,
+                  selectedPeriodId() || st.currentPeriodId,
+                );
+                if (!returnAllocations[row.bid]) {
+                  msg = "기간별 배부원장과 보유수량이 맞지 않아 선택 교재 회수를 중단했습니다.";
+                  return false;
+                }
+              }
+            }
+            for (const row of plan) {
+              if (!row.quantity) continue;
+              const book = st.books[row.bid],
+                before = Number(book.stock || 0);
+              book.stock = before + (isReturn ? row.quantity : -row.quantity);
+              const studentDeltas = {};
+              for (const sid of row.studentIds) {
+                const student = st.students[sid],
+                  quantity = isReturn ? Number(row.quantities[sid] || 0) : 1;
+                student.holdings = student.holdings || {};
+                student.holdings[row.bid] = Number(student.holdings[row.bid] || 0) + (isReturn ? -quantity : quantity);
+                studentDeltas[sid] = isReturn ? -quantity : quantity;
+              }
+              const movementId = "M" + crypto.randomUUID();
+              st.movements[movementId] = {
+                id: movementId,
+                batchId,
+                operationId: opId,
+                periodId: selectedPeriodId() || st.currentPeriodId,
+                type: isReturn ? "RETURN" : "DISTRIBUTE",
+                mode: isReturn ? "STUDENT_BUNDLE_SELECTED_RETURN" : "STUDENT_BUNDLE_SELECTED_DISTRIBUTE",
+                businessReason: reason,
+                bookId: row.bid,
+                bookName: book.name,
+                studentIds: Object.fromEntries(row.studentIds.map((sid) => [sid, sid])),
+                studentNames: Object.fromEntries(row.studentIds.map((sid) => [sid, st.students[sid]?.name || sid])),
+                classNames: Object.fromEntries(row.studentIds.map((sid) => [sid, periodClassIds(st, sid).map((cid) => st.classes[cid]?.name).filter(Boolean).join(" · ")])),
+                studentDeltas,
+                periodStudentDeltas: isReturn ? returnAllocations[row.bid] : null,
+                itemCount: row.quantity,
+                quantity: isReturn ? row.quantity : -row.quantity,
+                stockBefore: before,
+                stockAfter: book.stock,
+                memo,
+                actor,
+                time: now(),
+              };
+              if (isReturn) {
+                appendReturnedRefundBooksForPeriodDeltas(st, row.bid, returnAllocations[row.bid], batchId);
+                cancelPendingChargesForReturnedDeltas(st, row.bid, returnAllocations[row.bid], batchId);
+              }
+            }
+            msg = `학생 묶음 선택 교재 ${isReturn ? "회수" : "배부"} ${ids.length}명 ${plan.filter((row) => row.quantity).length}종 ${total}권 · 처리번호 ${batchId}`;
+            st.processedOperations[opId] = { id: opId, message: msg, time: now() };
+          });
+          alert(result.committed ? msg : msg || "선택 교재 묶음 처리를 취소했습니다.");
+          if (result.committed) {
+            receipt = msg;
+            window.bundleSelectedBookIds = [];
           }
           render();
         } finally {
@@ -3215,24 +3430,23 @@
           selectedPlan = academySelectedBulkPlan(plan),
           selectedIds = new Set(selectedPlan.map((x) => x.bid)),
           total = selectedPlan.reduce((n, x) => n + x.need, 0),
-          short = plan.filter((x) => x.after < 0),
+          short = plan.filter((x) => x.need > 0 && x.after < 0).sort((a, b) => b.need - b.stock - (a.need - a.stock) || a.name.localeCompare(b.name, "ko")),
+          ready = plan.filter((x) => x.need > 0 && x.after >= 0).sort((a, b) => a.name.localeCompare(b.name, "ko")),
           returns = academyReturnPlan(S),
           returnTotal = returns.reduce((n, x) => n + x.quantity, 0),
           mode = window.academyBulkMode === "RETURN" ? "RETURN" : "DISTRIBUTE",
-          allRows = mode === "RETURN" ? returns : [...plan].sort((a, b) => Number(a.after >= 0) - Number(b.after >= 0) || a.name.localeCompare(b.name, "ko")),
-          shortOnly = mode === "DISTRIBUTE" && window.academyShortOnly === true,
-          rows = shortOnly ? allRows.filter((x) => x.after < 0) : allRows,
+          rows = mode === "RETURN" ? returns : ready,
           quantity = mode === "RETURN" ? returnTotal : total;
         const completed = receipt
           ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(receipt)}</div>`
           : "";
-        return `${completed}<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;academyShortOnly=false;render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="academyBulkMode='RETURN';academyShortOnly=false;render()">전체 회수</button></div>
- <div class="summary-row"><div class="summary-item"><span>${mode==="RETURN"?"교재":"선택 교재"}</span><b>${mode==="RETURN"?allRows.length:selectedPlan.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"선택 배부"}</span><b>${quantity}권</b></div><div class="summary-item"><span>자동 제외</span><b>${mode==="DISTRIBUTE"?short.length:0}종</b></div></div>
- ${mode==="DISTRIBUTE" && short.length ? `<div class="tabs shortage-filter"><button class="${shortOnly?"":"on"}" onclick="academyShortOnly=false;render()">전체 교재</button><button class="${shortOnly?"on":""}" onclick="academyShortOnly=true;render()">부족 ${short.length}종만 보기</button></div>` : ""}
- <div class="scroll" style="max-height:280px"><table><thead><tr>${mode==="DISTRIBUTE"?"<th>선택</th>":""}<th>교재</th><th>배부 인원</th><th>미배부 인원</th><th>재고 전</th><th>재고 후</th><th>처리</th></tr></thead><tbody>${rows.map((x)=>{const total=mode==="RETURN"?x.studentIds.length:x.total,distributed=mode==="RETURN"?x.studentIds.length:x.distributed,missing=mode==="RETURN"?0:x.missing,isShort=mode==="DISTRIBUTE"&&x.after<0,checked=mode==="DISTRIBUTE"&&selectedIds.has(x.bid);return `<tr>${mode==="DISTRIBUTE"?`<td><input type="checkbox" value="${esc(x.bid)}" aria-label="${esc(x.name)} 배부 선택" ${checked?"checked":""} ${isShort?"disabled":""} onchange="toggleAcademyBulkBook(this.value,this.checked)"></td>`:""}<td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${distributed}명 → <b>0명</b>`:`${distributed}명 → <b>${isShort?distributed:checked?total:distributed}명</b>`}</td><td>${mode==="RETURN"?`${missing}명 → <b>${total}명</b>`:`${missing}명 → <b>${isShort||!checked?missing:0}명</b>`}</td><td>${x.stock}권</td><td><b class="${isShort?"danger":""}">${isShort?x.stock:checked?x.after:x.stock}권</b></td><td>${isShort?`<span class="error">재고 ${Math.abs(x.after)}권 부족 · 자동 제외</span>`:mode==="DISTRIBUTE"?(checked?"배부 예정":"선택 제외"):"회수 예정"}</td></tr>`}).join("") || `<tr><td colspan="${mode==="DISTRIBUTE"?7:6}">처리할 교재가 없습니다.</td></tr>`}</tbody></table></div>
- ${mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족 ${short.length}종은 자동 제외됩니다. 선택된 재고 충분 교재만 배부합니다.</p>` : ""}
+        return `${completed}<div class="tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="academyBulkMode='DISTRIBUTE';academySelectedBookIds=null;render()">전체 배부</button><button class="${mode==="RETURN"?"on":""}" onclick="academyBulkMode='RETURN';render()">전체 회수</button></div>
+ <div class="summary-row"><div class="summary-item"><span>${mode==="RETURN"?"회수 교재":"배부 선택"}</span><b>${mode==="RETURN"?rows.length:selectedPlan.length}종</b></div><div class="summary-item"><span>${mode==="RETURN"?"회수":"배부 예정"}</span><b>${quantity}권</b></div><div class="summary-item"><span>${mode==="RETURN"?"":"재고 부족 제외"}</span><b>${mode==="DISTRIBUTE"?short.length:0}종</b></div></div>
+ ${mode==="DISTRIBUTE" ? '<h3>재고 있는 교재 — 배부 대상</h3>' : ''}
+ <div class="scroll" style="max-height:280px"><table><thead><tr>${mode==="DISTRIBUTE"?"<th>선택</th>":""}<th>교재</th><th>${mode==="RETURN"?"보유 인원":"배부 인원"}</th><th>${mode==="RETURN"?"회수 권수":"미배부 인원"}</th><th>재고 전</th><th>재고 후</th><th>처리</th></tr></thead><tbody>${rows.map((x)=>{const rowTotal=mode==="RETURN"?x.studentIds.length:x.total,distributed=mode==="RETURN"?x.studentIds.length:x.distributed,missing=mode==="RETURN"?x.quantity:x.missing,checked=mode==="DISTRIBUTE"&&selectedIds.has(x.bid);return `<tr>${mode==="DISTRIBUTE"?`<td><input type="checkbox" value="${esc(x.bid)}" aria-label="${esc(x.name)} 배부 선택" ${checked?"checked":""} onchange="toggleAcademyBulkBook(this.value,this.checked)"></td>`:""}<td><b>${esc(x.name)}</b></td><td>${mode==="RETURN"?`${distributed}명 → <b>0명</b>`:`${distributed}명 → <b>${checked?rowTotal:distributed}명</b>`}</td><td>${mode==="RETURN"?`${missing}권`:`${missing}명 → <b>${checked?0:missing}명</b>`}</td><td>${x.stock}권</td><td><b>${mode==="RETURN"?x.after:checked?x.after:x.stock}권</b></td><td>${mode==="DISTRIBUTE"?(checked?"배부 예정":"선택 제외"):"회수 예정"}</td></tr>`}).join("") || `<tr><td colspan="${mode==="DISTRIBUTE"?7:6}">처리할 교재가 없습니다.</td></tr>`}</tbody></table></div>
+ ${mode==="DISTRIBUTE" && short.length ? `<h3>재고 부족 교재 — 자동 제외·미배부 유지</h3><div class="scroll shortage-table" style="max-height:240px"><table><thead><tr><th>교재</th><th>미배부 인원</th><th>현재 재고</th><th>필요 수량</th><th>부족 수량</th><th>처리</th></tr></thead><tbody>${short.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.missing}명</td><td>${x.stock}권</td><td>${x.need}권</td><td><b class="danger">${Math.abs(x.after)}권</b></td><td><span class="error">자동 제외</span></td></tr>`).join("")}</tbody></table></div><p class="muted">위 부족 교재는 배부하지 않고 학생 미배부에 그대로 남깁니다.</p>` : ""}
  <label>${mode==="RETURN"?"전체 회수 사유":"전체 배부 메모"}</label><input id="${mode==="RETURN"?"academyReturnMemo":"academyBulkMemo"}" placeholder="${mode==="RETURN"?"예: 학기 종료 전체 회수":"예: 개강 전체 미배부"}">
- <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!quantity ? "disabled" : ""} onclick="${mode==="RETURN"?"commitAcademyReturn(this)":"commitAcademyBulk(this)"}">${quantity}권 ${mode==="RETURN"?"전체 회수":"선택 교재 배부"} 확정</button>`;
+ <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!quantity ? "disabled" : ""} onclick="${mode==="RETURN"?"commitAcademyReturn(this)":"commitAcademyBulk(this)"}">${quantity}권 ${mode==="RETURN"?"전체 회수":"재고 있는 선택 교재 배부"} 확정</button>`;
       }
       function academyReturnPlan(st) {
         if (st === S)
@@ -3503,7 +3717,7 @@
         if (!total) return alert("배부할 교재를 한 종 이상 선택하세요.");
         if (
           !(await askConfirm(
-            `선택한 ${shown.length}종 ${total}권만 전체 학생에게 일괄배부합니다. 재고 부족·선택 제외 교재는 미배부로 남습니다. 계속할까요?`,
+            `재고가 있는 선택 교재 ${shown.length}종 ${total}권만 일괄배부할까요?\n부족하거나 선택하지 않은 교재는 미배부로 남습니다.`,
           ))
         )
           return;
