@@ -731,7 +731,7 @@
           : arr(S.refundTasks)
               .filter(
                 (task) => {
-                  const period=S.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
+                  const period=S.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
                   return task.studentId === sid && (!pid || task.periodId === pid) && (task.status !== "PENDING" || periodEligible);
                 },
               )
@@ -1052,10 +1052,11 @@
         );
       }
       function refundTaskMeetsPeriodRule(st, task) {
-        if (!task || task.source !== "ECODING") return true;
+        if (!task) return false;
         const period = st.periods?.[task.periodId] || {},
           startDate = String(period.refundEffectiveStartDate || period.bookStartDate || "").slice(0,10),
           exitDate = String(task.exitDate || "").slice(0,10);
+        if (!startDate && task.source !== "ECODING") return true;
         return /^\d{4}-\d{2}-\d{2}$/.test(exitDate) && (!startDate || exitDate >= startDate);
       }
       function pendingRefundRowsUncached(st = S) {
@@ -1084,7 +1085,7 @@
           }
         }
         return [...tasks.values()].filter((task) => {
-          const period=st.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
+          const period=st.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
           return task.status === "PENDING" && periodEligible && !refundTaskHasActivePendingReentry(st, task);
         });
       }
@@ -1218,7 +1219,7 @@
             }
             resetDerivedState();
             scheduleRemoteRender();
-            // 이코딩 자동 감지는 운영 승인 전까지 시작하지 않는다.
+            if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
           },
           () => {
             bookflowListenerStarted = false;
@@ -7106,7 +7107,7 @@
       }
       function periodOperationalStartDate(st, pid) {
         const period = st.periods?.[pid] || {};
-        return String(period.bookStartDate || period.refundEffectiveStartDate || "").slice(0, 10);
+        return String(period.refundEffectiveStartDate || period.bookStartDate || "").slice(0, 10);
       }
       function ecodingPreparationActive(st, pid, dateKey = localDateKey()) {
         const startDate = periodOperationalStartDate(st, pid);
@@ -7165,9 +7166,9 @@
           event.status = "CANCELLED"; event.closedAt = now(); event.closedBy = "시작 전 기준정리"; event.closeReason = "PRESTART_BASELINE"; count++;
         }
         for (const task of arr(st.refundTasks)) {
-          if (task?.periodId !== pid || task.status !== "PENDING" || task.source !== "ECODING") continue;
+          if (task?.periodId !== pid || task.status !== "PENDING") continue;
           const exitDate=String(task.exitDate||"").slice(0,10),eligible=/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate);
-          if(prestart||!eligible){task.status = "CANCELLED"; task.closedAt = now(); task.closedBy = "연동 기준정리"; task.closeReason = prestart?"PRESTART_NOT_REFUND_ELIGIBLE":"INVALID_EXIT_DATE"; count++;}
+          if(prestart||(!!startDate&&!eligible)||(task.source==="ECODING"&&!eligible)){task.status = "CANCELLED"; task.closedAt = now(); task.closedBy = "연동 기준정리"; task.closeReason = prestart?"PRESTART_NOT_REFUND_ELIGIBLE":"INVALID_EXIT_DATE"; count++;}
         }
         if(prestart){st.ecodingAbsenceCandidates = st.ecodingAbsenceCandidates || {};st.ecodingAbsenceCandidates[pid] = {};}
         return count;
