@@ -2661,16 +2661,16 @@
         const ids = window.bundleSelected || [],
           dp = bundleDistributionPlan(S, ids),
           rp = bundleReturnPlan(S, ids),
-          dTotal = dp.reduce((n, x) => n + x.quantity, 0),
           rTotal = rp.reduce((n, x) => n + x.quantity, 0),
           short = dp.filter((x) => x.after < 0),
+          ready = dp.filter((x) => x.after >= 0),
           mode = ["DISTRIBUTE", "SPECIFIC_DISTRIBUTE", "SPECIFIC_RETURN", "RETURN"].includes(window.bundleMode) ? window.bundleMode : "DISTRIBUTE",
           specific = mode.startsWith("SPECIFIC_"),
           isReturn = mode === "RETURN" || mode === "SPECIFIC_RETURN",
           selectedBookIds = window.bundleSelectedBookIds || [],
           specificPlan = specific ? bundleSpecificPlan(S, ids, selectedBookIds, isReturn) : [],
-          plan = specific ? specificPlan : isReturn ? rp : dp,
-          total = specific ? specificPlan.reduce((n, x) => n + x.quantity, 0) : isReturn ? rTotal : dTotal;
+          plan = specific ? specificPlan : isReturn ? rp : ready,
+          total = specific ? specificPlan.reduce((n, x) => n + x.quantity, 0) : isReturn ? rTotal : ready.reduce((n, x) => n + x.quantity, 0);
         const completed = receipt
           ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(receipt)}</div>`
           : "";
@@ -2685,11 +2685,11 @@
  <div class="summary-row"><div class="summary-item"><span>입력 학생</span><b>${ids.length}명</b></div><div class="summary-item"><span>처리 교재</span><b>${plan.length}종</b></div><div class="summary-item"><span>${isReturn?"회수":"배부"}</span><b>${total}권</b></div></div>
  <div class="scroll"><table><thead><tr><th>교재</th><th>처리 학생</th>${specific?"<th>제외</th>":""}<th>재고 전</th><th>재고 후</th></tr></thead><tbody>${plan.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명 · ${x.quantity}권</td>${specific?`<td>${x.excluded.length}건</td>`:""}<td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`).join("") || `<tr><td colspan="${specific?5:4}">${specific && !selectedBookIds.length ? "위에서 교재를 선택하세요." : "처리할 교재가 없습니다."}</td></tr>`}</tbody></table></div>
  ${specific && excluded.length ? `<details class="compact-details"><summary>제외 ${excluded.length}건 확인</summary><div class="scroll"><table><thead><tr><th>학생</th><th>교재</th><th>제외 사유</th></tr></thead><tbody>${excluded.map((item)=>`<tr><td>${esc(S.students?.[item.sid]?.name || item.sid)}</td><td>${esc(item.bookName)}</td><td>${esc(item.reason)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
- ${!specific && mode==="DISTRIBUTE" && short.length ? `<p class="error">재고 부족으로 전체 중단: ${short.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
+ ${!specific && mode==="DISTRIBUTE" && short.length ? `<h3>재고 부족 교재 — 자동 제외·미배부 유지</h3><div class="scroll shortage-table" style="max-height:240px"><table><thead><tr><th>교재</th><th>미배부 인원</th><th>현재 재고</th><th>필요 수량</th><th>부족 수량</th><th>처리</th></tr></thead><tbody>${short.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명</td><td>${x.stock}권</td><td>${x.quantity}권</td><td><b class="danger">${Math.abs(x.after)}권</b></td><td><span class="error">자동 제외</span></td></tr>`).join("")}</tbody></table></div><p class="muted">위 부족 교재는 배부하지 않고 학생 미배부에 그대로 남깁니다.</p>` : ""}
  ${specificShort.length ? `<p class="error">재고 부족으로 선택 교재 배부 전체 중단: ${specificShort.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
  <label>메모</label><input id="bundleMemo" placeholder="${isReturn?"예: 결석생 선택 교재 회수":"예: 결석생 다음날 선택 교재 배부"}">
  ${isReturn ? '<label>회수 유형</label><select id="bundleReturnReason"><option value="NORMAL">일반</option><option value="MISDISTRIBUTION">실수</option><option value="OTHER">기타</option></select>' : ""}
- <button class="${isReturn?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!total || (!specific&&mode==="DISTRIBUTE"&&short.length) || specificShort.length ? "disabled" : ""} onclick="${specific?`commitBundleSpecific('${mode}',this)`:`commitBundle('${mode}',this)`}">${ids.length}명 ${total}권 ${mode==="RETURN"?"전체 회수":mode==="SPECIFIC_RETURN"?"선택 1종 회수":mode==="SPECIFIC_DISTRIBUTE"?"선택 교재 배부":"전체 배부"} 확정</button>${completed}`;
+ <button class="${isReturn?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!total || specificShort.length ? "disabled" : ""} onclick="${specific?`commitBundleSpecific('${mode}',this)`:`commitBundle('${mode}',this)`}">${ids.length}명 ${total}권 ${mode==="RETURN"?"전체 회수":mode==="SPECIFIC_RETURN"?"선택 1종 회수":mode==="SPECIFIC_DISTRIBUTE"?"선택 교재 배부":"재고 있는 교재 배부"} 확정</button>${completed}`;
       }
       async function commitBundle(type, button) {
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
@@ -2697,7 +2697,10 @@
           isReturn = type === "RETURN",
           shown = isReturn
             ? bundleReturnPlan(S, ids)
-            : bundleDistributionPlan(S, ids),
+            : bundleDistributionPlan(S, ids).filter((x) => x.after >= 0),
+          shortageCount = isReturn
+            ? 0
+            : bundleDistributionPlan(S, ids).filter((x) => x.after < 0).length,
           signature = isReturn
             ? returnSignature(shown)
             : bulkSignature(shown.map((x) => ({ ...x, need: x.quantity }))),
@@ -2709,11 +2712,11 @@
         if (!ids.length || !total)
           return alert("처리할 학생과 교재가 없습니다.");
         if (isReturn && !memo) return alert("묶음 회수 사유를 입력하세요.");
-        if (!isReturn && shown.some((x) => x.after < 0))
-          return alert("재고 부족 교재가 있어 전체배부를 취소합니다.");
         if (
           !(await askConfirm(
-            `${ids.length}명 · ${shown.length}종 ${total}권을 ${isReturn ? "전량회수" : "전체배부"}합니다. 계속할까요?`,
+            isReturn
+              ? `${ids.length}명 · ${shown.length}종 ${total}권을 전량회수합니다. 계속할까요?`
+              : `입고된 교재 ${shown.length}종 ${total}권만 일괄배부할까요?${shortageCount ? `\n재고 부족 ${shortageCount}종은 미배부로 남습니다.` : ""}`,
           ))
         )
           return;
@@ -2734,17 +2737,13 @@
             }
             const plan = isReturn
                 ? bundleReturnPlan(st, ids)
-                : bundleDistributionPlan(st, ids),
+                : bundleDistributionPlan(st, ids).filter((x) => x.after >= 0),
               sig = isReturn
                 ? returnSignature(plan)
                 : bulkSignature(plan.map((x) => ({ ...x, need: x.quantity })));
             if (sig !== signature) {
               msg =
                 "선택 후 재고·보유·반 정보가 변경되었습니다. 다시 확인하세요.";
-              return false;
-            }
-            if (!isReturn && plan.some((x) => x.after < 0)) {
-              msg = "재고 부족으로 전체배부를 취소했습니다.";
               return false;
             }
             st.movements = st.movements || {};
