@@ -7693,6 +7693,34 @@
       let ecodingAutoSyncRunning = false;
       let ecodingAutoSyncLastAttempt = 0;
       let ecodingAutoSyncTimer = 0;
+      let ecodingPrestartCleanupRunning = false;
+      const ecodingPrestartCleanupDone = new Set();
+      async function cleanupPrestartPeriods() {
+        if (!actor || !firebase.auth().currentUser || ecodingPrestartCleanupRunning) return;
+        const periodIds = arr(S.periods)
+          .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status) && ecodingPreparationActive(S, period.id))
+          .map((period) => period.id)
+          .filter((periodId) => !ecodingPrestartCleanupDone.has(periodId));
+        if (!periodIds.length) return;
+        ecodingPrestartCleanupRunning = true;
+        try {
+          const result = await transaction((st) => {
+            let changed = 0;
+            for (const periodId of periodIds) changed += cancelInvalidPrestartWork(st, periodId);
+            return changed > 0;
+          });
+          if (result.committed) {
+            S = result.snapshot.val();
+            resetDerivedState();
+            renderTabs();
+          }
+          for (const periodId of periodIds) ecodingPrestartCleanupDone.add(periodId);
+        } catch (error) {
+          console.warn("대상 시작 전 기준명단 정리 실패", error);
+        } finally {
+          ecodingPrestartCleanupRunning = false;
+        }
+      }
       async function runEcodingAutoSync(force = false) {
         if (!ECODING_AUTO_SYNC_ENABLED) return { skipped: true, reason: "NOT_ACTIVATED" };
         if (!actor || !firebase.auth().currentUser || ecodingAutoSyncRunning || document.hidden) return;
@@ -7715,7 +7743,10 @@
       function startEcodingAutoSync() {
         clearInterval(ecodingAutoSyncTimer);
         ecodingAutoSyncTimer = setInterval(() => runEcodingAutoSync(false), ECODING_AUTO_SYNC_INTERVAL);
-        setTimeout(() => runEcodingAutoSync(true), 1200);
+        setTimeout(async () => {
+          await cleanupPrestartPeriods();
+          await runEcodingAutoSync(true);
+        }, 1200);
       }
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden) runEcodingAutoSync(true);
