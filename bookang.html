@@ -7130,7 +7130,7 @@
       function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent){window.ecodingEventId='';window.ecodingPreviewEventId='';}document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';ecodingPreviewEventId='';render()"><b>${esc(x.studentName)}</b><small>${esc(deskPeriodName(x.periodId))} · 감지 ${esc(fmt(x.createdAt))}</small></button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
       function ecodingExitReviewScreen(){
         const rows=ecodingExitReviewRows();
-        document.querySelector('#screen').innerHTML=`<section class="panel"><h2>퇴반 확인 ${rows.length}명</h2><p class="muted">이코딩에서 연결된 모든 반이 사라졌지만 실제 퇴반일이 확인되지 않은 학생입니다. 이 단계에서는 학생 반·교재·재고·환불을 변경하지 않습니다.</p><div class="scroll"><table><thead><tr><th>대상</th><th>학생</th><th>기존 반</th><th>최초 감지</th><th>상태</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(deskPeriodName(row.periodId))}</td><td><b>${esc(row.studentName||row.externalStudentId)}</b></td><td>${Object.keys(row.beforeClassIds||{}).map(cid=>esc(S.classes?.[cid]?.name||cid)).join('<br>')||'없음'}</td><td>${esc(fmt(row.firstSeenAt))}</td><td><span class="badge warn">실제 퇴반일 대기</span><small>반이 다시 확인되면 자동 종결됩니다.</small></td></tr>`).join('')||'<tr><td colspan="5">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+        document.querySelector('#screen').innerHTML=`<section class="panel"><h2>퇴반 확인 ${rows.length}명</h2><p class="muted">연결된 실제반이 모두 사라졌지만 퇴반일이 없거나, 같은 날 새 반 입반 여부를 기다리는 학생입니다. 이 단계에서는 학생 반·교재·재고·환불을 변경하지 않습니다.</p><div class="scroll"><table><thead><tr><th>대상</th><th>학생</th><th>기존 반</th><th>최초 감지</th><th>상태</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(deskPeriodName(row.periodId))}</td><td><b>${esc(row.studentName||row.externalStudentId)}</b></td><td>${Object.keys(row.beforeClassIds||{}).map(cid=>esc(S.classes?.[cid]?.name||cid)).join('<br>')||'없음'}</td><td>${esc(fmt(row.firstSeenAt))}</td><td><span class="badge warn">${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?'당일 입반 확인 중':'실제 퇴반일 대기'}</span><small>${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?`${esc(row.exitDate||'')} 퇴반 · 같은 날 새 반이 확인되면 반변경으로 전환됩니다.`:'반이 다시 확인되면 자동 종결됩니다.'}</small></td></tr>`).join('')||'<tr><td colspan="5">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
       function ecodingEventSourceStudent(event) {
         const rows = S.ecodingSnapshots?.[event.periodId]?.students ||
@@ -7646,7 +7646,8 @@
               const next = after.get(externalId);
               if (next && Object.keys(next.classIds).length) continue;
               const exitDate = String(next?.exitDate || prev.exitDate || "").slice(0, 10);
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)) {
+              const sameDayExitPending = /^\d{4}-\d{2}-\d{2}$/.test(exitDate) && exitDate >= localDateKey();
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate) || sameDayExitPending) {
                 const existingCandidate = st.ecodingAbsenceCandidates[pid][externalId];
                 st.ecodingAbsenceCandidates[pid][externalId] = {
                   externalStudentId: externalId,
@@ -7655,7 +7656,8 @@
                   firstSeenAt: existingCandidate?.firstSeenAt || now(),
                   lastSeenAt: now(),
                   observations: Number(existingCandidate?.observations || 0) + 1,
-                  reason: "WAITING_FOR_FINAL_CLASS_OR_EXIT_DATE",
+                  exitDate,
+                  reason: sameDayExitPending ? "WAITING_FOR_SAME_DAY_ENTRY" : "WAITING_FOR_FINAL_CLASS_OR_EXIT_DATE",
                 };
                 continue;
               }
@@ -7677,8 +7679,9 @@
             for (const [externalId, candidate] of Object.entries(st.ecodingAbsenceCandidates[pid] || {})) {
               const next = after.get(externalId);
               if (next && Object.keys(next.classIds || {}).length) continue;
-              const exitDate = String(next?.exitDate || "").slice(0, 10);
+              const exitDate = String(next?.exitDate || candidate.exitDate || "").slice(0, 10);
               if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)) continue;
+              if (exitDate >= localDateKey()) continue;
               const key = id("E", `${pid}|${externalId}|EXIT|${candidate.firstSeenAt}|${exitDate}`);
               if (!st.ecodingEvents[key]) {
                 const exitResult = queueEcodingExitRefund(st, pid, externalId, {
