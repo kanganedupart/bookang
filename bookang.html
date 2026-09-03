@@ -8527,14 +8527,22 @@
         const query = document.getElementById("studentBookQuery");
         const rows = [...document.querySelectorAll("#studentBookRows tr")];
         if (!subject || !teacher || !classSelect) return;
-        if (changed !== "query") {
+        const restoring = changed === "restore";
+        if (!restoring) {
+          window.studentBookSubject = subject.value;
+          window.studentBookTeacher = teacher.value;
+          window.studentBookClass = classSelect.value;
+          window.studentBookState = state?.value || "";
+          window.studentBookQuery = query?.value || "";
+        }
+        if (!restoring && changed !== "query") {
           if (query) query.value = "";
           window.studentBookQuery = "";
           window.studentBookChoice = "";
           for (const row of rows) row.classList.remove("book-picker-selected");
         }
-        if (changed === "subject") {
-          const previous = teacher.value;
+        if (changed === "subject" || restoring) {
+          const previous = restoring ? window.studentBookTeacher || "" : teacher.value;
           const values = new Set();
           rows
             .filter((row) => !subject.value || row.dataset.subject === subject.value)
@@ -8554,9 +8562,10 @@
               )
               .join("");
           teacher.value = values.has(previous) ? previous : "";
+          window.studentBookTeacher = teacher.value;
         }
-        if (changed === "subject" || changed === "teacher") {
-          const previous = classSelect.value;
+        if (changed === "subject" || changed === "teacher" || restoring) {
+          const previous = restoring ? window.studentBookClass || "" : classSelect.value;
           const values = new Set();
           rows
             .filter(
@@ -8583,6 +8592,7 @@
               )
               .join("");
           classSelect.value = values.has(previous) ? previous : "";
+          window.studentBookClass = classSelect.value;
         }
         const keyword = (query?.value || "").trim().toLowerCase();
         let visible = 0;
@@ -8673,11 +8683,11 @@
           <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge" style="background:#eceff2;color:#66707a">환불대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge" style="background:#e6f2eb;color:#357454">환불완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
   <div class="student-book-toolbar" aria-label="교재 필터">
-    <select id="studentBookSubject" onchange="syncStudentBookFilters('subject')"><option value="">전체 과목</option>${subjects.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("")}</select>
-    <select id="studentBookTeacher" onchange="syncStudentBookFilters('teacher')"><option value="">전체 강사</option>${teachers.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("")}</select>
-    <select id="studentBookClass" onchange="syncStudentBookFilters('class')"><option value="">전체 반</option>${classNames.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("")}</select>
-    <input id="studentBookQuery" placeholder="교재명 검색" oninput="syncStudentBookFilters('query')">
-    <select id="studentBookState" onchange="syncStudentBookFilters('state')"><option value="">배부·미배부 전체</option><option value="MISSING">미배부</option><option value="HELD">배부</option></select>
+    <select id="studentBookSubject" onchange="syncStudentBookFilters('subject')"><option value="">전체 과목</option>${subjects.map((value) => `<option value="${esc(value)}" ${value === (window.studentBookSubject || "") ? "selected" : ""}>${esc(value)}</option>`).join("")}</select>
+    <select id="studentBookTeacher" onchange="syncStudentBookFilters('teacher')"><option value="">전체 강사</option>${teachers.map((value) => `<option value="${esc(value)}" ${value === (window.studentBookTeacher || "") ? "selected" : ""}>${esc(value)}</option>`).join("")}</select>
+    <select id="studentBookClass" onchange="syncStudentBookFilters('class')"><option value="">전체 반</option>${classNames.map((value) => `<option value="${esc(value)}" ${value === (window.studentBookClass || "") ? "selected" : ""}>${esc(value)}</option>`).join("")}</select>
+    <input id="studentBookQuery" value="${esc(window.studentBookQuery || "")}" placeholder="교재명 검색" oninput="syncStudentBookFilters('query')">
+    <select id="studentBookState" onchange="syncStudentBookFilters('state')"><option value="">배부·미배부 전체</option><option value="MISSING" ${window.studentBookState === "MISSING" ? "selected" : ""}>미배부</option><option value="HELD" ${window.studentBookState === "HELD" ? "selected" : ""}>배부</option></select>
     <b id="studentBookCount">${books.length}권 표시</b>
   </div>
   <div class="scroll student-book-scroll"><table class="student-table"><thead><tr><th>과목</th><th>교재명</th><th>강사·반</th><th>상태</th><th>교재비</th><th>보유</th></tr></thead><tbody id="studentBookRows">${books
@@ -8703,7 +8713,7 @@
               studentBookState.value = "MISSING";
               window.studentRefundFocusSid = "";
             }
-            syncStudentBookFilters("subject");
+            syncStudentBookFilters("restore");
             enhanceConditionBookSearches();
           }
         });
