@@ -983,7 +983,9 @@
           const activeIds = deskPeriodIds();
           return arr(S.ecodingEvents).filter((event) =>
             event.type === type && event.status === status &&
-            (!activeIds.size || activeIds.has(event.periodId)),
+            (!activeIds.size || activeIds.has(event.periodId)) &&
+            !(type === "MOVE" && periodOperationalStartDate(S,event.periodId) && localDateKey() < periodOperationalStartDate(S,event.periodId)) &&
+            !(type === "MOVE" && periodOperationalStartDate(S,event.periodId) && event.createdAt && localDateKey(event.createdAt) < periodOperationalStartDate(S,event.periodId)),
           );
         });
       }
@@ -7139,7 +7141,7 @@
       function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent){window.ecodingEventId='';window.ecodingPreviewEventId='';}document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';ecodingPreviewEventId='';render()"><b>${esc(x.studentName)}</b><small>${esc(deskPeriodName(x.periodId))} · 감지 ${esc(fmt(x.createdAt))}</small></button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
       function ecodingExitReviewScreen(){
         const rows=ecodingExitReviewRows();
-        document.querySelector('#screen').innerHTML=`<section class="panel"><h2>퇴반 확인 ${rows.length}명</h2><p class="muted">연결된 실제반이 모두 사라졌지만 퇴반일이 없거나, 같은 날 새 반 입반 여부를 기다리는 학생입니다. 이 단계에서는 학생 반·교재·재고·환불을 변경하지 않습니다.</p><div class="scroll"><table><thead><tr><th>대상</th><th>학생</th><th>기존 반</th><th>최초 감지</th><th>상태</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(deskPeriodName(row.periodId))}</td><td><b>${esc(row.studentName||row.externalStudentId)}</b></td><td>${Object.keys(row.beforeClassIds||{}).map(cid=>esc(S.classes?.[cid]?.name||cid)).join('<br>')||'없음'}</td><td>${esc(fmt(row.firstSeenAt))}</td><td><span class="badge warn">${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?'당일 입반 확인 중':'실제 퇴반일 대기'}</span><small>${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?`${esc(row.exitDate||'')} 퇴반 · 같은 날 새 반이 확인되면 반변경으로 전환됩니다.`:'반이 다시 확인되면 자동 종결됩니다.'}</small></td></tr>`).join('')||'<tr><td colspan="5">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+        document.querySelector('#screen').innerHTML=`<section class="panel"><h2>퇴반 확인 ${rows.length}명</h2><p class="muted">연결된 실제반이 사라졌거나 반변경 날짜가 아직 확정되지 않은 학생입니다. 이 단계에서는 학생 반·교재·재고·환불을 변경하지 않습니다.</p><div class="scroll"><table><thead><tr><th>대상</th><th>학생</th><th>기존 반</th><th>최초 감지</th><th>상태</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(deskPeriodName(row.periodId))}</td><td><b>${esc(row.studentName||row.externalStudentId)}</b></td><td>${Object.keys(row.beforeClassIds||{}).map(cid=>esc(S.classes?.[cid]?.name||cid)).join('<br>')||'없음'}</td><td>${esc(fmt(row.firstSeenAt))}</td><td><span class="badge warn">${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?'당일 입반 확인 중':row.reason==='WAITING_FOR_MATCHED_MOVE_DATES'?'반변경 날짜 확인 중':'실제 퇴반일 대기'}</span><small>${row.reason==='WAITING_FOR_SAME_DAY_ENTRY'?`${esc(row.exitDate||'')} 퇴반 · 같은 날 새 반이 확인되면 반변경으로 전환됩니다.`:row.reason==='WAITING_FOR_MATCHED_MOVE_DATES'?`퇴반 ${esc(row.exitDate||'미확인')} · 입반 ${esc(row.admissionDate||'미확인')} · 같은 날짜가 확인되어야 반변경에 표시됩니다.`:'반이 다시 확인되면 자동 종결됩니다.'}</small></td></tr>`).join('')||'<tr><td colspan="5">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
       }
       function ecodingEventSourceStudent(event) {
         const rows = S.ecodingSnapshots?.[event.periodId]?.students ||
@@ -7365,7 +7367,7 @@
         const startDate = periodOperationalStartDate(st, pid);
         return !!startDate && dateKey < startDate;
       }
-      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "") {
+      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", exitDate = "") {
         const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
         if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
         const localStudent = localMatches[0],
@@ -7391,10 +7393,15 @@
         const periodStartDate=String(st.periods?.[pid]?.refundEffectiveStartDate||st.periods?.[pid]?.bookStartDate||"").slice(0,10);
         if(periodStartDate&&localDateKey()<periodStartDate)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds };
+        const admissionDateKey=/^\d{4}-\d{2}-\d{2}/.test(String(admissionDate||""))?String(admissionDate).slice(0,10):"",
+          exitDateKey=/^\d{4}-\d{2}-\d{2}/.test(String(exitDate||""))?String(exitDate).slice(0,10):"",
+          classesChanged=ecodingEventClassSignature(localClassIds)!==ecodingEventClassSignature(nextClassIds),
+          validMoveDate=!classesChanged||!periodStartDate||!!admissionDateKey&&admissionDateKey===exitDateKey&&admissionDateKey>=periodStartDate;
         return {
           blocked: false,
-          type: ecodingEventClassSignature(localClassIds) === ecodingEventClassSignature(nextClassIds) ? "" : "MOVE",
+          type: classesChanged&&validMoveDate ? "MOVE" : "",
           beforeClassIds: localClassIds,
+          waitingForMoveDates: classesChanged&&!validMoveDate,
         };
       }
       function applyEcodingBaselineStudent(st, pid, next) {
@@ -7418,9 +7425,11 @@
       function cancelInvalidPrestartWork(st, pid) {
         const prestart=ecodingPreparationActive(st,pid),period=st.periods?.[pid]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10);
         let count = 0;
-        if(prestart)for (const event of arr(st.ecodingEvents)) {
+        for (const event of arr(st.ecodingEvents)) {
           if (event?.periodId !== pid || event.status !== "PENDING" || !["NEW","MOVE","EXIT"].includes(event.type)) continue;
           const admissionDate = /^\d{4}-\d{2}-\d{2}/.test(String(event.admissionDate || "")) ? String(event.admissionDate).slice(0,10) : "";
+          const createdDate=event.createdAt?localDateKey(event.createdAt):"",beforeStartEvent=!!startDate&&!!createdDate&&createdDate<startDate;
+          if(!prestart&&!beforeStartEvent)continue;
           if (event.type === "NEW" && admissionDate && startDate && admissionDate >= startDate) continue;
           event.status = "CANCELLED"; event.closedAt = now(); event.closedBy = "시작 전 기준정리"; event.closeReason = "PRESTART_BASELINE"; count++;
         }
@@ -7557,7 +7566,7 @@
           }
           const hasActionableStudentChange = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate);
+            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate, next.exitDate||S.ecodingAbsenceCandidates?.[pid]?.[externalId]?.exitDate||"");
             if (desired.blocked) return true;
             if (desired.type === "BASELINE") return true;
             const pending = arr(S.ecodingEvents).filter((event) =>
@@ -7621,22 +7630,34 @@
               const prev = before.get(externalId),
                 hasClasses = Object.keys(next.classIds).length;
               if (!hasClasses) continue;
-              delete st.ecodingAbsenceCandidates[pid][externalId];
+              const existingAbsenceCandidate=st.ecodingAbsenceCandidates[pid][externalId];
               counts.DUPLICATE += cancelPendingEcodingExitEvents(st, pid, externalId);
               const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
               if (localMatches.length > 1) return false;
               if (localMatches.length === 1)
                 closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
-              const desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate),
+              const effectiveExitDate=next.exitDate||existingAbsenceCandidate?.exitDate||"",
+                desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, effectiveExitDate),
                 type = desired.type,
                 eventBeforeClassIds = desired.beforeClassIds;
               counts.DUPLICATE += supersedeStalePendingEcodingTransitions(
                 st, pid, externalId, type, eventBeforeClassIds, next.classIds,
               );
               if (type === "BASELINE") {
+                delete st.ecodingAbsenceCandidates[pid][externalId];
                 applyEcodingBaselineStudent(st, pid, next);
                 continue;
               }
+              if(desired.waitingForMoveDates){
+                st.ecodingAbsenceCandidates[pid][externalId]={
+                  externalStudentId:externalId,studentName:next.name,beforeClassIds:eventBeforeClassIds,
+                  afterClassIds:next.classIds,firstSeenAt:existingAbsenceCandidate?.firstSeenAt||now(),lastSeenAt:now(),
+                  observations:Number(existingAbsenceCandidate?.observations||0)+1,admissionDate:next.admissionDate||"",
+                  exitDate:effectiveExitDate,reason:"WAITING_FOR_MATCHED_MOVE_DATES",
+                };
+                continue;
+              }
+              delete st.ecodingAbsenceCandidates[pid][externalId];
               if (!type) continue;
               if (arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
                 event, pid, externalId, type, eventBeforeClassIds, next.classIds,
@@ -7648,7 +7669,7 @@
                   id: key, type, status: "PENDING", periodId: pid,
                   externalStudentId: externalId, studentName: next.name,
                   beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
-                  admissionDate: next.admissionDate || "", createdAt: now(),
+                  admissionDate: next.admissionDate || "", exitDate:effectiveExitDate, createdAt: now(),
                 };
                 counts[type]++;
               }
