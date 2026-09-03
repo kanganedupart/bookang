@@ -7045,7 +7045,7 @@
           if (transactionInvalidLink) return false;
           const linkedPeople=new Map(),snapshotPeople=new Map(),snapshotExternalIds=new Set();
           for(const source of arr(st.ecodingSnapshots?.[pid]?.students)){
-            const linked=normalizedEcodingStudent(source,rows),key=studentIdentityKey({externalId:source.id,name:source.name,id:source.id});
+            const linked=normalizedEcodingStudent(source,rows,st,pid),key=studentIdentityKey({externalId:source.id,name:source.name,id:source.id});
             snapshotPeople.set(key,{externalId:source.id,name:source.name,number:source.number||''});
             if(normalizeExternalId(source.id))snapshotExternalIds.add(normalizeExternalId(source.id));
             if(!Object.keys(linked.classIds).length)continue;
@@ -7089,7 +7089,16 @@
             : "";
         return !!exitDate && exitDate <= dateKey;
       }
-      function normalizedEcodingStudent(student,maps){const classIds={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};for(const c of student.classes||[]){if(c.active!==true||!maps[c.id]?.localClassId)continue;classIds[maps[c.id].localClassId]=maps[c.id].localClassId;}return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};}
+      function normalizedEcodingStudent(student,maps,st=null,pid=""){
+        const classIds={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";
+        if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};
+        for(const c of student.classes||[]){
+          const localClassId=maps[c.id]?.localClassId,localClass=st?.classes?.[localClassId];
+          if(c.active!==true||!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
+          classIds[localClassId]=localClassId;
+        }
+        return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};
+      }
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
         if(matches.length!==1)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
@@ -7124,7 +7133,7 @@
       }
       async function runEcodingDiff(){
         const pid=selectedPeriodId(),snap=S.ecodingSnapshots?.[pid],maps=S.ecodingClassMappings?.[pid]||{};if(!snap||!Object.keys(maps).length)return alert('반을 불러오고 선택 반을 먼저 저장하세요.');
-        try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const exitResult=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:exitResult.processed?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),exitDate:exitResult.exitDate||'',queuedToRefundAt:exitResult.refundQueued?now():null,refundDecision:exitResult.reason||'QUEUED'};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
+        try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps,S,pid)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps,S,pid)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const exitResult=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:exitResult.processed?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),exitDate:exitResult.exitDate||'',queuedToRefundAt:exitResult.refundQueued?now():null,refundDecision:exitResult.reason||'QUEUED'};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
         catch(error){alert(error.message)}
       }
       function ecodingQueueScreen(type,title){const rows=ecodingEvents(type),selectedEvent=rows.find(x=>x.id===window.ecodingEventId);if(!selectedEvent){window.ecodingEventId='';window.ecodingPreviewEventId='';}document.querySelector('#screen').innerHTML=`<div class="grid manage-split"><section class="panel"><h2>${esc(title)} ${rows.length}명</h2><div class="list">${rows.map(x=>`<button style="width:100%;text-align:left;margin:3px 0" class="${x.id===selectedEvent?.id?'btn':''}" onclick="ecodingEventId='${x.id}';ecodingPreviewEventId='';render()"><b>${esc(x.studentName)}</b><small>${esc(deskPeriodName(x.periodId))} · 감지 ${esc(fmt(x.createdAt))}</small></button>`).join('')||'<p class="muted">대기 학생이 없습니다.</p>'}</div></section><section class="panel">${selectedEvent?ecodingEventDetail(selectedEvent):'<h2>처리할 학생을 선택하세요.</h2><p class="muted">학생을 선택해도 자료는 변경되지 않습니다.</p>'}</section></div>`;}
@@ -7503,8 +7512,8 @@
             return { blocked: true, reason: "DUPLICATE_EXTERNAL_ID" };
           }
           const
-            before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)])),
-            after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps)]));
+            before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)])),
+            after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
           const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
           const hasRosterChange = [...after].some(([externalId, next]) => {
             const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
