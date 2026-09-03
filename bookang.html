@@ -7388,6 +7388,9 @@
           beforeClassIds: {},
           };
         }
+        const periodStartDate=String(st.periods?.[pid]?.refundEffectiveStartDate||st.periods?.[pid]?.bookStartDate||"").slice(0,10);
+        if(periodStartDate&&localDateKey()<periodStartDate)
+          return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds };
         return {
           blocked: false,
           type: ecodingEventClassSignature(localClassIds) === ecodingEventClassSignature(nextClassIds) ? "" : "MOVE",
