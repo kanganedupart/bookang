@@ -1174,11 +1174,6 @@
           remoteRenderTimer = 0;
           remoteRenderFrame = requestAnimationFrame(() => {
             remoteRenderFrame = 0;
-            const preserveProcessPosition = tab === "일괄처리" ? {
-              pageX: window.scrollX,
-              pageY: window.scrollY,
-              scrolls: [...document.querySelectorAll("#screen .process-target-panel .list, #screen .scroll")].map((node) => ({ left: node.scrollLeft, top: node.scrollTop })),
-            } : null;
             const catalogSearch=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input"), preserveCatalogFocus=document.activeElement===catalogSearch&&catalogSearch?{value:catalogSearch.value,start:catalogSearch.selectionStart,end:catalogSearch.selectionEnd,composing:catalogSearch.dataset.composing==="1"}:null;
             if(preserveCatalogFocus && (preserveCatalogFocus.composing || Date.now()-catalogRemoteLastInputAt<800)){
               if(catalogSearch.dataset.remoteRenderPending!=="1"){
@@ -1192,13 +1187,6 @@
             if(catalogSearch)catalogSearch.dataset.remoteRenderPending="";
             renderActor();
             actor ? render() : staffLoginScreen();
-            if(preserveProcessPosition)requestAnimationFrame(()=>{
-              [...document.querySelectorAll("#screen .process-target-panel .list, #screen .scroll")].forEach((node,index)=>{
-                const saved=preserveProcessPosition.scrolls[index];
-                if(saved){node.scrollLeft=saved.left;node.scrollTop=saved.top;}
-              });
-              window.scrollTo({left:preserveProcessPosition.pageX,top:preserveProcessPosition.pageY,behavior:"instant"});
-            });
             if(preserveCatalogFocus)requestAnimationFrame(()=>{const next=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(next){next.value=preserveCatalogFocus.value;window.bookManageDraftQuery=preserveCatalogFocus.value;showCatalogBookPicker(preserveCatalogFocus.value);next.focus({preventScroll:true});next.setSelectionRange(preserveCatalogFocus.start,preserveCatalogFocus.end);}});
           });
         }, 120);
@@ -1325,6 +1313,12 @@
       function render() {
         clearTimeout(changeTab.renderTimer);
         changeTab.renderTimer = 0;
+        const scrollScope = [tab, window.view || "", window.studentHubView || "", window.manageView || "", window.inventoryHubView || "", window.recordHubView || "", tab === "일괄처리" || window.studentHubView === "process" ? window.action || "" : ""].join("|");
+        const preservedScroll = render.lastScrollScope === scrollScope ? {
+          pageX: window.scrollX,
+          pageY: window.scrollY,
+          positions: [...document.querySelectorAll("#screen .list, #screen .scroll")].map((node) => ({ left: node.scrollLeft, top: node.scrollTop })),
+        } : null;
         document.body.classList.remove("login-mode");
         renderPeriodBar();
         renderTabs();
@@ -1343,6 +1337,14 @@
             관리: managementHub,
           })[tab] || studentHub
         )();
+        render.lastScrollScope = scrollScope;
+        if(preservedScroll)requestAnimationFrame(()=>{
+          [...document.querySelectorAll("#screen .list, #screen .scroll")].forEach((node,index)=>{
+            const saved=preservedScroll.positions[index];
+            if(saved){node.scrollLeft=saved.left;node.scrollTop=saved.top;}
+          });
+          window.scrollTo({left:preservedScroll.pageX,top:preservedScroll.pageY,behavior:"instant"});
+        });
         requestAnimationFrame(activateAutomaticStudentSearches);
       }
       function movementRows() {
