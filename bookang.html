@@ -7050,8 +7050,8 @@
             if(normalizeExternalId(source.id))snapshotExternalIds.add(normalizeExternalId(source.id));
             if(!Object.keys(linked.classIds).length)continue;
             const existing=linkedPeople.get(key);
-            if(existing){Object.assign(existing.classIds,linked.classIds);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;}
-            else linkedPeople.set(key,{externalId:source.id,name:source.name,number:source.number||'',classIds:{...linked.classIds}});
+            if(existing){Object.assign(existing.classIds,linked.classIds);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;if(!existing.admissionDate&&linked.admissionDate)existing.admissionDate=linked.admissionDate;}
+            else linkedPeople.set(key,{externalId:source.id,name:source.name,number:source.number||'',admissionDate:linked.admissionDate||'',classIds:{...linked.classIds}});
           }
           for(const student of arr(st.students)){
             if(student.periodMembership?.[pid]!==true)continue;
@@ -7069,6 +7069,8 @@
             const candidates=arr(st.students).filter(x=>normalizeExternalId(source.externalId)?normalizeExternalId(x.externalId)===normalizeExternalId(source.externalId):studentIdentityKey(x)===sourceKey);
             if(normalizeExternalId(source.externalId)&&candidates.length>1)return false;
             let student=candidates.reduce((best,item)=>best?preferredStudentRecord(best,item,pid):item,null);
+            const startDate=periodOperationalStartDate(st,pid),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(String(source.admissionDate||''))?String(source.admissionDate).slice(0,10):'';
+            if(!student&&ecodingPreparationActive(st,pid)&&startDate&&admissionDate>=startDate)continue;
             const sid=student?.id||id('S',`ECODING|${source.externalId||sourceKey}`);
             student=student||{id:sid,externalId:source.externalId,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
             student.name=source.name||student.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};rebuildStudentClasses(student);st.students[sid]=student;closeRefundTasksForReenrollment(st,sid,pid);
@@ -7217,11 +7219,39 @@
       }
       function ecodingNewScreen(){ecodingQueueScreen('NEW','신규');}
       function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반변경');}
+      function ecodingBookIdsForClassSet(st, pid, classIds) {
+        const ids = new Set(), actualClassIds = Object.keys(classIds || {}).filter((classId) => {
+          const cls = st.classes?.[classId];
+          return cls && cls.periodId === pid && cls.active !== false && cls.systemCommon !== true;
+        });
+        for (const classId of actualClassIds)
+          for (const bookId of Object.keys(st.classes?.[classId]?.books || {})) ids.add(bookId);
+        if (actualClassIds.length)
+          for (const commonClass of systemCommonClasses(st, pid))
+            for (const bookId of Object.keys(commonClass.books || {})) ids.add(bookId);
+        return ids;
+      }
+      function ecodingAllAssignedBookIds(st, student) {
+        const ids = new Set();
+        for (const classId of Object.keys(student?.classes || {}))
+          for (const bookId of Object.keys(st.classes?.[classId]?.books || {})) ids.add(bookId);
+        for (const [pid, isMember] of Object.entries(student?.periodMembership || {})) {
+          if (isMember !== true) continue;
+          const actualClassIds = Object.keys(student?.periodClasses?.[pid] || {}).filter((classId) => {
+            const cls = st.classes?.[classId];
+            return cls && cls.active !== false && cls.systemCommon !== true;
+          });
+          if (!actualClassIds.length) continue;
+          for (const commonClass of systemCommonClasses(st, pid))
+            for (const bookId of Object.keys(commonClass.books || {})) ids.add(bookId);
+        }
+        return ids;
+      }
       async function applyEcodingEvent(eventId){
         const event=S.ecodingEvents?.[eventId];if(!event)return;
         const expectedFingerprint=[event.type,event.periodId,normalizeExternalId(event.externalStudentId),ecodingEventClassSignature(event.beforeClassIds),ecodingEventClassSignature(event.afterClassIds)].join('::');
         let localSid=arr(S.students).find(s=>normalizeExternalId(s.externalId)===normalizeExternalId(event.externalStudentId))?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
-        const beforeBookIds=new Set(Object.keys(event.beforeClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{}))),afterBookIds=new Set(Object.keys(event.afterClassIds||{}).flatMap(cid=>Object.keys(S.classes?.[cid]?.books||{})));
+        const beforeBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.beforeClassIds),afterBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.afterClassIds);
         let distributeIds=[],returnIds=[];
         const r=await transaction(st=>{
           const e=st.ecodingEvents?.[eventId];
@@ -7250,7 +7280,7 @@
         if(r.committed){
           S=r.snapshot.val();
           if(outcome==='ALREADY_APPLIED'){window.ecodingEventId='';window.ecodingPreviewEventId='';alert('이미 반영된 학생이라 중복 대기만 종결했습니다. 학생·교재·재고는 변경하지 않았습니다.');render();return;}
-          const remainingAssignedBookIds=new Set(Object.keys(S.students?.[localSid]?.classes||{}).flatMap(classId=>Object.keys(S.classes?.[classId]?.books||{})));
+          const remainingAssignedBookIds=ecodingAllAssignedBookIds(S,S.students?.[localSid]);
           distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
           returnIds=[...beforeBookIds].filter(bid=>!remainingAssignedBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
           window.studentTransition={sid:localSid,kind:event.type,beforeBookIds:[...beforeBookIds],afterBookIds:[...afterBookIds],distributeIds,returnIds,memo:event.type==='NEW'?'이코딩 신규':'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
@@ -7326,7 +7356,7 @@
         const startDate = periodOperationalStartDate(st, pid);
         return !!startDate && dateKey < startDate;
       }
-      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds) {
+      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "") {
         const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
         if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
         const localStudent = localMatches[0],
@@ -7339,7 +7369,9 @@
           const period = st.periods?.[pid] || {},
             startDate = String(period.bookStartDate || period.refundEffectiveStartDate || "").slice(0,10),
             today = typeof localDateKey === "function" ? localDateKey() : "",
-            initialRoster = !!startDate && !!today && today < startDate;
+            admissionDateKey = /^\d{4}-\d{2}-\d{2}/.test(String(admissionDate || "")) ? String(admissionDate).slice(0,10) : "",
+            scheduledNew = !!startDate && !!admissionDateKey && admissionDateKey >= startDate,
+            initialRoster = !!startDate && !!today && today < startDate && !scheduledNew;
           if (initialRoster) return { blocked: false, type: "BASELINE", beforeClassIds: {} };
           return {
           blocked: false,
@@ -7376,6 +7408,8 @@
         let count = 0;
         if(prestart)for (const event of arr(st.ecodingEvents)) {
           if (event?.periodId !== pid || event.status !== "PENDING" || !["NEW","MOVE","EXIT"].includes(event.type)) continue;
+          const admissionDate = /^\d{4}-\d{2}-\d{2}/.test(String(event.admissionDate || "")) ? String(event.admissionDate).slice(0,10) : "";
+          if (event.type === "NEW" && admissionDate && startDate && admissionDate >= startDate) continue;
           event.status = "CANCELLED"; event.closedAt = now(); event.closedBy = "시작 전 기준정리"; event.closeReason = "PRESTART_BASELINE"; count++;
         }
         for (const task of arr(st.refundTasks)) {
@@ -7511,7 +7545,7 @@
           }
           const hasActionableStudentChange = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds);
+            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate);
             if (desired.blocked) return true;
             if (desired.type === "BASELINE") return true;
             const pending = arr(S.ecodingEvents).filter((event) =>
@@ -7581,7 +7615,7 @@
               if (localMatches.length > 1) return false;
               if (localMatches.length === 1)
                 closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
-              const desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds),
+              const desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate),
                 type = desired.type,
                 eventBeforeClassIds = desired.beforeClassIds;
               counts.DUPLICATE += supersedeStalePendingEcodingTransitions(
@@ -7602,7 +7636,7 @@
                   id: key, type, status: "PENDING", periodId: pid,
                   externalStudentId: externalId, studentName: next.name,
                   beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
-                  createdAt: now(),
+                  admissionDate: next.admissionDate || "", createdAt: now(),
                 };
                 counts[type]++;
               }
