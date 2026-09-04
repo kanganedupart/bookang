@@ -1143,6 +1143,12 @@
       let remoteRenderFrame = 0;
       let remoteRenderTimer = 0;
       let catalogRemoteLastInputAt = 0;
+      let userInteractionUntil = 0;
+      const noteUserInteraction = (ms = 700) => { userInteractionUntil = Math.max(userInteractionUntil, Date.now() + ms); };
+      document.addEventListener("pointerdown", () => noteUserInteraction(900), true);
+      document.addEventListener("keydown", () => noteUserInteraction(900), true);
+      document.addEventListener("input", () => noteUserInteraction(1200), true);
+      document.addEventListener("focusin", () => noteUserInteraction(600), true);
       // Firebase root transactions may emit intermediate value events. Do not
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
@@ -1150,9 +1156,13 @@
       function scheduleRemoteRender() {
         clearTimeout(remoteRenderTimer);
         cancelAnimationFrame(remoteRenderFrame);
-        remoteRenderTimer = setTimeout(() => {
-          remoteRenderTimer = 0;
-          remoteRenderFrame = requestAnimationFrame(() => {
+          remoteRenderTimer = setTimeout(() => {
+            remoteRenderTimer = 0;
+            if (Date.now() < userInteractionUntil) {
+              remoteRenderTimer = setTimeout(scheduleRemoteRender, Math.max(120, userInteractionUntil - Date.now()));
+              return;
+            }
+            remoteRenderFrame = requestAnimationFrame(() => {
             remoteRenderFrame = 0;
             const catalogSearch=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input"), preserveCatalogFocus=document.activeElement===catalogSearch&&catalogSearch?{value:catalogSearch.value,start:catalogSearch.selectionStart,end:catalogSearch.selectionEnd,composing:catalogSearch.dataset.composing==="1"}:null;
             if(preserveCatalogFocus && (preserveCatalogFocus.composing || Date.now()-catalogRemoteLastInputAt<800)){
@@ -1260,15 +1270,6 @@
           localStorage.setItem("bookflowStaffRole", actorRole);
           localStorage.removeItem("bookflowStaffLoginUntil");
           connectBookflowData();
-          const snapshot = await root.once("value");
-          S = snapshot.val() || {
-            books: {},
-            classes: {},
-            students: {},
-            movements: {},
-          };
-          renderActor();
-          render();
           // 이코딩 자동 감지는 운영 승인 전까지 시작하지 않는다.
         } catch (error) {
           alert("로그인 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.");
@@ -1293,12 +1294,13 @@
       function render() {
         clearTimeout(changeTab.renderTimer);
         changeTab.renderTimer = 0;
-        const scrollScope = [tab, window.view || "", window.studentHubView || "", window.manageView || "", window.inventoryHubView || "", window.recordHubView || "", tab === "일괄처리" || window.studentHubView === "process" ? window.action || "" : ""].join("|");
+        const scrollScope = [selectedPeriodId(), tab, window.view || "", window.studentHubView || "", window.manageView || "", window.inventoryHubView || "", window.recordHubView || "", window.statusStudentId || "", window.editStudent || "", window.sid || "", window.ecodingEventId || ""].join("|");
+        const uiKey = (node, index) => node.dataset.uiKey || node.id || `${node.tagName}|${node.className}|${node.closest("[data-book-id]")?.dataset.bookId || ""}|${node.closest("[data-student-id]")?.dataset.studentId || ""}|${node.querySelector("summary")?.textContent?.trim() || ""}|${index}`;
         const preservedScroll = render.lastScrollScope === scrollScope ? {
           pageX: window.scrollX,
           pageY: window.scrollY,
-          positions: [...document.querySelectorAll("#screen .list, #screen .scroll")].map((node) => ({ left: node.scrollLeft, top: node.scrollTop })),
-          openDetails: [...document.querySelectorAll("#screen details")].map((node, index) => node.open ? index : -1).filter((index) => index >= 0),
+          positions: Object.fromEntries([...document.querySelectorAll("#screen .list, #screen .scroll")].map((node, index) => [uiKey(node,index), { left: node.scrollLeft, top: node.scrollTop }])),
+          openDetails: new Set([...document.querySelectorAll("#screen details")].map((node,index)=>node.open?uiKey(node,index):"").filter(Boolean)),
         } : null;
         document.body.classList.remove("login-mode");
         renderPeriodBar();
@@ -1320,12 +1322,12 @@
         )();
         render.lastScrollScope = scrollScope;
         if(preservedScroll){
-          const openDetails=new Set(preservedScroll.openDetails||[]);
-          [...document.querySelectorAll("#screen details")].forEach((node,index)=>{node.open=openDetails.has(index);});
+          const openDetails=preservedScroll.openDetails||new Set();
+          [...document.querySelectorAll("#screen details")].forEach((node,index)=>{node.open=openDetails.has(uiKey(node,index));});
         }
         if(preservedScroll)requestAnimationFrame(()=>{
           [...document.querySelectorAll("#screen .list, #screen .scroll")].forEach((node,index)=>{
-            const saved=preservedScroll.positions[index];
+             const saved=preservedScroll.positions[uiKey(node,index)];
             if(saved){node.scrollLeft=saved.left;node.scrollTop=saved.top;}
           });
           window.scrollTo({left:preservedScroll.pageX,top:preservedScroll.pageY,behavior:"instant"});
