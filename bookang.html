@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="bookflow-build" content="2026-09-04.8" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -14,7 +15,7 @@
       body{margin:0;background:var(--page);color:var(--ink);font-family:"Pretendard Variable",Pretendard,"Malgun Gothic",sans-serif;font-size:14.5px;font-weight:450;line-height:1.55;-webkit-font-smoothing:antialiased}
       header{background:var(--paper);border-bottom:1px solid var(--line);padding:10px 24px;display:grid;grid-template-columns:auto minmax(420px,1fr) auto;gap:24px;align-items:center}
       header h1{font-size:18px;font-weight:700;margin:0} header small{display:none}
-      #actor{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px}
+      #actor{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px}.build-badge{font-size:11px;color:var(--ink3);white-space:nowrap}
       #actor button,button,.btn{border:1px solid var(--field);background:var(--paper);color:var(--ink);border-radius:6px;min-height:36px;padding:7px 16px;font:600 13px/1.35 inherit;cursor:pointer;white-space:nowrap}
       button:hover{background:#f2f6fa;border-color:#9dc2e8}
       #actor button.settings-on,.tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}
@@ -149,6 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
+      const BOOKFLOW_BUILD = "2026-09-04.8";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -190,8 +192,22 @@
           : "";
       function renderActor() {
         document.querySelector("#actor").innerHTML = actor
-          ? `<b>${esc(actor)}</b><button class="${tab === "관리" ? "settings-on" : ""}" onclick="changeTab('관리')" title="관리">⚙ 관리</button><button onclick="staffLogout()">로그아웃</button>`
+          ? `<span class="build-badge">v${BOOKFLOW_BUILD}</span><b>${esc(actor)}</b><button class="${tab === "관리" ? "settings-on" : ""}" onclick="changeTab('관리')" title="관리">⚙ 관리</button><button onclick="staffLogout()">로그아웃</button>`
           : "직원 로그인 필요";
+      }
+      let buildCheckAt = 0, buildMismatchShown = false;
+      async function checkCurrentBuild() {
+        if (buildMismatchShown || Date.now() - buildCheckAt < 60000) return;
+        buildCheckAt = Date.now();
+        try {
+          const response = await fetch(`${location.pathname}?buildCheck=${Date.now()}`, { cache: "no-store" });
+          if (!response.ok) return;
+          const html = await response.text(), match = html.match(/<meta name="bookflow-build" content="([^"]+)"/);
+          if (!match || match[1] === BOOKFLOW_BUILD) return;
+          buildMismatchShown = true;
+          const host = document.querySelector("#appDialogHost");
+          if (host) host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="alertdialog" aria-modal="true"><h2>새 버전 적용 필요</h2><div class="app-dialog-message">현재 화면은 구버전입니다. 최신 자료와 화면을 적용한 뒤 계속해 주세요.</div><div class="app-dialog-actions"><button class="confirm-button" onclick="location.replace(location.pathname+'?v='+Date.now())">최신 버전 열기</button></div></section></div>`;
+        } catch (_) {}
       }
       function esc(v) {
         return String(v ?? "").replace(
@@ -7966,9 +7982,15 @@
         }, 1200);
       }
       document.addEventListener("visibilitychange", () => {
-        if (!document.hidden) runEcodingAutoSync(true);
+        if (!document.hidden) {
+          checkCurrentBuild();
+          runEcodingAutoSync(true);
+        }
       });
-      window.addEventListener("focus", () => runEcodingAutoSync(true));
+      window.addEventListener("focus", () => {
+        checkCurrentBuild();
+        runEcodingAutoSync(true);
+      });
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
       applyEcodingEvent = async function (eventId) {
         const event = S.ecodingEvents?.[eventId],
