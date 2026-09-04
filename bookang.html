@@ -7488,8 +7488,9 @@
           addedDates=addedClassIds.map((classId)=>activeClassDates[classId]||"").filter(Boolean),
           matchedDates=[...new Set([...removedDates,...addedDates])],
           moveBusinessDate=matchedDates.length===1?matchedDates[0]:"",
+          historicalStartRoster=classesChanged&&!!periodStartDate&&localDateKey()===periodStartDate&&removedDates.length===removedClassIds.length&&removedDates.length>0&&removedDates.every((date)=>date<periodStartDate)&&addedDates.length===addedClassIds.length&&addedDates.every((date)=>date>=periodStartDate),
           validMoveDate=!classesChanged||(removedClassIds.length>0&&addedClassIds.length>0&&removedDates.length===removedClassIds.length&&addedDates.length===addedClassIds.length&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
-        if(staleAtOperationalStart)
+        if(staleAtOperationalStart||historicalStartRoster)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds,baselineReason:"SOURCE_CHANGE_BEFORE_PERIOD_START" };
         return {
           blocked: false,
