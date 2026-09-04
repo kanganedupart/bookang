@@ -19,6 +19,8 @@ const assert = require("assert/strict");
   await Promise.all(pages.map(page => page.locator("#tabs [data-main-tab='학생']").waitFor({ timeout: 30000 })));
   await pages[1].getByRole("button", { name: "로그아웃" }).click();
   await Promise.all(pages.map(page => page.locator("#staffName").waitFor({ timeout: 30000 })));
+  const loggedOutActors = await Promise.all(pages.map(page => page.locator("#actor").textContent()));
+  assert.ok(loggedOutActors.every(text => (text || "").includes("직원 로그인 필요")), JSON.stringify(loggedOutActors));
   await signIn(pages[2]);
   await Promise.all(pages.map(page => page.locator("#tabs [data-main-tab='학생']").waitFor({ timeout: 30000 })));
   const states = await Promise.all(pages.map(page => page.evaluate(() => ({ actor, dataset, build: BOOKFLOW_BUILD }))));
