@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.15" />
+    <meta name="bookflow-build" content="2026-09-04.16" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.15";
+      const BOOKFLOW_BUILD = "2026-09-04.16";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -1334,8 +1334,21 @@
       }
        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
        firebase.auth().onAuthStateChanged(async (user) => {
-         if (user) { if (actor) await loadFastOpenCache(); connectBookflowData(); }
-        else staffLoginScreen();
+        if (user) {
+          // LOCAL 인증은 여러 탭에 전파된다. 인증 완료 뒤에만 저장된 직원 정보를
+          // 복구해야 저장 이벤트와 인증 이벤트의 순서 경쟁이 생기지 않는다.
+          actor = localStorage.getItem("bookflowStaffName") || "";
+          actorRole = localStorage.getItem("bookflowStaffRole") || "staff";
+          renderActor();
+          if (actor) await loadFastOpenCache();
+          connectBookflowData();
+        } else {
+          actor = "";
+          actorRole = "";
+          root.off("value");
+          bookflowListenerStarted = false;
+          staffLoginScreen();
+        }
       });
       function staffLoginScreen() {
         document.body.classList.add("login-mode");
