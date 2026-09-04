@@ -11,6 +11,19 @@ async function login(page) {
   await page.locator("#tabs [data-main-tab='학생']").waitFor({ state: "visible", timeout: 30000 });
 }
 
+async function assertUniformCheckboxes(page, label) {
+  const sizes = await page.locator("input[type='checkbox']:visible").evaluateAll(nodes => nodes.map(node => {
+    const style = getComputedStyle(node);
+    return { width: style.width, height: style.height, minHeight: style.minHeight };
+  }));
+  for (const size of sizes) {
+    assert.equal(size.width, "18px", `${label} 체크박스 너비 ${size.width}`);
+    assert.equal(size.height, "18px", `${label} 체크박스 높이 ${size.height}`);
+    assert.equal(size.minHeight, "18px", `${label} 체크박스 최소 높이 ${size.minHeight}`);
+  }
+  return sizes.length;
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.BROWSER_EXE });
   const report = [];
@@ -27,6 +40,8 @@ async function login(page) {
       assert.ok(ms < 1000, `${spec.device} ${tab} 클릭 ${ms}ms`);
       report.push({ device: spec.device, test: `탭 ${tab}`, ms, ok: true });
       console.log(`PASS ${spec.device} 탭 ${tab} ${ms}ms`);
+      const checkboxCount = await assertUniformCheckboxes(page, `${spec.device} ${tab}`);
+      if (checkboxCount) report.push({ device: spec.device, test: `체크박스 ${tab} ${checkboxCount}개`, ok: true });
     }
     await page.locator("#tabs [data-main-tab='학생']").click();
     const studentId = await page.evaluate(() => Object.values(S.students || {}).find(s => String(s.name).includes("강연웅2804"))?.id || "");
