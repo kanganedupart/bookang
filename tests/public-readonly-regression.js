@@ -105,6 +105,21 @@ async function assertUniformCheckboxes(page, label) {
       assert.equal(await catalogInput.inputValue(), value, `${spec.device} 교재검색 원격갱신 후 초기화`);
       report.push({ device: spec.device, test: "교재검색값 원격갱신5회", ok: true });
     }
+    if (spec.device === "PC") {
+      await page.getByRole("button", { name: "로그아웃" }).click();
+      await page.locator("#staffName").waitFor({ state: "visible", timeout: 10000 });
+      await page.locator("#staffName").fill(process.env.BOOKFLOW_USER);
+      await page.locator("#staffPin").fill(process.env.BOOKFLOW_PIN);
+      await page.getByRole("button", { name: "로그인" }).click();
+      await page.locator("#tabs [data-main-tab='학생']").waitFor({ state: "visible", timeout: 30000 });
+      const reloginTabs = await page.locator("#tabs [data-main-tab]").allTextContents();
+      assert.ok(reloginTabs.some(text => text.startsWith("퇴반대기")), "재로그인 후 퇴반대기 탭 없음");
+      assert.ok(!reloginTabs.some(text => text.startsWith("퇴반 확인")), "재로그인 후 구버전 퇴반 확인 탭 노출");
+      const moveExpected = await page.evaluate(() => ecodingEvents("MOVE").length);
+      const moveText = reloginTabs.find(text => text.startsWith("반이동")) || "";
+      assert.equal(Number(moveText.match(/\d+/)?.[0] || 0), moveExpected, "재로그인 후 반이동 숫자 불일치");
+      report.push({ device: spec.device, test: "로그아웃·재로그인 캐시 명단 제거", ok: true });
+    }
     await context.close();
   }
   console.log(JSON.stringify(report));

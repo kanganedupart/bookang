@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.13" />
+    <meta name="bookflow-build" content="2026-09-04.14" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.13";
+      const BOOKFLOW_BUILD = "2026-09-04.14";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -1188,7 +1188,7 @@
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
        let pendingRemoteState = null;
-       const BOOKFLOW_CACHE_VERSION = 2;
+       const BOOKFLOW_CACHE_VERSION = 3;
        const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV2";
        const BOOKFLOW_CACHE_DB = "bookflowFastOpenDB";
        function openFastCacheDb() {
@@ -1223,6 +1223,16 @@
          db.close();
          return value;
        }
+       async function clearFastOpenCacheDb() {
+         const db = await openFastCacheDb();
+         await new Promise((resolve, reject) => {
+           const tx = db.transaction("state", "readwrite");
+           tx.objectStore("state").delete(BOOKFLOW_CACHE_KEY);
+           tx.oncomplete = resolve;
+           tx.onerror = () => reject(tx.error);
+         });
+         db.close();
+       }
        let fastCacheSaveTimer = 0, fastCacheSaveBusy = false;
        function saveFastOpenCache(st) {
          clearTimeout(fastCacheSaveTimer);
@@ -1235,7 +1245,8 @@
            fastCacheSaveTimer = 0;
            const source = st === S ? st : S,
              cached = { version: BOOKFLOW_CACHE_VERSION, savedAt: Date.now(), data: {} };
-           for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
+           // 대기 사건과 업무 목록은 변동 자료이므로 브라우저 캐시에 저장하지 않는다.
+           for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles"])
              if (source?.[key] != null) cached.data[key] = source[key];
            // 큰 학생자료를 JSON 문자열로 동기 저장하면 타이핑이 멈출 수 있다.
            // IndexedDB 비동기 저장만 사용하고 직원 입력 중에는 실행하지 않는다.
@@ -1379,17 +1390,19 @@
         localStorage.removeItem("bookflowStaffRole");
         localStorage.removeItem("bookflowStaffLoginUntil");
       }
-      function staffLogout() {
+      async function staffLogout() {
         clearInterval(ecodingAutoSyncTimer);
         ecodingAutoSyncTimer = 0;
         clearSavedStaffLogin();
         localStorage.removeItem(BOOKFLOW_CACHE_KEY);
+        await clearFastOpenCacheDb().catch(() => {});
         actor = "";
         actorRole = "";
         renderActor();
         root.off("value");
         bookflowListenerStarted = false;
-        firebase.auth().signOut().finally(staffLoginScreen);
+        await firebase.auth().signOut().catch(() => {});
+        staffLoginScreen();
       }
       function render() {
         clearTimeout(changeTab.renderTimer);
