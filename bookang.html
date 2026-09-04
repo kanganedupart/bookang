@@ -1339,13 +1339,15 @@
           })[tab] || studentHub
         )();
         render.lastScrollScope = scrollScope;
+        if(preservedScroll){
+          const openDetails=new Set(preservedScroll.openDetails||[]);
+          [...document.querySelectorAll("#screen details")].forEach((node,index)=>{node.open=openDetails.has(index);});
+        }
         if(preservedScroll)requestAnimationFrame(()=>{
           [...document.querySelectorAll("#screen .list, #screen .scroll")].forEach((node,index)=>{
             const saved=preservedScroll.positions[index];
             if(saved){node.scrollLeft=saved.left;node.scrollTop=saved.top;}
           });
-          const openDetails=new Set(preservedScroll.openDetails||[]);
-          [...document.querySelectorAll("#screen details")].forEach((node,index)=>{node.open=openDetails.has(index);});
           window.scrollTo({left:preservedScroll.pageX,top:preservedScroll.pageY,behavior:"instant"});
         });
         requestAnimationFrame(activateAutomaticStudentSearches);
@@ -7230,6 +7232,13 @@
         if (sourceDate) return !startDate || sourceDate >= startDate ? sourceDate : "미제공";
         return detectedDate && (!startDate || detectedDate >= startDate) ? detectedDate : "미제공";
       }
+      function ecodingClassEntryDate(event, classId, source = ecodingEventSourceStudent(event)) {
+        const maps = S.ecodingClassMappings?.[event.periodId] || {},
+          externalClassId = Object.keys(maps).find((id) => maps[id]?.localClassId === classId),
+          rawClass = (source?.classes || []).find((item) => String(item?.id || "") === String(externalClassId || "")),
+          rawDate = rawClass?.entryDate || rawClass?.admissionDate || rawClass?.classAdmissionDate || source?.admissionDate || event.admissionDate || "";
+        return /^\d{4}-\d{2}-\d{2}/.test(String(rawDate)) ? String(rawDate).slice(0, 10) : "미제공";
+      }
       function ecodingEventDetail(event){
         const changed = ecodingChangedClassRows(event), source = ecodingEventSourceStudent(event),
           local = ecodingEventLocalStudent(event), currentIds = local?.periodClasses?.[event.periodId] || {},
@@ -7242,9 +7251,9 @@
           businessDate = ecodingEventBusinessDate(event, source),
           businessDateLabel = event.type === "NEW" ? "입학일" : "반 변경일";
         return `<div class="student-head"><div><h2>${esc(event.studentName)}</h2><span>${esc(deskPeriodName(event.periodId))}</span></div><span class="badge ${event.type === "NEW" ? "ok" : "warn"}">${esc(changeLabel)}</span></div>
-          <div class="receipt"><b>${businessDateLabel} · ${esc(businessDate)}</b>${businessDate === "미제공" ? "<small>이코딩에서 이번 반 변경 날짜를 확인할 수 없어 날짜를 임의로 표시하지 않습니다.</small>" : ""}</div>
+          ${event.type === "NEW" ? "" : `<div class="receipt"><b>${businessDateLabel} · ${esc(businessDate)}</b>${businessDate === "미제공" ? "<small>이코딩에서 이번 반 변경 날짜를 확인할 수 없어 날짜를 임의로 표시하지 않습니다.</small>" : ""}</div>`}
           <div class="receipt"><b>현재 교재 프로그램 상태</b><br>${event.type === "NEW" && !local ? "아직 입반 전" : currentMatchesBefore ? "이전 반 상태 · 아직 변경 전" : "현재 반정보가 대기자료와 달라 최종 반영 차단 대상"}<small>학생을 선택하거나 아래 미리보기를 눌러도 저장되지 않습니다.</small></div>
-          <h3>변경 전 반 → 변경 후 반</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>변경 전 반</th><th></th><th>변경 후 반</th></tr></thead><tbody>${changed.rows.map((row) => `<tr><td class="diff-before">${row.before ? esc(className(row.before)) : "기존 반 유지"}</td><td class="diff-arrow">→</td><td class="diff-after">${row.after ? esc(className(row.after)) : "해당 반 제외"}</td></tr>`).join("")}</tbody></table></div>
+          ${event.type === "NEW" ? `<h3>입반된 반</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>반</th><th>입반일</th></tr></thead><tbody>${Object.keys(event.afterClassIds || {}).map((classId) => `<tr><td class="diff-after">${esc(className(classId))}</td><td><b>${esc(ecodingClassEntryDate(event, classId, source))}</b></td></tr>`).join("") || '<tr><td colspan="2">입반된 반이 없습니다.</td></tr>'}</tbody></table></div>` : `<h3>변경 전 반 → 변경 후 반</h3><div class="scroll"><table class="class-diff-table"><thead><tr><th>변경 전 반</th><th></th><th>변경 후 반</th></tr></thead><tbody>${changed.rows.map((row) => `<tr><td class="diff-before">${row.before ? esc(className(row.before)) : "기존 반 유지"}</td><td class="diff-arrow">→</td><td class="diff-after">${row.after ? esc(className(row.after)) : "해당 반 제외"}</td></tr>`).join("")}</tbody></table></div>`}
           <h3>승인 후 최종 반 전체 · ${finalRows.length}개</h3><div class="scroll"><table><thead><tr><th>구분</th><th>과목</th><th>강사</th><th>반명</th></tr></thead><tbody>${finalRows.map((row) => `<tr><td><span class="badge ${row.changed ? "warn" : "ok"}">${row.changed ? (event.type === "NEW" ? "입반" : changed.removed.length ? "변경" : "추가") : "유지"}</span></td><td>${esc(row.cls?.subject || "미지정")}</td><td>${esc(row.cls?.teacher || "미지정")}</td><td><b>${esc(row.cls?.name || row.classId)}</b></td></tr>`).join("") || '<tr><td colspan="4">승인 후 반이 없습니다.</td></tr>'}</tbody></table></div>
           ${!previewOpen ? `<button class="btn" onclick="ecodingPreviewEventId='${event.id}';render()">현재 반·교재 확인</button>` : `<div class="receipt"><b>확인 화면 · 아직 저장되지 않음</b><small>반정보·교재·학생보유·재고·원장을 변경하지 않았습니다.</small></div><h3>교재 처리 예상</h3><div class="scroll"><table><thead><tr><th>이전 반 교재</th><th></th><th>현재 반 교재</th></tr></thead><tbody>${bookPreview.rows.map((row) => `<tr><td>${row.oldBid ? `${esc(S.books?.[row.oldBid]?.name || row.oldBid)}<small>${row.oldHeld ? `보유 ${row.oldHeld}권 · 회수 선택 가능` : "미배부 삭제 선택 가능"}</small>` : "해당 없음"}</td><td class="diff-arrow">→</td><td>${row.newBid ? `${esc(S.books?.[row.newBid]?.name || row.newBid)}<small>${row.newHeld ? `이미 보유 ${row.newHeld}권 · 그대로 유지` : "미배부 · 배부 선택 가능"}</small>` : "해당 없음"}</td></tr>`).join("")}</tbody></table></div><p class="muted">같은 교재 ${bookPreview.kept.length}종은 그대로 유지됩니다.</p><div class="receipt"><b>다음 단계</b><br>현재 반을 적용한 뒤 교재별로 배부·미배부 유지·회수·미배부 삭제를 선택합니다.<small>이 단계에서는 교재와 재고가 자동으로 바뀌지 않습니다.</small></div><div class="action-row"><button onclick="ecodingPreviewEventId='';render()">닫기</button><button class="danger-btn" onclick="requestApplyEcodingEvent('${event.id}')">현재 반 적용 후 교재 선택</button></div>`}`;
       }
