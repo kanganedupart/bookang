@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.10" />
+    <meta name="bookflow-build" content="2026-09-04.11" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.10";
+      const BOOKFLOW_BUILD = "2026-09-04.11";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -394,7 +394,11 @@
         window.studentQuery = input.value;
         window.statusStudentId = "";
         const box = document.getElementById("studentStatusAutoResults"),
+          detail = document.getElementById("studentStatusDetail"),
           query = studentSearchKey(input.value);
+        // 검색어가 바뀌는 즉시 직전에 선택한 학생 상세도 함께 지운다.
+        // 빈 검색창 아래 이전 학생이 남아 다른 학생을 자동 선택한 것처럼 보이면 안 된다.
+        if (detail) detail.innerHTML = "";
         if (!box) return;
         if (query.length < 2) {
           box.innerHTML = "";
@@ -8902,7 +8906,7 @@
 </div>`;
         }
         document.querySelector("#screen").innerHTML =
-          `<section class="panel student-status-panel"><div class="student-search-line"><strong>학생 조회</strong><input id="studentStatusSearch" value="${esc(q)}" placeholder="이름 두 글자 이상" autocomplete="off" oninput="handleStudentStatusSearch(this)" oncompositionend="handleStudentStatusSearch(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();confirmStudentSearch(this,'studentStatusAutoResults','status')}"></div><div id="studentStatusAutoResults" class="picker-results student-search-results">${studentSearchKey(q).length >= 2 && !s ? studentResultButtons(matches, "selectStatusStudent") : ""}</div>${detail}</section>`;
+          `<section class="panel student-status-panel"><div class="student-search-line"><strong>학생 조회</strong><input id="studentStatusSearch" value="${esc(q)}" placeholder="이름 두 글자 이상" autocomplete="off" oninput="handleStudentStatusSearch(this)" oncompositionend="handleStudentStatusSearch(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();confirmStudentSearch(this,'studentStatusAutoResults','status')}"></div><div id="studentStatusAutoResults" class="picker-results student-search-results">${studentSearchKey(q).length >= 2 && !s ? studentResultButtons(matches, "selectStatusStudent") : ""}</div><div id="studentStatusDetail">${detail}</div></section>`;
         requestAnimationFrame(() => {
           activateAutomaticStudentSearches();
           if (s) {

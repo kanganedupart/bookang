@@ -29,6 +29,12 @@ async function typeAndErase(locator, text, label) {
   const results = [];
 
   results.push(["학생명", await typeAndErase(page.locator("#studentStatusSearch"), "김서현", "학생명")]);
+  await page.locator("#studentStatusSearch").fill("김서현");
+  await page.locator("#studentStatusAutoResults button").first().click();
+  assert.ok((await page.locator("#studentStatusDetail").innerText()).trim(), "학생 선택 후 상세 없음");
+  await page.locator("#studentStatusSearch").fill("");
+  assert.equal((await page.locator("#studentStatusDetail").innerText()).trim(), "", "검색어 삭제 후 직전 학생 상세가 남음");
+  assert.equal(await page.evaluate(() => window.statusStudentId || ""), "", "검색어 삭제 후 학생 선택 상태가 남음");
 
   await page.locator("#tabs [data-main-tab='일괄처리']").click();
   await page.getByRole("button", { name: "교재", exact: true }).click();
