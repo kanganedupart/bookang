@@ -9281,7 +9281,7 @@
         render();
       }
       function refundTaskScreen() {
-        const status = window.refundStatus || "PENDING",
+        const status = window.refundStatus || "ALL",
           query = (window.refundQuery || "").trim().toLowerCase(),
           activeIds = deskPeriodIds(),
           periodFilter = window.refundPeriodFilter || "ACTIVE_ALL",
@@ -9354,6 +9354,11 @@
               };
             });
 document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반대기 <span class="badge ${rows.length ? "warn" : "ok"}">${rows.length}명</span></h2><p class="muted">한 목록에서 상태를 확인합니다. 교무부가 미배부 제외와 회수 여부를 확인한 뒤 퇴반완료하면, 남은 미배부 교재와 환불금액이 확정되고 실제반·공통반에서 모두 제외됩니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>처리 전 전체</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>퇴반완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => `<tr><td>${task.isExitReview ? `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>` : esc(task.exitDate || "-")}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b></td><td><b>${task.isExitReview ? "-" : `${task.refundBookCount}종`}</b></td><td><b>${task.isExitReview ? "-" : task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${!task.isExitReview && task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.isExitReview ? '<span class="badge warn">퇴반일 확인 필요</span>' : task.status !== "DONE" ? '<span class="badge warn">퇴반대기</span>' : '<span class="badge ok">퇴반완료</span>'}</td><td>${task.isExitReview ? '<span class="muted">이코딩 퇴반일 수신 대기</span>' : `<button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button>`}</td></tr>`).join("") || '<tr><td colspan="7">해당 퇴반 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+        const statusSelect = document.querySelector('select[onchange="refundStatus=this.value;refundTaskScreen()"]');
+        if (statusSelect) {
+          statusSelect.innerHTML = `<option value="ALL">전체</option><option value="PENDING">퇴반대기</option><option value="DONE">퇴반완료</option>`;
+          statusSelect.value = status;
+        }
       }
       function refundConfirmationSnapshot(state, task) {
         if (!task) return null;
@@ -9503,44 +9508,6 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         alert("퇴반완료했습니다. 실제반·공통반에서 제외하고 미배부 환불금액을 확정했습니다.");
         studentStatus();
       }
-      const studentStatusBeforeReenrollmentBadge = studentStatus;
-      studentStatus = function () {
-        studentStatusBeforeReenrollmentBadge();
-        const student = S.students?.[window.statusStudentId || ""],
-          task = student && refundTaskForStudent(student.id);
-        if (task?.status !== "CANCELLED") return;
-        const heading = document.querySelector("#studentDetail .student-head h2");
-        if (heading)
-          heading.insertAdjacentHTML(
-            "beforeend",
-            ' <span class="badge" style="background:#fff2cc;color:#7a5a00">재등록 종결</span>',
-          );
-      };
-      const refundTaskScreenBeforeCancelled = refundTaskScreen;
-      refundTaskScreen = function () {
-        refundTaskScreenBeforeCancelled();
-        const statusSelect = document.querySelector(
-          'select[onchange="refundStatus=this.value;refundTaskScreen()"]',
-        );
-        if (statusSelect && !statusSelect.querySelector('option[value="CANCELLED"]')) {
-          const option = document.createElement("option");
-          option.value = "CANCELLED";
-          option.textContent = "재등록 종결";
-          statusSelect.insertBefore(option, statusSelect.lastElementChild);
-          statusSelect.value = window.refundStatus || "PENDING";
-        }
-        for (const row of document.querySelectorAll("#screen tbody tr")) {
-          const onclick = row.querySelector("button")?.getAttribute("onclick") || "",
-            match = onclick.match(/openRefundStudent\('([^']+)'\s*,\s*'([^']*)'/);
-          if (!match) continue;
-          const task = arr(S.refundTasks).find(
-            (item) => item.studentId === match[1] && item.periodId === match[2],
-          );
-          if (task?.status === "CANCELLED")
-            row.cells[4].innerHTML =
-              '<span class="badge" style="background:#fff2cc;color:#7a5a00">재등록 종결</span>';
-        }
-      };
       function histApply() {
         const fromInput = document.getElementById("histFrom"),
           toInput = document.getElementById("histTo"),
