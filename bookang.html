@@ -1163,20 +1163,54 @@
       // Firebase root transactions may emit intermediate value events. Do not
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
-      let pendingRemoteState = null;
-      const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV1";
-      function saveFastOpenCache(st) {
-        try {
-          const cached = { savedAt: Date.now(), data: {} };
-          for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
-            if (st?.[key] != null) cached.data[key] = st[key];
-          localStorage.setItem(BOOKFLOW_CACHE_KEY, JSON.stringify(cached));
-        } catch (_) { localStorage.removeItem(BOOKFLOW_CACHE_KEY); }
-      }
-      function loadFastOpenCache() {
-        try {
-          const cached = JSON.parse(localStorage.getItem(BOOKFLOW_CACHE_KEY) || "null");
-          if (!cached?.data || Date.now() - Number(cached.savedAt || 0) > 86400000) return false;
+       let pendingRemoteState = null;
+       const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV1";
+       const BOOKFLOW_CACHE_DB = "bookflowFastOpenDB";
+       function openFastCacheDb() {
+         return new Promise((resolve, reject) => {
+           if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+           const request = indexedDB.open(BOOKFLOW_CACHE_DB, 1);
+           request.onupgradeneeded = () => {
+             if (!request.result.objectStoreNames.contains("state")) request.result.createObjectStore("state");
+           };
+           request.onsuccess = () => resolve(request.result);
+           request.onerror = () => reject(request.error);
+         });
+       }
+       async function saveFastOpenCacheDb(value) {
+         const db = await openFastCacheDb();
+         await new Promise((resolve, reject) => {
+           const tx = db.transaction("state", "readwrite");
+           tx.objectStore("state").put(value, BOOKFLOW_CACHE_KEY);
+           tx.oncomplete = resolve;
+           tx.onerror = () => reject(tx.error);
+         });
+         db.close();
+       }
+       async function loadFastOpenCacheDb() {
+         const db = await openFastCacheDb();
+         const value = await new Promise((resolve, reject) => {
+           const tx = db.transaction("state", "readonly");
+           const request = tx.objectStore("state").get(BOOKFLOW_CACHE_KEY);
+           request.onsuccess = () => resolve(request.result || null);
+           request.onerror = () => reject(request.error);
+         });
+         db.close();
+         return value;
+       }
+       function saveFastOpenCache(st) {
+         const cached = { savedAt: Date.now(), data: {} };
+         for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
+           if (st?.[key] != null) cached.data[key] = st[key];
+         saveFastOpenCacheDb(cached).catch(() => {});
+         try {
+           localStorage.setItem(BOOKFLOW_CACHE_KEY, JSON.stringify(cached));
+         } catch (_) { localStorage.removeItem(BOOKFLOW_CACHE_KEY); }
+       }
+       async function loadFastOpenCache() {
+         try {
+           const cached = await loadFastOpenCacheDb().catch(() => JSON.parse(localStorage.getItem(BOOKFLOW_CACHE_KEY) || "null"));
+           if (!cached?.data || Date.now() - Number(cached.savedAt || 0) > 86400000) return false;
           S = { ...S, ...cached.data };
           resetDerivedState();
           renderActor();
@@ -1254,9 +1288,9 @@
           },
         );
       }
-      firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-      firebase.auth().onAuthStateChanged((user) => {
-        if (user) { if (actor) loadFastOpenCache(); connectBookflowData(); }
+       firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+       firebase.auth().onAuthStateChanged(async (user) => {
+         if (user) { if (actor) await loadFastOpenCache(); connectBookflowData(); }
         else staffLoginScreen();
       });
       function staffLoginScreen() {
