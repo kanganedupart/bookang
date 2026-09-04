@@ -8,7 +8,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
     <style>
       :root{--page:#f4f6f9;--paper:#fff;--ink:#1a2430;--ink2:#4d5b6a;--ink3:#7b8794;--muted:#6b7783;--line:#e5e9ef;--line2:#d7dde5;--field:#cdd5df;--blue:#1f5fa8;--blue-dark:#174d8c;--blue-soft:#e8f1fc;--go:#2f7d5a;--go-dark:#26684a;--bad:#b3382d;--bad-soft:#fdf0ee;--warn:#8a6100;--warn-soft:#fdf3d7}
       *{box-sizing:border-box}
@@ -149,6 +148,18 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
+      let xlsxLoadPromise = null;
+      function ensureXlsx() {
+        if (window.XLSX) return Promise.resolve(window.XLSX);
+        if (!xlsxLoadPromise) xlsxLoadPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js";
+          script.onload = () => resolve(window.XLSX);
+          script.onerror = () => { xlsxLoadPromise = null; reject(new Error("엑셀 기능을 불러오지 못했습니다.")); };
+          document.head.appendChild(script);
+        });
+        return xlsxLoadPromise;
+      }
       // 로컬 테스트와 GitHub 운영 화면이 같은 자료를 사용한다.
       // 실전 전환 시 코드를 바꾸지 않고 이 저장소 안에 새 대상을 만든다.
       // Production always uses the canonical dataset.  A separate dataset may
@@ -6540,7 +6551,8 @@
         styleStockSheet(ws, rows, widths, options);
         XLSX.utils.book_append_sheet(wb, ws, name);
       }
-      function downloadStock(scope = "all") {
+      async function downloadStock(scope = "all") {
+        await ensureXlsx();
         const subject = window.invSubject || "전체",
           teacher = window.invTeacher || "전체",
           state = window.invState || "전체",
@@ -7905,6 +7917,7 @@
         return applyEcodingEventBeforeManualExitLock(eventId);
       };
       async function sheet(file) {
+        await ensureXlsx();
         const wb = XLSX.read(await file.arrayBuffer());
         return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
           defval: "",
