@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.14" />
+    <meta name="bookflow-build" content="2026-09-04.15" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.14";
+      const BOOKFLOW_BUILD = "2026-09-04.15";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -171,7 +171,7 @@
       const localDataset = new URLSearchParams(location.search).get("dataset");
       const dataset = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && localDataset
         ? localDataset
-        : "bookflowLiteValidation700";
+        : "bookflowOperational20260904V1";
       const root = firebase.database().ref(dataset);
       let S = { books: {}, classes: {}, students: {}, movements: {} },
         tab = "학생",
@@ -1188,8 +1188,8 @@
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
        let pendingRemoteState = null;
-       const BOOKFLOW_CACHE_VERSION = 3;
-       const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV2";
+       const BOOKFLOW_CACHE_VERSION = 4;
+       const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV3";
        const BOOKFLOW_CACHE_DB = "bookflowFastOpenDB";
        function openFastCacheDb() {
          return new Promise((resolve, reject) => {
@@ -7859,6 +7859,8 @@
               }
               delete st.ecodingAbsenceCandidates[pid][externalId];
               if (!type) continue;
+              // 반변경은 서버 transaction 시점에도 동일 날짜 근거가 없으면 저장하지 않는다.
+              if (type === "MOVE" && !/^\d{4}-\d{2}-\d{2}$/.test(String(desired.moveBusinessDate || ""))) continue;
               if (arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
                 event, pid, externalId, type, eventBeforeClassIds, next.classIds,
               ))) continue;
@@ -7870,6 +7872,8 @@
                   externalStudentId: externalId, studentName: next.name,
                   beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
                   admissionDate: next.admissionDate || "", moveDetectedDate:desired.moveBusinessDate||"", createdAt: now(),
+                  writerBuild: BOOKFLOW_BUILD, writerRuleVersion: "SAME_DAY_MOVE_V1",
+                  trigger: silent ? "AUTO" : "MANUAL", sourceSyncedAt: fresh.syncedAt || "", createdBy: actor || "",
                 };
                 counts[type]++;
               }
