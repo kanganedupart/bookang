@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.11" />
+    <meta name="bookflow-build" content="2026-09-04.12" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -115,7 +115,7 @@
       @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(320px,1.4fr) minmax(190px,.8fr) 70px 86px}.student-status-panel .student-table{min-width:0}.student-status-panel .scroll{overflow-x:hidden}}
       /* 2026-08 batch usability: fit wide staff tables without removing fallback scroll. */
       .catalog-class-row,.catalog-class-row label,.catalog-class-row input,.catalog-class-row select{min-width:0}
-      .catalog-status-line{flex-wrap:wrap}
+      .catalog-status-line{flex-wrap:nowrap!important}.catalog-status-line select{width:112px;min-width:112px;max-width:112px}.catalog-table th:nth-child(8),.catalog-table td:nth-child(8){width:210px}
       tr.book-picker-selected>td{background:#eaf3ff!important;box-shadow:inset 0 1px #9fc5f8,inset 0 -1px #9fc5f8}
       .condition-book-picker{position:relative}.condition-book-picker .picker-results{left:0;right:0;min-width:240px}
       @media(max-width:720px){.catalog-class-row,.catalog-book-row{grid-template-columns:1fr}.catalog-class-row button,.catalog-book-row button{width:100%}}
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.11";
+      const BOOKFLOW_BUILD = "2026-09-04.12";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -194,20 +194,6 @@
         document.querySelector("#actor").innerHTML = actor
           ? `<span class="build-badge">v${BOOKFLOW_BUILD}</span><b>${esc(actor)}</b><button class="${tab === "관리" ? "settings-on" : ""}" onclick="changeTab('관리')" title="관리">⚙ 관리</button><button onclick="staffLogout()">로그아웃</button>`
           : "직원 로그인 필요";
-      }
-      let buildCheckAt = 0, buildMismatchShown = false;
-      async function checkCurrentBuild() {
-        if (buildMismatchShown || Date.now() - buildCheckAt < 60000) return;
-        buildCheckAt = Date.now();
-        try {
-          const response = await fetch(`${location.pathname}?buildCheck=${Date.now()}`, { cache: "no-store" });
-          if (!response.ok) return;
-          const html = await response.text(), match = html.match(/<meta name="bookflow-build" content="([^"]+)"/);
-          if (!match || match[1] === BOOKFLOW_BUILD) return;
-          buildMismatchShown = true;
-          const host = document.querySelector("#appDialogHost");
-          if (host) host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="alertdialog" aria-modal="true"><h2>새 버전 적용 필요</h2><div class="app-dialog-message">현재 화면은 구버전입니다. 최신 자료와 화면을 적용한 뒤 계속해 주세요.</div><div class="app-dialog-actions"><button class="confirm-button" onclick="location.replace(location.pathname+'?v='+Date.now())">최신 버전 열기</button></div></section></div>`;
-        } catch (_) {}
       }
       function esc(v) {
         return String(v ?? "").replace(
@@ -8030,12 +8016,10 @@
       }
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden) {
-          checkCurrentBuild();
           scheduleEcodingForegroundSync();
         }
       });
       window.addEventListener("focus", () => {
-        checkCurrentBuild();
         scheduleEcodingForegroundSync();
       });
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
