@@ -2060,7 +2060,6 @@
           window[options.queryKey] = item.name;
           item.row.classList.add("book-picker-selected");
           host.innerHTML = "";
-          item.row.scrollIntoView({ block: "nearest", behavior: "smooth" });
           options.choose?.(item);
         };
         const show = () => {
@@ -2092,7 +2091,6 @@
           choiceKey:"bookManageChoice", queryKey:"bookManageQuery",
           info:(row)=>{const match=String(row.querySelector("button[onclick^='showBookClassDetail']")?.getAttribute("onclick")||"").match(/'([^']+)'/);return match?{id:match[1],name:row.querySelector("td:nth-child(3) b")?.textContent||"",meta:[row.children[0]?.textContent,row.children[1]?.textContent].filter(Boolean).join(" · "),row}:null;},
           clear:()=>{window.bookManageDetail="";},
-          choose:(item)=>item.row.querySelector("button[onclick^='showBookClassDetail']")?.focus(),
           filter:(value)=>{const q=String(value||"").trim().toLocaleLowerCase("ko");for(const row of catalogSection?.querySelectorAll("tbody tr")||[])row.style.display=!q||(row.querySelector("td:nth-child(3)")?.textContent||"").toLocaleLowerCase("ko").includes(q)?"":"none";},
         });
         if (catalogSection) for (const select of catalogSection.querySelectorAll(".catalog-filter select")) select.addEventListener("change",()=>{window.bookManageQuery="";window.bookManageChoice="";window.bookManageDetail="";},{capture:true,once:true});
@@ -2100,7 +2098,7 @@
         conditionBookPicker(inventoryInput,()=>[...document.querySelectorAll("#inventoryRows tr")],{
           choiceKey:"inventoryBookChoice",queryKey:"invQuery",
           info:(row)=>{const match=String(row.querySelector("button[onclick^='audit']")?.getAttribute("onclick")||"").match(/'([^']+)'/);return match?{id:match[1],name:row.children[2]?.textContent||"",meta:[row.children[0]?.textContent,row.children[1]?.textContent].filter(Boolean).join(" · "),row}:null;},
-          clear:()=>{window.inventoryBookDetail="";},choose:(item)=>item.row.querySelector("input")?.focus(),filter:filterInventoryRows,
+          clear:()=>{window.inventoryBookDetail="";},filter:filterInventoryRows,
         });
         if(inventoryInput)for(const select of document.querySelectorAll(".inventory-filter select"))select.addEventListener("change",()=>{window.invQuery="";window.inventoryBookChoice="";window.inventoryBookDetail="";},{capture:true,once:true});
         const studentStatusInput=document.getElementById("studentBookQuery");
@@ -2108,7 +2106,6 @@
           choiceKey:"studentBookChoice",queryKey:"studentBookQuery",
           info:(row)=>({id:row.dataset.bookId,name:row.dataset.book||"",meta:[row.dataset.subject,row.dataset.state==="HELD"?"배부":"미배부"].filter(Boolean).join(" · "),row}),
           clear:()=>{window.studentBookDetail="";},
-          choose:(item)=>item.row.focus(),
           filter:()=>syncStudentBookFilters("query"),
         });
       }
