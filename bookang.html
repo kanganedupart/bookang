@@ -4796,7 +4796,7 @@
         return bookDistributionStateLabel(book) === state;
       }
       function catalogBookCandidates(value) {
-        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
+        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "현재 미배부 반영", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
         return arr(S.books).filter((book) => relevant.has(book.id) && (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && catalogBookMatchesState(book,state) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
@@ -4978,7 +4978,7 @@
             <label>연결 유형<select id="newClassType" onchange="setClassConnectionType()"><option value="GENERAL">일반반</option><option value="COMMON">공통반</option></select></label>
             ${managedComboField("newClassSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newClassTeacher","강사",teachersAll,"선택하거나 입력")}
-            <label>반명<div class="managed-combo"><input id="newClassName" autocomplete="off" placeholder="반명 일부 입력 후 실제 반 선택" onfocus="showExistingClassPicker()" oninput="syncClassCandidate();showExistingClassPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassNameResults');if(b)b.innerHTML=''},160)"><div id="newClassNameResults" class="picker-results"></div></div></label>
+            <label>반명<div class="managed-combo"><input id="newClassName" autocomplete="off" title="선택한 반명 전체 확인" placeholder="반명 일부 입력 후 실제 반 선택" onfocus="showExistingClassPicker()" oninput="syncClassCandidate();showExistingClassPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassNameResults');if(b)b.innerHTML=''},160)"><div id="newClassNameResults" class="picker-results"></div></div></label>
             <label>매칭 교재<div class="managed-combo"><input id="newClassBookSearch" autocomplete="off" placeholder="교재명 검색" onfocus="showClassBookPicker()" oninput="showClassBookPicker()" onblur="setTimeout(()=>{const b=document.getElementById('newClassBookResults');if(b)b.innerHTML=''},160)"><div id="newClassBookResults" class="picker-results"></div></div></label>
             <button onclick="addClassBook()">추가</button>
             <button class="btn" onclick="createClass()">저장</button>
@@ -5458,7 +5458,7 @@
           S=r.snapshot.val();
           window.bookManageSubject=subject;
           window.bookManageTeacher=teacher;
-          window.bookManageState="배부 가능";
+          window.bookManageState="현재 미배부 반영";
           window.bookManagePriceState="전체";
           window.bookManageQuery=name;
           window.bookManageDraftQuery=name;

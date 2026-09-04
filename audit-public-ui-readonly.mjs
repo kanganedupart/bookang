@@ -1,0 +1,78 @@
+import { chromium } from "playwright";
+
+const url = "https://kanganedupart.github.io/bookang/bookang.html";
+const user = process.env.BOOKANG_AUDIT_USER;
+const pin = process.env.BOOKANG_AUDIT_PIN;
+if (!user || !pin) throw new Error("audit credentials missing");
+
+const browser = await chromium.launch({ headless: true, executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe" });
+const results = [];
+for (const viewport of [{ name: "pc", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  const consoleErrors = [];
+  page.on("pageerror", error => consoleErrors.push(String(error)));
+  const started = Date.now();
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.locator("#staffName").fill(user);
+  await page.locator("#staffPin").fill(pin);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.locator("[data-main-tab]").first().waitFor({ timeout: 60000 });
+  const interactiveMs = Date.now() - started;
+  const tabResults = [];
+  const names = await page.locator("[data-main-tab]").evaluateAll(nodes => nodes.map(n => n.dataset.mainTab));
+  for (const name of names) {
+    const t = Date.now();
+    await page.locator(`[data-main-tab="${name}"]`).click({ timeout: 10000 });
+    await page.waitForFunction(n => document.querySelector(`[data-main-tab="${n}"]`)?.classList.contains("on"), name);
+    tabResults.push({ name, ms: Date.now() - t, screen: (await page.locator("#screen").innerText()).slice(0, 80) });
+  }
+  await page.locator('[data-main-tab="학생"]').click();
+  await page.locator("#studentStatusSearch").fill("강연웅");
+  await page.waitForTimeout(350);
+  const candidate = page.locator("#studentStatusAutoResults button", { hasText: "강연웅" }).first();
+  await candidate.waitFor({ timeout: 10000 });
+  const studentClickAt = Date.now();
+  await candidate.click();
+  await page.getByRole("heading", { name: /강연웅/ }).waitFor();
+  const studentClickMs = Date.now() - studentClickAt;
+  const moveClickAt = Date.now();
+  await page.getByRole("button", { name: "반 관리", exact: true }).click();
+  await page.getByRole("heading", { name: "반변경", exact: true }).waitFor();
+  const moveClickMs = Date.now() - moveClickAt;
+  const details = page.locator("details", { hasText: "현재 반 펼쳐보기" }).first();
+  await details.locator("summary").click();
+  const before = await page.evaluate(() => ({ open: [...document.querySelectorAll("#screen details")].find(d => d.textContent.includes("현재 반 펼쳐보기"))?.open, y: scrollY }));
+  await page.evaluate(async () => { for (let i = 0; i < 10; i++) { scheduleRemoteRender(); await new Promise(r => setTimeout(r, 160)); } });
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(() => ({ open: [...document.querySelectorAll("#screen details")].find(d => d.textContent.includes("현재 반 펼쳐보기"))?.open, y: scrollY, tab, view: studentHubView, value: document.querySelector("#screen input")?.value || "" }));
+  await page.getByRole("button", { name: "현황", exact: true }).click();
+  await page.locator("#studentBookSubject").waitFor();
+  const studentSubject = await page.locator("#studentBookSubject option").evaluateAll(xs => xs.find(x => x.value)?.value || "");
+  if (studentSubject) await page.locator("#studentBookSubject").selectOption(studentSubject);
+  const heldExists = await page.locator('#studentBookState option[value="HELD"]').count();
+  if (heldExists) await page.locator("#studentBookState").selectOption("HELD");
+  await page.locator("#studentBookQuery").fill("국");
+  const studentFilterBefore = await page.evaluate(() => ({ subject: studentBookSubject.value, state: studentBookState.value, query: studentBookQuery.value }));
+  await page.evaluate(() => scheduleRemoteRender()); await page.waitForTimeout(350);
+  const studentFilterAfter = await page.evaluate(() => ({ subject: studentBookSubject.value, state: studentBookState.value, query: studentBookQuery.value, focus: document.activeElement?.id || "" }));
+  await page.locator('[data-main-tab="재고"]').click();
+  await page.getByRole("button", { name: "재고실사", exact: true }).click();
+  const invSubjectSelect = page.locator(".inventory-filter select").first();
+  const invSubject = await invSubjectSelect.locator("option").evaluateAll(xs => xs.find(x => x.value && x.value !== "전체")?.value || "");
+  if (invSubject) await invSubjectSelect.selectOption(invSubject);
+  const invSearch = page.locator('label', { hasText: "교재명 검색" }).locator("input").first();
+  await invSearch.fill("국");
+  const inventoryBefore = { subject: await invSubjectSelect.inputValue(), query: await invSearch.inputValue() };
+  await page.evaluate(() => scheduleRemoteRender()); await page.waitForTimeout(350);
+  const inventoryAfter = { subject: await page.locator(".inventory-filter select").first().inputValue(), query: await page.locator('label', { hasText: "교재명 검색" }).locator("input").first().inputValue(), focus: await page.evaluate(() => document.activeElement?.id || "") };
+  await page.locator('[data-main-tab="학생"]').click();
+  const abaStudent = await page.evaluate(() => ({ tab, view: studentHubView, id: statusStudentId || "", query: studentQuery || "" }));
+  await page.locator('[data-main-tab="재고"]').click();
+  await page.getByRole("button", { name: "재고실사", exact: true }).click();
+  const abaInventory = { subject: await page.locator(".inventory-filter select").first().inputValue(), query: await page.locator('label', { hasText: "교재명 검색" }).locator("input").first().inputValue() };
+  results.push({ viewport: viewport.name, interactiveMs, tabResults, studentClickMs, moveClickMs, before, after, studentFilterBefore, studentFilterAfter, inventoryBefore, inventoryAfter, abaStudent, abaInventory, consoleErrors });
+  await context.close();
+}
+await browser.close();
+console.log(JSON.stringify(results, null, 2));
