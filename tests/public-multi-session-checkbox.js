@@ -30,12 +30,12 @@ async function runSession(browser, index, viewport) {
   const before = await first.isChecked();
   await first.click();
   assert.equal(await first.isChecked(), !before, `세션 ${index}: 클릭 상태 미변경`);
-  await page.waitForTimeout(35000);
-  assert.equal(await first.isChecked(), !before, `세션 ${index}: 35초 후 선택 초기화`);
+  await page.waitForTimeout(70000);
+  assert.equal(await first.isChecked(), !before, `세션 ${index}: 70초 후 선택 초기화`);
   const stillSizes = await checks.evaluateAll(nodes => nodes.map(node => [getComputedStyle(node).width, getComputedStyle(node).height]));
   assert.ok(stillSizes.every(size => size[0] === "18px" && size[1] === "18px"), `세션 ${index}: 대기 후 크기 불일치`);
   await context.close();
-  return { index, viewport, count, retainedForSeconds: 35 };
+  return { index, viewport, count, retainedForSeconds: 70 };
 }
 
 (async () => {

@@ -696,7 +696,7 @@
             (book) =>
               book &&
               !studentBookIsExcluded(S, sid, book.id) &&
-              ((!bookDistributionIsClosed(book) && !bookDistributionIsScheduled(book)) || held(sid, book.id) > 0),
+              (!bookDistributionIsClosed(book) || held(sid, book.id) > 0),
           );
       }
       function withdrawalBooks(sid) {
@@ -1222,30 +1222,10 @@
       function scheduleRemoteRender() {
         clearTimeout(remoteRenderTimer);
         cancelAnimationFrame(remoteRenderFrame);
-          remoteRenderTimer = setTimeout(() => {
-            remoteRenderTimer = 0;
-            if (Date.now() < userInteractionUntil) {
-              remoteRenderTimer = setTimeout(scheduleRemoteRender, Math.max(120, userInteractionUntil - Date.now()));
-              return;
-            }
-            remoteRenderFrame = requestAnimationFrame(() => {
-            remoteRenderFrame = 0;
-            const catalogSearch=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input"), preserveCatalogFocus=document.activeElement===catalogSearch&&catalogSearch?{value:catalogSearch.value,start:catalogSearch.selectionStart,end:catalogSearch.selectionEnd,composing:catalogSearch.dataset.composing==="1"}:null;
-            if(preserveCatalogFocus && (preserveCatalogFocus.composing || Date.now()-catalogRemoteLastInputAt<800)){
-              if(catalogSearch.dataset.remoteRenderPending!=="1"){
-                catalogSearch.dataset.remoteRenderPending="1";
-                catalogSearch.addEventListener("blur",()=>{if(catalogSearch.dataset.remoteRenderPending==="1"){catalogSearch.dataset.remoteRenderPending="";scheduleRemoteRender();}},{once:true});
-              }
-              clearTimeout(remoteRenderTimer);
-              remoteRenderTimer=setTimeout(scheduleRemoteRender,preserveCatalogFocus.composing?250:Math.max(100,800-(Date.now()-catalogRemoteLastInputAt)));
-              return;
-            }
-            if(catalogSearch)catalogSearch.dataset.remoteRenderPending="";
-            renderActor();
-            actor ? render() : staffLoginScreen();
-            if(preserveCatalogFocus)requestAnimationFrame(()=>{const next=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(next){next.value=preserveCatalogFocus.value;window.bookManageDraftQuery=preserveCatalogFocus.value;showCatalogBookPicker(preserveCatalogFocus.value);next.focus({preventScroll:true});next.setSelectionRange(preserveCatalogFocus.start,preserveCatalogFocus.end);}});
-          });
-        }, 120);
+        remoteRenderTimer = 0;
+        remoteRenderFrame = 0;
+        // 다른 PC와 1분 자동연동의 최신 자료는 S에 즉시 반영한다.
+        // 현재 직원이 보고 있는 DOM은 다시 만들지 않고 다음 명시적 클릭에서 표시한다.
       }
       function connectBookflowData() {
         if (bookflowListenerStarted) return;
@@ -1625,15 +1605,12 @@
         const endDate = String(book.distributionEndDate || "").trim();
         return !!endDate && endDate <= dateKey;
       }
-      function bookDistributionIsScheduled(book) {
-        return !!book && book.distributionStatus === "SCHEDULED";
-      }
       function bookDistributionState(book) {
         if (bookDistributionIsClosed(book)) return "CLOSED";
-        return bookDistributionIsScheduled(book) ? "SCHEDULED" : "ACTIVE";
+        return "ACTIVE";
       }
       function bookDistributionStateLabel(book) {
-        return ({ ACTIVE: "현재 미배부 반영", SCHEDULED: "다음 달 예정", CLOSED: "배부 종료" })[bookDistributionState(book)];
+        return ({ ACTIVE: "배부 가능", CLOSED: "배부 종료" })[bookDistributionState(book)];
       }
       function periodRefundEffectiveStartDate(st, pid) {
         const period = st?.periods?.[pid];
@@ -1990,8 +1967,8 @@
         return !!(
           b &&
           b.active !== false &&
+          bookPriceValue(b) != null &&
           !bookDistributionIsClosed(b) &&
-          !bookDistributionIsScheduled(b) &&
           s?.active !== false &&
           !s.pendingReturn &&
           activePeriodClassIds(st, sid, pid).some(
@@ -2056,8 +2033,8 @@
         let reason = "";
         if (bookDistributionIsClosed(p.book))
           reason = "이 교재는 배부 종료 상태입니다.";
-        else if (bookDistributionIsScheduled(p.book))
-          reason = "이 교재는 다음 달 예정 상태로 현재 미배부에 반영되지 않습니다.";
+        else if (bookPriceValue(p.book) == null)
+          reason = "교재비가 등록되지 않아 현재 미배부에 반영되지 않습니다.";
         else if (!p.classCount)
           reason = "이 교재가 매칭된 운영반이 없습니다.";
         else if (!p.total)
@@ -2544,7 +2521,7 @@
                 (b) =>
                   b.active !== false &&
                   !bookDistributionIsClosed(b) &&
-                  !bookDistributionIsScheduled(b) &&
+                  bookPriceValue(b) != null &&
                   held(studentId, b.id) === 0,
               ),
           rows = books.map((b) => {
@@ -2609,7 +2586,7 @@
             continue;
           for (const bid of assignedBooksIn(st, sid)) {
             const book = st.books?.[bid];
-            if (!book || book.active === false || bookDistributionIsClosed(book) || bookDistributionIsScheduled(book))
+            if (!book || book.active === false || bookPriceValue(book) == null || bookDistributionIsClosed(book))
               continue;
             if (Number(s.holdings?.[bid] || 0) > 0) continue;
             (byBook[bid] ||= []).push(sid);
@@ -3094,7 +3071,7 @@
         return arr(c.books)
           .map((bid) => {
             const b = st.books?.[bid];
-            if (!b || b.active === false || bookDistributionIsClosed(b) || bookDistributionIsScheduled(b))
+            if (!b || b.active === false || bookPriceValue(b) == null || bookDistributionIsClosed(b))
               return null;
             const eligibleStudents = students.filter(
                 (s) => !studentBookIsExcluded(st, s.id, bid, c.periodId || selectedPeriodId()),
@@ -3408,7 +3385,7 @@
       }
       function bookBulkPlan(st, bid) {
         const b = st.books?.[bid];
-        if (!b || b.active === false || bookDistributionIsClosed(b) || bookDistributionIsScheduled(b))
+        if (!b || b.active === false || bookPriceValue(b) == null || bookDistributionIsClosed(b))
           return null;
         const ids = arr(st.students)
           .filter(
@@ -3438,7 +3415,7 @@
       function academyBulkPlanUncached(st) {
         const pid = selectedPeriodId() || st.currentPeriodId,
           activeBooks = arr(st.books).filter(
-            (b) => b.active !== false && !bookDistributionIsClosed(b) && !bookDistributionIsScheduled(b),
+            (b) => b.active !== false && bookPriceValue(b) != null && !bookDistributionIsClosed(b),
           ),
           activeBookIds = new Set(activeBooks.map((b) => b.id)),
           classBooks = new Map();
@@ -4847,7 +4824,7 @@
         return bookDistributionStateLabel(book) === state;
       }
       function catalogBookCandidates(value) {
-        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "현재 미배부 반영", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
+        const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
         return arr(S.books).filter((book) => relevant.has(book.id) && (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && catalogBookMatchesState(book,state) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
@@ -4969,7 +4946,7 @@
           relevant = periodBookIds();
         if (!subject || !teacher) return [];
         return arr(S.books).filter((book)=>{
-          if (!relevant.has(book.id) || book.active === false || bookDistributionIsClosed(book))
+          if (!relevant.has(book.id) || book.active === false || bookPriceValue(book) == null || bookDistributionIsClosed(book))
             return false;
           const subjectOk = book.subject === subject;
           const teacherName = book.teacher || "학원 공통";
@@ -5008,7 +4985,7 @@
           bookTeachers = orderedTeachers(allBooks.filter((b)=>bookSubject === "전체" || b.subject === bookSubject).map((b)=>b.teacher || "학원 공통")),
           bookTeacher = bookTeachers.includes(window.bookManageTeacher) ? window.bookManageTeacher : "전체",
           bookQuery = String(window.bookManageQuery || "").trim().toLocaleLowerCase("ko"),
-          bookState = window.bookManageState || "현재 미배부 반영",
+          bookState = window.bookManageState || "배부 가능",
           bookPriceState = window.bookManagePriceState || "전체",
           shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && catalogBookMatchesState(b,bookState) && (bookPriceState === "전체" || bookPriceValue(b) == null)),
           classSubject = window.classManageSubject || "전체",
@@ -5022,7 +4999,7 @@
             ${managedComboField("newBookSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newBookTeacher","강사",teachersAll,"선택하거나 입력")}
             <label>교재명<input id="newBookName" placeholder="연도·차수를 포함해 입력"></label>
-            <label>교재비<input id="newBookPrice" type="number" min="0" step="1" placeholder="미입력 가능"></label>
+            <label>교재비<input id="newBookPrice" type="number" min="0" step="1" placeholder="필수 입력"></label>
             <button class="btn" onclick="createBook()">저장</button>
           </div></section>
           <section class="panel catalog-step"><div class="catalog-step-head"><b>2</b><h2>새 반 등록·교재 매칭</h2></div><div class="catalog-class-row">
@@ -5037,7 +5014,7 @@
           <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';bookManageQuery='';bookManageDraftQuery='';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input value="${esc(window.bookManageDraftQuery ?? window.bookManageQuery ?? "")}" placeholder="교재명 일부 입력 시 전체 결과 표시" onfocus="showCatalogBookPicker(this.value)" oninput="filterCatalogBookRows(this.value)" onkeydown="confirmCatalogBookSearch(event)" onblur="setTimeout(()=>{const b=document.getElementById('bookManageResults');if(b)b.innerHTML=''},160)"><div id="bookManageResults" class="picker-results"></div></div></label></div><p class="muted" id="catalogBookCount">검색 결과 ${shownBooks.length}종 / 전체 ${allBooks.length}종</p><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th><th>교재 관리</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td><button onclick="showBookClassDetail('${b.id}')">${mapped}</button></td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td></td><td></td></tr>`}).join("") || '<tr><td colspan="9">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
         const stateFilter = [...document.querySelectorAll(".catalog-filter label")].find((label) => label.firstChild?.textContent?.trim() === "상태")?.querySelector("select");
-        if (stateFilter) stateFilter.innerHTML = ["현재 미배부 반영","다음 달 예정","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("");
+        if (stateFilter) stateFilter.innerHTML = ["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("");
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
           "#screen > section:nth-of-type(4) tbody tr",
@@ -5048,7 +5025,7 @@
           const statusCell = row?.children[7], manageCell = row?.children[8];
           if (!statusCell || !manageCell) return;
           const state = bookDistributionState(book);
-          statusCell.innerHTML = `<div class="catalog-status-line"><select id="bookState_${book.id}" aria-label="교재 반영 상태"><option value="ACTIVE" ${state === "ACTIVE" ? "selected" : ""}>현재 미배부 반영</option><option value="SCHEDULED" ${state === "SCHEDULED" ? "selected" : ""}>다음 달 예정</option><option value="CLOSED" ${state === "CLOSED" ? "selected" : ""}>배부 종료</option></select><button onclick="saveBookDistributionState('${book.id}')">저장</button></div>`;
+          statusCell.innerHTML = `<div class="catalog-status-line"><select id="bookState_${book.id}" aria-label="교재 반영 상태"><option value="ACTIVE" ${state === "ACTIVE" ? "selected" : ""}>배부 가능</option><option value="CLOSED" ${state === "CLOSED" ? "selected" : ""}>배부 종료</option></select><button onclick="saveBookDistributionState('${book.id}')">저장</button></div>`;
           const unused = unusedBookBlockers(S, book.id).length === 0;
           manageCell.innerHTML = unused ? `<div class="row-actions"><button onclick="editUnusedBook('${book.id}')">수정</button><button onclick="deleteUnusedBook('${book.id}')">삭제</button></div>` : '<span class="muted">사용 중</span>';
           if (window.bookManageChoice === book.id) row.classList.add("book-picker-selected");
@@ -5359,7 +5336,7 @@
                   .includes(query)),
           );
         document.querySelector("#screen").innerHTML =
-          `<datalist id="bookSubjectOptions">${subjects.map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><datalist id="bookTeacherOptions">${uniq(allBooks.map((b) => b.teacher || "학원 공통")).map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><section class="panel"><h2>교재 등록·교재비</h2><div class="filter-row"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';bookManageQuery='';bookManagement()"><option>전체</option>${subjects.map((x) => `<option ${x === selectedSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;bookManageQuery='';bookManagement()"><option>전체</option>${teachers.map((x) => `<option ${x === selectedTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;filterBookManagementRows(this.value)"></label></div><div class="create-box book-create-row"><label>과목<input id="newBookSubject" list="bookSubjectOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>강사<input id="newBookTeacher" list="bookTeacherOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>교재명<input id="newBookName" placeholder="연도·차수를 포함해 구분"></label><label>교재비<input id="newBookPrice" type="number" min="0" step="1" placeholder="미입력 가능"></label><button class="btn" onclick="createBook()">새 교재 저장</button></div><p class="muted">교재비는 재고수량과 분리됩니다. 빈칸은 금액 미등록이며 나중에 수정할 수 있습니다.</p><div class="scroll"><table><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody id="bookManageRows">${books
+          `<datalist id="bookSubjectOptions">${subjects.map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><datalist id="bookTeacherOptions">${uniq(allBooks.map((b) => b.teacher || "학원 공통")).map((x) => `<option value="${esc(x)}"></option>`).join("")}</datalist><section class="panel"><h2>교재 등록·교재비</h2><div class="filter-row"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';bookManageQuery='';bookManagement()"><option>전체</option>${subjects.map((x) => `<option ${x === selectedSubject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;bookManageQuery='';bookManagement()"><option>전체</option>${teachers.map((x) => `<option ${x === selectedTeacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재검색<input value="${esc(window.bookManageQuery || "")}" placeholder="교재명 입력" oninput="bookManageQuery=this.value;filterBookManagementRows(this.value)"></label></div><div class="create-box book-create-row"><label>과목<input id="newBookSubject" list="bookSubjectOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>강사<input id="newBookTeacher" list="bookTeacherOptions" autocomplete="off" placeholder="선택하거나 입력"></label><label>교재명<input id="newBookName" placeholder="연도·차수를 포함해 구분"></label><label>교재비<input id="newBookPrice" type="number" min="0" step="1" placeholder="필수 입력"></label><button class="btn" onclick="createBook()">새 교재 저장</button></div><p class="muted">교재명·교재비·반 매칭이 모두 있어야 학생 미배부에 반영됩니다.</p><div class="scroll"><table><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th></tr></thead><tbody id="bookManageRows">${books
             .map((b) => {
               const heldQty = arr(S.students).reduce(
                   (n, s) => n + held(s.id, b.id),
@@ -5402,13 +5379,11 @@
       }
       async function saveBookDistributionState(bid) {
         const book = S.books?.[bid], nextState = document.getElementById(`bookState_${bid}`)?.value;
-        if (!book || !["ACTIVE", "SCHEDULED", "CLOSED"].includes(nextState)) return;
-        const label = ({ACTIVE:"현재 미배부 반영",SCHEDULED:"다음 달 예정",CLOSED:"배부 종료"})[nextState];
+        if (!book || !["ACTIVE", "CLOSED"].includes(nextState)) return;
+        const label = ({ACTIVE:"배부 가능",CLOSED:"배부 종료"})[nextState];
         const explanation = nextState === "ACTIVE"
           ? "지금부터 대상 학생의 미배부·금액과 배부 대상에 포함됩니다."
-          : nextState === "SCHEDULED"
-            ? "반 매칭·재고·이력은 유지하고 현재 미배부·금액·일괄배부에서는 제외됩니다."
-            : "새 배부만 막고 기존 보유·재고·이력은 유지됩니다.";
+          : "새 배부만 막고 기존 보유·재고·이력은 유지됩니다.";
         if (!(await askConfirm(`${book.name}\n상태를 ‘${label}’로 바꿀까요?\n${explanation}`))) return;
         const r = await transaction((st) => {
           const target = st.books?.[bid];
@@ -5480,8 +5455,8 @@
           priceRaw = newBookPrice.value.trim(),
           price = priceRaw === "" ? null : Number(priceRaw),
           pid = selectedPeriodId();
-        if (!pid || !subject || !name) return alert("현재 대상·과목·교재명을 확인하세요.");
-        if (price != null && (!Number.isInteger(price) || price < 0))
+        if (!pid || !subject || !name || priceRaw === "") return alert("현재 대상·과목·교재명·교재비를 모두 입력하세요.");
+        if (!Number.isInteger(price) || price < 0)
           return alert("교재비는 0원 이상의 정수로 입력하세요.");
         if (arr(S.books).some((b) => b.name === name))
           return alert(
@@ -5497,7 +5472,7 @@
               subject,
               teacher,
               name,
-              ...(price == null ? {} : { price }),
+              price,
               stock: 0,
               active: true,
               periodIds: pid ? { [pid]: pid } : {},
@@ -5509,7 +5484,7 @@
           S=r.snapshot.val();
           window.bookManageSubject=subject;
           window.bookManageTeacher=teacher;
-          window.bookManageState="현재 미배부 반영";
+          window.bookManageState="배부 가능";
           window.bookManagePriceState="전체";
           window.bookManageQuery=name;
           window.bookManageDraftQuery=name;
@@ -7029,9 +7004,9 @@
       }
       function applyEcodingBookToSelected(){
         const bookName=String(document.querySelector('#ecBulkBook')?.value||'').trim(),priceRaw=String(document.querySelector('#ecBulkPrice')?.value||'').trim();
-        if(!bookName)return alert('교재명을 입력하세요.');
-        const price=priceRaw===''?null:Number(priceRaw);
-        if(price!=null&&(!Number.isInteger(price)||price<0))return alert('교재비는 0 이상의 원 단위 숫자로 입력하세요.');
+        if(!bookName||priceRaw==='')return alert('교재명과 교재비를 모두 입력하세요.');
+        const price=Number(priceRaw);
+        if(!Number.isInteger(price)||price<0)return alert('교재비는 0 이상의 원 단위 숫자로 입력하세요.');
         const draft=ecodingDraftState(),selected=Object.keys(window.ecodingBulkSelected||{}).filter(id=>window.ecodingBulkSelected[id]);
         if(!selected.length)return alert('교재를 적용할 반을 먼저 선택하세요.');
         for(const classId of selected){
@@ -7046,7 +7021,7 @@
         const pid=selectedPeriodId(),sync=S.ecodingSnapshots?.[pid],syncSummary=sync?ecodingSnapshotSummary(sync,pid,S):null,draft=ecodingDraftState(),classes=arr(sync?.classes),view=window.ecodingMappingView||'ALL',previous=ecodingPreviousPeriods(),subjects=[...new Set(Object.values(draft).map(x=>x.subject).filter(Boolean))].sort(),teachers=[...new Set(Object.values(draft).filter(x=>!window.ecodingBulkSubject||x.subject===window.ecodingBulkSubject).map(x=>x.teacher).filter(Boolean))].sort(),listSubject=window.ecodingListSubject||'전체',listTeachers=[...new Set(Object.values(draft).filter(x=>listSubject==='전체'||x.subject===listSubject).map(x=>x.teacher).filter(Boolean))].sort(),listTeacher=listTeachers.includes(window.ecodingListTeacher)?window.ecodingListTeacher:'전체',listBooks=[...new Set(Object.values(draft).filter(x=>(listSubject==='전체'||x.subject===listSubject)&&(listTeacher==='전체'||x.teacher===listTeacher)).map(x=>x.bookName).filter(Boolean))].sort(),listBook=listBooks.includes(window.ecodingListBook)?window.ecodingListBook:'전체';
         const rank=c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id],configured=!!(m.subject||m.teacher);return (bulk?0:m.enabled?1:configured?2:3)};
         const shown=classes.filter(c=>{const m=draft[c.id]||{},viewMatch=view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!m.enabled:view==='UNSET'?!m.enabled:true;return viewMatch&&(listSubject==='전체'||m.subject===listSubject)&&(listTeacher==='전체'||m.teacher===listTeacher)&&(listBook==='전체'||m.bookName===listBook)}).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
-        return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="미입력 가능"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 ‘적용’ 체크를 해제하세요. 교재가 여러 권이면 한 권씩 적용→저장을 반복합니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결 예정</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
+        return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="필수 입력"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 적용 체크를 해제하세요. 교재명과 교재비가 모두 있어야 저장됩니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결됨</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
       }
       async function fetchEcodingSnapshot(){
         const user=firebase.auth().currentUser;
@@ -7143,7 +7118,7 @@
       }
       async function saveEcodingMappings(){
         const pid=selectedPeriodId(),rows=ecodingMapDraft(); if(!Object.keys(rows).length)return alert('사용할 반을 선택하세요.');
-        const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price!=null&&(!Number.isInteger(x.price)||x.price<0)); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 확인하세요.');
+        const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price==null||!Number.isInteger(x.price)||x.price<0); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 모두 입력하세요.');
         const invalidExistingLink = Object.values(rows).find((mapping) => {
           if (!mapping.localClassId) return false;
           const localClass = S.classes?.[mapping.localClassId];
@@ -7246,7 +7221,7 @@
           if(studentBookIsExcluded(st,student.id,bid,pid))continue;
           if(Number(student.holdings?.[bid]||0)>0)continue;
           const book=st.books?.[bid];
-          if(!book||bookDistributionIsClosed(book)||bookDistributionIsScheduled(book))continue;
+          if(!book||bookPriceValue(book)==null||bookDistributionIsClosed(book))continue;
           books[bid]={bookId:bid,bookName:book?.name||bid,status:'PENDING',unitPrice:bookPriceValue(book)};
         }
         st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,beforeClassNames,books,status:'PENDING',source:'ECODING',exitDate:eligibility.exitDate,createdAt:now(),createdBy:'이코딩 연동'};

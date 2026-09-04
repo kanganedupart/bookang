@@ -80,6 +80,11 @@ async function assertUniformCheckboxes(page, label) {
     await page.evaluate(() => changeTab("관리"));
     const catalogButton = page.getByRole("button", { name: "반·교재" });
     if (await catalogButton.count()) await catalogButton.click();
+    const scheduledCount = await page.evaluate(() => Object.values(S.books || {}).filter(book => book.distributionStatus === "SCHEDULED").length);
+    assert.equal(scheduledCount, 0, `${spec.device} 배부예정 교재가 남아 있음`);
+    const stateOptions = await page.locator("select[onchange^='bookManageState'] option").allTextContents();
+    assert.deepEqual(stateOptions, ["배부 가능", "배부 종료", "전체"], `${spec.device} 교재 상태 선택값 불일치`);
+    report.push({ device: spec.device, test: "배부 가능·배부 종료 상태만 표시", ok: true });
     const catalogInput = page.locator("#screen input[placeholder*='교재명 일부']").first();
     if (await catalogInput.count()) {
       await catalogInput.fill("수매M");
