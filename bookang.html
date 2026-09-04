@@ -1148,15 +1148,17 @@
         });
       }
       let bookflowListenerStarted = false;
+      let bookflowInitialRemoteLoaded = false;
+      let bookflowCacheRendered = false;
       let remoteRenderFrame = 0;
       let remoteRenderTimer = 0;
       let catalogRemoteLastInputAt = 0;
       let userInteractionUntil = 0;
-      const noteUserInteraction = (ms = 700) => { userInteractionUntil = Math.max(userInteractionUntil, Date.now() + ms); };
-      document.addEventListener("pointerdown", () => noteUserInteraction(900), true);
-      document.addEventListener("keydown", () => noteUserInteraction(900), true);
-      document.addEventListener("input", () => noteUserInteraction(1200), true);
-      document.addEventListener("focusin", () => noteUserInteraction(600), true);
+      const noteUserInteraction = (ms = 60000) => { userInteractionUntil = Math.max(userInteractionUntil, Date.now() + ms); };
+      document.addEventListener("pointerdown", () => noteUserInteraction(), true);
+      document.addEventListener("keydown", () => noteUserInteraction(), true);
+      document.addEventListener("input", () => noteUserInteraction(), true);
+      document.addEventListener("focusin", () => noteUserInteraction(), true);
       // Firebase root transactions may emit intermediate value events. Do not
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
@@ -1210,9 +1212,10 @@
            if (!cached?.data || Date.now() - Number(cached.savedAt || 0) > 86400000) return false;
           S = { ...S, ...cached.data };
           resetDerivedState();
-          renderActor();
-          render();
-          return true;
+           renderActor();
+           render();
+           bookflowCacheRendered = true;
+           return true;
         } catch (_) { return false; }
       }
       function scheduleRemoteRender() {
@@ -1246,6 +1249,7 @@
       function connectBookflowData() {
         if (bookflowListenerStarted) return;
         bookflowListenerStarted = true;
+        bookflowInitialRemoteLoaded = false;
         root.on(
           "value",
           (snap) => {
@@ -1272,7 +1276,20 @@
               }
             }
             resetDerivedState();
-            scheduleRemoteRender();
+            if (!bookflowInitialRemoteLoaded) {
+              bookflowInitialRemoteLoaded = true;
+              if (bookflowCacheRendered && Date.now() < userInteractionUntil) {
+                scheduleRemoteRender();
+              } else {
+                clearTimeout(remoteRenderTimer);
+                cancelAnimationFrame(remoteRenderFrame);
+                renderActor();
+                actor ? render() : staffLoginScreen();
+                noteUserInteraction();
+              }
+            } else {
+              scheduleRemoteRender();
+            }
             saveFastOpenCache(S);
             if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
           },
@@ -1404,7 +1421,7 @@
           ),
         );
       }
-      function transaction(mutator) {
+      function transaction(mutator, options = {}) {
         if (navigator.onLine === false) {
           alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
           return Promise.resolve({
@@ -1439,8 +1456,10 @@
           if (optimisticResult !== false) {
             S = optimisticState;
             resetDerivedState();
-            renderActor();
-            render();
+             if (!options.silentRender) {
+               renderActor();
+               render();
+             }
           } else {
             optimisticState = null;
           }
@@ -2934,7 +2953,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const result = await transaction((st) => {
+           const result = await transaction((st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -7883,7 +7902,7 @@
             }
             st.ecodingSnapshots[pid] = { ...fresh, periodId: pid };
             st.ecodingBaselines[pid] = { ...fresh, periodId: pid };
-          });
+          }, { silentRender: silent });
           if (r.committed) {
             S = r.snapshot.val();
             resetDerivedState();
@@ -7922,8 +7941,8 @@
           const result = await transaction((st) => {
             let changed = 0;
             for (const periodId of periodIds) changed += cancelInvalidPrestartWork(st, periodId);
-            return changed > 0;
-          });
+             return changed > 0;
+           }, { silentRender: true });
           if (result.committed) {
             S = result.snapshot.val();
             resetDerivedState();
