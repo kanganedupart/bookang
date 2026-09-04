@@ -1241,8 +1241,8 @@
               }
             }
             resetDerivedState();
-            saveFastOpenCache(S);
             scheduleRemoteRender();
+            saveFastOpenCache(S);
             if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
           },
           () => {
