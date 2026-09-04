@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.8" />
+    <meta name="bookflow-build" content="2026-09-04.9" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.8";
+      const BOOKFLOW_BUILD = "2026-09-04.9";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -325,7 +325,11 @@
       function searchableCurrentStudents(includeInactive = false) {
         const pid = selectedPeriodId();
         if (!pid) return [];
-        return studentRosterAtDate(S, pid, localDateKey()).rows.filter(
+        const dateKey = localDateKey(), roster = derivedValue(
+          `searchableCurrentStudents|${pid}|${dateKey}`,
+          () => studentRosterAtDate(S, pid, dateKey).rows,
+        );
+        return roster.filter(
           (student) => includeInactive || student.active !== false,
         );
       }
@@ -1179,7 +1183,13 @@
       let remoteRenderTimer = 0;
       let catalogRemoteLastInputAt = 0;
       let userInteractionUntil = 0;
-      const noteUserInteraction = (ms = 60000) => { userInteractionUntil = Math.max(userInteractionUntil, Date.now() + ms); };
+      const noteUserInteraction = (ms = 60000) => {
+        userInteractionUntil = Math.max(userInteractionUntil, Date.now() + ms);
+        if (fastCacheSaveTimer) {
+          clearTimeout(fastCacheSaveTimer);
+          fastCacheSaveTimer = 0;
+        }
+      };
       document.addEventListener("pointerdown", () => noteUserInteraction(), true);
       document.addEventListener("keydown", () => noteUserInteraction(), true);
       document.addEventListener("input", () => noteUserInteraction(), true);
@@ -1223,14 +1233,25 @@
          db.close();
          return value;
        }
+       let fastCacheSaveTimer = 0;
        function saveFastOpenCache(st) {
-         const cached = { version: BOOKFLOW_CACHE_VERSION, savedAt: Date.now(), data: {} };
-         for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
-           if (st?.[key] != null) cached.data[key] = st[key];
-         saveFastOpenCacheDb(cached).catch(() => {});
-         try {
-           localStorage.setItem(BOOKFLOW_CACHE_KEY, JSON.stringify(cached));
-         } catch (_) { localStorage.removeItem(BOOKFLOW_CACHE_KEY); }
+         clearTimeout(fastCacheSaveTimer);
+         const schedule = () => {
+           const remaining = userInteractionUntil - Date.now();
+           if (remaining > 0) {
+             fastCacheSaveTimer = setTimeout(schedule, Math.min(remaining + 500, 5000));
+             return;
+           }
+           fastCacheSaveTimer = 0;
+           const source = st === S ? st : S,
+             cached = { version: BOOKFLOW_CACHE_VERSION, savedAt: Date.now(), data: {} };
+           for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
+             if (source?.[key] != null) cached.data[key] = source[key];
+           // 큰 학생자료를 JSON 문자열로 동기 저장하면 타이핑이 멈출 수 있다.
+           // IndexedDB 비동기 저장만 사용하고 직원 입력 중에는 실행하지 않는다.
+           saveFastOpenCacheDb(cached).catch(() => {});
+         };
+         fastCacheSaveTimer = setTimeout(schedule, 1500);
        }
        async function loadFastOpenCache() {
          try {
@@ -2238,7 +2259,7 @@
         window.processTransitionState = transitionState;
         const priceSummary = studentDistributionSummary(sid);
         const transitionHead = transition ? `<div class="receipt"><b>${transition.kind === "NEW" ? "신규생 교재 처리" : "반이동 교재 1:1 확인"}</b><br>${transition.kind === "NEW" ? "입반된 반의 미배부 교재를 확인한 뒤 입고 교재 전체배부 또는 한 권씩 배부합니다." : "이전 반에서 빠지는 교재와 새 반에서 필요한 교재를 한 표에서 확인합니다."}<small>이 화면을 보는 것만으로는 배부·회수·재고가 바뀌지 않습니다.</small></div><div class="transition-guide">${transition.kind === "NEW" ? `<div><b>① 미배부 확인</b><small>입반된 반의 교재만 확인</small></div><div><b>② 일괄 또는 개별</b><small>여러 권은 전체 교재, 한 권은 행 선택</small></div>` : `<div><b>이전 미배부</b><small>필요 없으면 미배부 제외</small></div><div><b>이전 배부</b><small>보유 유지 또는 회수 판단</small></div><div><b>동일 교재</b><small>중복 없이 그대로 유지</small></div><div><b>새 반 교재</b><small>일반·무료·추가결제 배부</small></div>`}</div>` : "";
-        return `${transitionHead}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';processStudentBookQuery='';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<div class="managed-combo"><input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" onfocus="showStudentProcessBookPicker(this.value)" oninput="processStudentBookQuery=this.value;bid='';action='';selected=[];showStudentProcessBookPicker(this.value);clearTimeout(searchTimer);searchTimer=setTimeout(render,180)" onblur="setTimeout(()=>{const b=document.getElementById('studentProcessBookResults');if(b)b.innerHTML=''},160)"><div id="studentProcessBookResults" class="picker-results"></div></div></label><label>${transition ? "구분" : "상태"}<select onchange="${transition ? "processTransitionState" : "processStudentBookState"}=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${(transition ? ["전체","처리 필요","이전 반","새 반","동일 유지"] : ["전체","미배부","배부"]).map(x=>`<option ${x === (transition ? transitionState : state) ? "selected" : ""}>${x}</option>`).join("")}</select></label></div><p class="muted">${transition ? "반이동 기준" : "미배부 교재부터"} · ${rows.length}종</p><div class="scroll student-process-list"><table class="${transition ? "transition-book-table" : "student-table"}"><thead><tr>${transition ? "<th>구분</th><th>이전 반 교재</th><th>변경 후 교재</th><th>현재 상태</th><th>선택 후 처리</th>" : "<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>"}</tr></thead><tbody>${rows.map(({ book, teachers, classNames }) => { const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new", label=kind==="keep"?"동일 유지":kind==="old"?(quantity?"이전 배부":"이전 미배부"):"새 반 교재", suggestedAction=transition?(kind==="old"?(quantity?"RETURN":"EXCLUDE"):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE"); return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b><small>${quantity?`배부 · 보유 ${quantity}권`:"미배부"}</small>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":"danger"}">${quantity?`보유 ${quantity}권`:"미배부"}</b></td><td>${kind==='keep'?"처리 없음":suggestedAction==='EXCLUDE'?"선택 시 미배부 제외":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":"danger"}">${quantity?"배부":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`; }).join("")||'<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>${transition?`<div class="action-row"><button onclick="studentTransition=null;processTransitionState='전체';bid='';action='';render()">전체 교재현황 보기</button></div>`:""}`;
+        return `${transitionHead}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';processStudentBookQuery='';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<div class="managed-combo"><input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" onfocus="showStudentProcessBookPicker(this.value)" oninput="processStudentBookQuery=this.value;showStudentProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('studentProcessBookResults');if(b)b.innerHTML=''},160)"><div id="studentProcessBookResults" class="picker-results"></div></div></label><label>${transition ? "구분" : "상태"}<select onchange="${transition ? "processTransitionState" : "processStudentBookState"}=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${(transition ? ["전체","처리 필요","이전 반","새 반","동일 유지"] : ["전체","미배부","배부"]).map(x=>`<option ${x === (transition ? transitionState : state) ? "selected" : ""}>${x}</option>`).join("")}</select></label></div><p class="muted">${transition ? "반이동 기준" : "미배부 교재부터"} · ${rows.length}종</p><div class="scroll student-process-list"><table class="${transition ? "transition-book-table" : "student-table"}"><thead><tr>${transition ? "<th>구분</th><th>이전 반 교재</th><th>변경 후 교재</th><th>현재 상태</th><th>선택 후 처리</th>" : "<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>"}</tr></thead><tbody>${rows.map(({ book, teachers, classNames }) => { const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new", label=kind==="keep"?"동일 유지":kind==="old"?(quantity?"이전 배부":"이전 미배부"):"새 반 교재", suggestedAction=transition?(kind==="old"?(quantity?"RETURN":"EXCLUDE"):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE"); return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b><small>${quantity?`배부 · 보유 ${quantity}권`:"미배부"}</small>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":"danger"}">${quantity?`보유 ${quantity}권`:"미배부"}</b></td><td>${kind==='keep'?"처리 없음":suggestedAction==='EXCLUDE'?"선택 시 미배부 제외":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":"danger"}">${quantity?"배부":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`; }).join("")||'<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>${transition?`<div class="action-row"><button onclick="studentTransition=null;processTransitionState='전체';bid='';action='';render()">전체 교재현황 보기</button></div>`:""}`;
       }
       function studentReceiptBox(sid) {
         const r = window.lastStudentReceipt;
@@ -2420,7 +2441,16 @@
  }</section>
  <section class="panel"><h2>${view === "student" && tab === "학생" ? "처리 및 재고 흐름" : "배부·회수 및 재고 흐름"}</h2>${view === "academy" ? academyBulkBox() : ""}${view === "bundle" ? bundleActionBox() : ""}${view === "class" && cid ? bulkClassBox(cid) : ""}${view === "book" && book ? bookReturnBox(book.id) : ""}${view === "book" && book ? `<div class="receipt"><b>교재 중심 일괄배부</b><br>대상 반 전체의 미배부 학생을 선택한 뒤 ‘가능 대상 전체선택’을 사용하세요.</div>` : ""}${view === "student" && sid && window.studentProcessScope === "ALL" ? studentAllActionBox(sid, S.students[sid]?.active === false ? "RETURN" : window.action || "DISTRIBUTE") : book && view !== "class" ? actionBox(book, targets) : view === "class" && cid ? "" : view === "academy" || view === "book" || view === "bundle" ? "" : view === "student" && sid ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='${S.students[sid]?.active === false ? "RETURN" : "DISTRIBUTE"}';render()">전체 교재</button></div></div><div class="operation-guide">한 권은 왼쪽 교재를 선택하고, 여러 권은 ‘전체 교재’를 선택하세요.</div>` : '<p class="muted">대상을 선택한 뒤 교재를 선택하세요.</p>'}${view === "student" && sid ? studentReceiptBox(sid) : ""}</section></div>`;
       }
-      function showProcessBookPicker(value){const box=document.getElementById("processBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"),subject=window.processBookSubject||"",teacher=window.processBookTeacher||"";box.innerHTML=arr(S.books).filter((b)=>(b.active!==false||b.stock||arr(S.students).some((s)=>held(s.id,b.id)))&&b.subject===subject&&(b.teacher||"미지정")===teacher&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseProcessBook")).join("");}
+      function processPickerBooks() {
+        return derivedValue("processPickerBooks", () => {
+          const heldIds = new Set();
+          for (const student of arr(S.students))
+            for (const [bookId, quantity] of Object.entries(student.holdings || {}))
+              if (Number(quantity || 0) > 0) heldIds.add(bookId);
+          return arr(S.books).filter((book) => book.active !== false || Number(book.stock || 0) > 0 || heldIds.has(book.id));
+        });
+      }
+      function showProcessBookPicker(value){const box=document.getElementById("processBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"),subject=window.processBookSubject||"",teacher=window.processBookTeacher||"";box.innerHTML=processPickerBooks().filter((b)=>b.subject===subject&&(b.teacher||"미지정")===teacher&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseProcessBook")).join("");}
       function chooseProcessBook(id){const book=S.books?.[id];if(!book)return;window.bid=id;window.processBookQuery=book.name;window.selected=[];render();}
       function sel(label, rows, value, key) {
         return `<label>${label}</label><select onchange="${key}=this.value;selected=[];render()"><option value="">직접 선택하세요</option>${rows.map((x) => `<option value="${x.id}" ${x.id === value ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
@@ -9359,12 +9389,24 @@
                 refundMissingPriceCount: amounts.filter((amount) => amount.total == null).length,
               };
             });
-document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반대기 <span class="badge ${rows.length ? "warn" : "ok"}">${rows.length}명</span></h2><p class="muted">한 목록에서 상태를 확인합니다. 교무부가 미배부 제외와 회수 여부를 확인한 뒤 퇴반완료하면, 남은 미배부 교재와 환불금액이 확정되고 실제반·공통반에서 모두 제외됩니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>처리 전 전체</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>퇴반완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="refundQuery=this.value;refundTaskScreen()"></label></div><p>검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows.map((task) => `<tr><td>${task.isExitReview ? `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>` : esc(task.exitDate || "-")}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b></td><td><b>${task.isExitReview ? "-" : `${task.refundBookCount}종`}</b></td><td><b>${task.isExitReview ? "-" : task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${!task.isExitReview && task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.isExitReview ? '<span class="badge warn">퇴반일 확인 필요</span>' : task.status !== "DONE" ? '<span class="badge warn">퇴반대기</span>' : '<span class="badge ok">퇴반완료</span>'}</td><td>${task.isExitReview ? '<span class="muted">이코딩 퇴반일 수신 대기</span>' : `<button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button>`}</td></tr>`).join("") || '<tr><td colspan="7">해당 퇴반 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반대기 <span class="badge ${rows.length ? "warn" : "ok"}">${rows.length}명</span></h2><p class="muted">한 목록에서 상태를 확인합니다. 교무부가 미배부 제외와 회수 여부를 확인한 뒤 퇴반완료하면, 남은 미배부 교재와 환불금액이 확정되고 실제반·공통반에서 모두 제외됩니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>처리 전 전체</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>퇴반완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input id="refundSearch" value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="filterRefundRows(this.value)"></label></div><p id="refundResultCount">검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody id="refundRows">${rows.map((task) => `<tr data-student="${esc(String(task.studentName || S.students?.[task.studentId]?.name || "").toLocaleLowerCase("ko"))}"><td>${task.isExitReview ? `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>` : esc(task.exitDate || "-")}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b></td><td><b>${task.isExitReview ? "-" : `${task.refundBookCount}종`}</b></td><td><b>${task.isExitReview ? "-" : task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${!task.isExitReview && task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.isExitReview ? '<span class="badge warn">퇴반일 확인 필요</span>' : task.status !== "DONE" ? '<span class="badge warn">퇴반대기</span>' : '<span class="badge ok">퇴반완료</span>'}</td><td>${task.isExitReview ? '<span class="muted">이코딩 퇴반일 수신 대기</span>' : `<button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button>`}</td></tr>`).join("") || '<tr data-empty="1"><td colspan="7">해당 퇴반 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
         const statusSelect = document.querySelector('select[onchange="refundStatus=this.value;refundTaskScreen()"]');
         if (statusSelect) {
           statusSelect.innerHTML = `<option value="ALL">전체</option><option value="PENDING">퇴반대기</option><option value="DONE">퇴반완료</option>`;
           statusSelect.value = status;
         }
+      }
+      function filterRefundRows(value) {
+        window.refundQuery = value;
+        const query = String(value || "").trim().toLocaleLowerCase("ko");
+        let shown = 0;
+        for (const row of document.querySelectorAll("#refundRows tr:not([data-empty])")) {
+          const visible = !query || String(row.dataset.student || "").includes(query);
+          row.hidden = !visible;
+          if (visible) shown += 1;
+        }
+        const count = document.getElementById("refundResultCount");
+        if (count) count.textContent = `검색 결과 ${shown}명`;
       }
       function refundConfirmationSnapshot(state, task) {
         if (!task) return null;
