@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.9" />
+    <meta name="bookflow-build" content="2026-09-04.10" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.9";
+      const BOOKFLOW_BUILD = "2026-09-04.10";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -1233,13 +1233,13 @@
          db.close();
          return value;
        }
-       let fastCacheSaveTimer = 0;
+       let fastCacheSaveTimer = 0, fastCacheSaveBusy = false;
        function saveFastOpenCache(st) {
          clearTimeout(fastCacheSaveTimer);
          const schedule = () => {
            const remaining = userInteractionUntil - Date.now();
-           if (remaining > 0) {
-             fastCacheSaveTimer = setTimeout(schedule, Math.min(remaining + 500, 5000));
+           if (remaining > 0 || ecodingAutoSyncRunning) {
+             fastCacheSaveTimer = setTimeout(schedule, ecodingAutoSyncRunning ? 5000 : Math.min(remaining + 500, 5000));
              return;
            }
            fastCacheSaveTimer = 0;
@@ -1249,9 +1249,13 @@
              if (source?.[key] != null) cached.data[key] = source[key];
            // 큰 학생자료를 JSON 문자열로 동기 저장하면 타이핑이 멈출 수 있다.
            // IndexedDB 비동기 저장만 사용하고 직원 입력 중에는 실행하지 않는다.
-           saveFastOpenCacheDb(cached).catch(() => {});
+           fastCacheSaveBusy = true;
+           saveFastOpenCacheDb(cached).catch(() => {}).finally(() => {
+             fastCacheSaveBusy = false;
+           });
          };
-         fastCacheSaveTimer = setTimeout(schedule, 1500);
+         // 자동동기화(60초)와 겹치지 않도록 충분히 유휴 상태가 된 뒤 저장한다.
+         fastCacheSaveTimer = setTimeout(schedule, 90000);
        }
        async function loadFastOpenCache() {
          try {
@@ -7988,6 +7992,10 @@
         if (!ECODING_AUTO_SYNC_ENABLED) return { skipped: true, reason: "NOT_ACTIVATED" };
         if (!actor || !firebase.auth().currentUser || ecodingAutoSyncRunning || document.hidden) return;
         const currentTime = Date.now();
+        // 자동 확인은 직원의 타이핑·클릭 및 대용량 캐시 저장과 경쟁하지 않는다.
+        // 버튼으로 직접 실행한 확인만 force=true로 즉시 수행한다.
+        if (!force && (currentTime < userInteractionUntil || fastCacheSaveBusy))
+          return { skipped: true, reason: "USER_ACTIVE" };
         if (!force && currentTime - ecodingAutoSyncLastAttempt < ECODING_AUTO_SYNC_INTERVAL - 1000) return;
         ecodingAutoSyncLastAttempt = currentTime;
         ecodingAutoSyncRunning = true;
@@ -8008,18 +8016,23 @@
         ecodingAutoSyncTimer = setInterval(() => runEcodingAutoSync(false), ECODING_AUTO_SYNC_INTERVAL);
         setTimeout(async () => {
           await cleanupPrestartPeriods();
-          await runEcodingAutoSync(true);
+          await runEcodingAutoSync(false);
         }, 1200);
+      }
+      let ecodingForegroundSyncTimer = 0;
+      function scheduleEcodingForegroundSync() {
+        clearTimeout(ecodingForegroundSyncTimer);
+        ecodingForegroundSyncTimer = setTimeout(() => runEcodingAutoSync(false), 5000);
       }
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden) {
           checkCurrentBuild();
-          runEcodingAutoSync(true);
+          scheduleEcodingForegroundSync();
         }
       });
       window.addEventListener("focus", () => {
         checkCurrentBuild();
-        runEcodingAutoSync(true);
+        scheduleEcodingForegroundSync();
       });
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
       applyEcodingEvent = async function (eventId) {
