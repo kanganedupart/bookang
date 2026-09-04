@@ -43,6 +43,15 @@ async function assertUniformCheckboxes(page, label) {
       const checkboxCount = await assertUniformCheckboxes(page, `${spec.device} ${tab}`);
       if (checkboxCount) report.push({ device: spec.device, test: `체크박스 ${tab} ${checkboxCount}개`, ok: true });
     }
+    await page.locator("#tabs [data-main-tab='퇴반대기']").click();
+    const refundSummary = await page.evaluate(() => ({
+      badge: pendingRefundRows().length,
+      visibleRows: [...document.querySelectorAll("#screen tbody tr")].filter(row => !row.textContent.includes("해당 퇴반 학생이 없습니다.")).length,
+      invalidStatusRows: [...document.querySelectorAll("#screen tbody tr")].filter(row => row.textContent.includes("퇴반대기") && row.querySelector("td")?.textContent.trim() === "-").length,
+    }));
+    assert.equal(refundSummary.invalidStatusRows, 0, `${spec.device} 퇴반일 없는 취소 기록이 퇴반대기로 노출됨`);
+    if (refundSummary.badge === 0) assert.equal(refundSummary.visibleRows, 0, `${spec.device} 퇴반대기 0인데 목록이 표시됨`);
+    report.push({ device: spec.device, test: "퇴반대기 숫자·목록 일치", ok: true });
     await page.locator("#tabs [data-main-tab='학생']").click();
     const studentId = await page.evaluate(() => Object.values(S.students || {}).find(s => String(s.name).includes("강연웅2804"))?.id || "");
     assert.ok(studentId, "강연웅 학생 ID 없음");

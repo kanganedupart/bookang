@@ -9309,6 +9309,7 @@
         const rows = [...allRows.values()]
             .filter((task) => {
               return (
+                (task.status === "PENDING" || task.status === "DONE") &&
                 !refundTaskHasActivePendingReentry(S, task) &&
                 (task.status !== "PENDING" || refundTaskMeetsPeriodRule(S, task)) &&
                 (periodFilter === "ACTIVE_ALL" ||
