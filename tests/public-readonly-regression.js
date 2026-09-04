@@ -42,6 +42,16 @@ async function assertUniformCheckboxes(page, label) {
       console.log(`PASS ${spec.device} 탭 ${tab} ${ms}ms`);
       const checkboxCount = await assertUniformCheckboxes(page, `${spec.device} ${tab}`);
       if (checkboxCount) report.push({ device: spec.device, test: `체크박스 ${tab} ${checkboxCount}개`, ok: true });
+      if (tab === "일괄처리") {
+        const bulkText = await page.locator("#screen").innerText();
+        assert.ok(bulkText.includes("지금 배부 가능한 교재"), `${spec.device} 배부 가능 구역 안내 없음`);
+        assert.ok(bulkText.includes("이번 배부 수량"), `${spec.device} 이번 배부 수량 안내 없음`);
+        assert.ok(!bulkText.includes("배부 예정"), `${spec.device} 미래상태와 혼동되는 배부 예정 문구 노출`);
+        const shortageHeading = await page.locator("#screen h3").filter({ hasText: "재고 부족 교재" }).first().innerText();
+        const shortageRows = await page.locator("#screen .shortage-table tbody tr").count();
+        assert.ok(shortageHeading.includes(`${shortageRows}종`), `${spec.device} 재고 부족 종수와 표 행 불일치`);
+        report.push({ device: spec.device, test: `일괄배부 용어·부족 ${shortageRows}종 일치`, ok: true });
+      }
     }
     await page.locator("#tabs [data-main-tab='퇴반대기']").click();
     const refundSummary = await page.evaluate(() => ({
