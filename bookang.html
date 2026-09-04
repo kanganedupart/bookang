@@ -7156,14 +7156,17 @@
         return !!exitDate && exitDate <= dateKey;
       }
       function normalizedEcodingStudent(student,maps,st=null,pid=""){
-        const classIds={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";
-        if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};
+        const classIds={},activeClassDates={},inactiveClassDates={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";
+        if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt,activeClassDates,inactiveClassDates};
         for(const c of student.classes||[]){
           const localClassId=maps[c.id]?.localClassId,localClass=st?.classes?.[localClassId];
-          if(c.active!==true||!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
+          if(!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
+          const changeDate=/^\d{4}-\d{2}-\d{2}/.test(String(c.lastModifiedAt||""))?String(c.lastModifiedAt).slice(0,10):"";
+          if(c.active!==true){if(changeDate)inactiveClassDates[localClassId]=changeDate;continue;}
           classIds[localClassId]=localClassId;
+          if(changeDate)activeClassDates[localClassId]=changeDate;
         }
-        return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt};
+        return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt,activeClassDates,inactiveClassDates};
       }
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
@@ -7449,7 +7452,8 @@
         const startDate = periodOperationalStartDate(st, pid);
         return !!startDate && dateKey < startDate;
       }
-      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", moveObservedAt = "", sourceLastModifiedAt = "") {
+      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", moveObservedAt = "", sourceLastModifiedAt = "", activeClassDates = null, inactiveClassDates = null) {
+        activeClassDates=activeClassDates||{};inactiveClassDates=inactiveClassDates||{};
         const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
         if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
         const localStudent = localMatches[0],
@@ -7478,8 +7482,13 @@
         const classesChanged=ecodingEventClassSignature(localClassIds)!==ecodingEventClassSignature(nextClassIds),
           sourceChangedDate=/^\d{4}-\d{2}-\d{2}/.test(String(sourceLastModifiedAt||""))?String(sourceLastModifiedAt).slice(0,10):"",
           staleAtOperationalStart=classesChanged&&!!periodStartDate&&localDateKey()===periodStartDate&&!!sourceChangedDate&&sourceChangedDate<periodStartDate,
-          observedDate=moveObservedAt?localDateKey(moveObservedAt):"",
-          validMoveDate=!classesChanged||!periodStartDate||!!observedDate&&observedDate>=periodStartDate&&observedDate===localDateKey();
+          removedClassIds=Object.keys(localClassIds).filter((classId)=>!nextClassIds?.[classId]),
+          addedClassIds=Object.keys(nextClassIds||{}).filter((classId)=>!localClassIds[classId]),
+          removedDates=removedClassIds.map((classId)=>inactiveClassDates[classId]||"").filter(Boolean),
+          addedDates=addedClassIds.map((classId)=>activeClassDates[classId]||"").filter(Boolean),
+          matchedDates=[...new Set([...removedDates,...addedDates])],
+          moveBusinessDate=matchedDates.length===1?matchedDates[0]:"",
+          validMoveDate=!classesChanged||(removedClassIds.length>0&&addedClassIds.length>0&&removedDates.length===removedClassIds.length&&addedDates.length===addedClassIds.length&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
         if(staleAtOperationalStart)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds,baselineReason:"SOURCE_CHANGE_BEFORE_PERIOD_START" };
         return {
@@ -7487,6 +7496,7 @@
           type: classesChanged&&validMoveDate ? "MOVE" : "",
           beforeClassIds: localClassIds,
           waitingForMoveDates: classesChanged&&!validMoveDate,
+          moveBusinessDate,
         };
       }
       function applyEcodingBaselineStudent(st, pid, next) {
@@ -7668,7 +7678,7 @@
           }
           const hasActionableStudentChange = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate, S.ecodingAbsenceCandidates?.[pid]?.[externalId]?.firstSeenAt||now(), next.lastModifiedAt);
+            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate, S.ecodingAbsenceCandidates?.[pid]?.[externalId]?.firstSeenAt||now(), next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates);
             if (desired.blocked) return true;
             if (desired.type === "BASELINE") return true;
             const pending = arr(S.ecodingEvents).filter((event) =>
@@ -7739,7 +7749,7 @@
               if (localMatches.length === 1)
                 closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
               const moveObservedAt=existingAbsenceCandidate?.firstSeenAt||now(),
-                desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, moveObservedAt, next.lastModifiedAt),
+                desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, moveObservedAt, next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates),
                 type = desired.type,
                 eventBeforeClassIds = desired.beforeClassIds;
               counts.DUPLICATE += supersedeStalePendingEcodingTransitions(
@@ -7771,7 +7781,7 @@
                   id: key, type, status: "PENDING", periodId: pid,
                   externalStudentId: externalId, studentName: next.name,
                   beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
-                  admissionDate: next.admissionDate || "", moveDetectedDate:localDateKey(moveObservedAt), createdAt: now(),
+                  admissionDate: next.admissionDate || "", moveDetectedDate:desired.moveBusinessDate||"", createdAt: now(),
                 };
                 counts[type]++;
               }
