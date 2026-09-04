@@ -404,8 +404,8 @@
         window.editStudent = id;
         window.editStudentSearch = S.students[id]?.name || "";
         window.editAssignedStudent = "";
-        studentAdmin();
-        requestAnimationFrame(activateAutomaticStudentSearches);
+        window.studentHubView = "move";
+        render();
       }
       function openStudentProcess(id) {
         window.sid = id;
@@ -442,17 +442,7 @@
         window.editAssignedStudent = "";
         window.studentHubView = "move";
         window.lastStudentReceipt = null;
-        studentAdmin();
-        prependHub(
-          hubNav(
-            [
-              ["status", "학생 조회·처리"],
-              ["new", "신규생 등록"],
-            ],
-            "move",
-            "studentHubView",
-          ),
-        );
+        render();
       }
       function openClassExit(id, classId) {
         const student = S.students?.[id],
@@ -473,17 +463,7 @@
         window.editAssigned = remainingClassIds;
         window.classMemoDraft = `${targetClass.name} 반 퇴반`;
         window.studentHubView = "move";
-        studentAdmin();
-        prependHub(
-          hubNav(
-            [
-              ["status", "학생 조회·처리"],
-              ["new", "신규생 등록"],
-            ],
-            "move",
-            "studentHubView",
-          ),
-        );
+        render();
       }
       function openNextOnboarding() {
         const reference = S.students[window.sid];
@@ -704,7 +684,7 @@
             (book) =>
               book &&
               !studentBookIsExcluded(S, sid, book.id) &&
-              (!bookDistributionIsClosed(book) || held(sid, book.id) > 0),
+              ((!bookDistributionIsClosed(book) && !bookDistributionIsScheduled(book)) || held(sid, book.id) > 0),
           );
       }
       function withdrawalBooks(sid) {
@@ -1555,9 +1535,20 @@
       }
       function bookDistributionIsClosed(book, dateKey = localDateKey()) {
         if (!book) return true;
+        if (book.distributionStatus === "CLOSED") return true;
         if (book.distributionClosed === true) return true;
         const endDate = String(book.distributionEndDate || "").trim();
         return !!endDate && endDate <= dateKey;
+      }
+      function bookDistributionIsScheduled(book) {
+        return !!book && book.distributionStatus === "SCHEDULED";
+      }
+      function bookDistributionState(book) {
+        if (bookDistributionIsClosed(book)) return "CLOSED";
+        return bookDistributionIsScheduled(book) ? "SCHEDULED" : "ACTIVE";
+      }
+      function bookDistributionStateLabel(book) {
+        return ({ ACTIVE: "현재 미배부 반영", SCHEDULED: "다음 달 예정", CLOSED: "배부 종료" })[bookDistributionState(book)];
       }
       function periodRefundEffectiveStartDate(st, pid) {
         const period = st?.periods?.[pid];
@@ -1915,6 +1906,7 @@
           b &&
           b.active !== false &&
           !bookDistributionIsClosed(b) &&
+          !bookDistributionIsScheduled(b) &&
           s?.active !== false &&
           !s.pendingReturn &&
           activePeriodClassIds(st, sid, pid).some(
@@ -1979,6 +1971,8 @@
         let reason = "";
         if (bookDistributionIsClosed(p.book))
           reason = "이 교재는 배부 종료 상태입니다.";
+        else if (bookDistributionIsScheduled(p.book))
+          reason = "이 교재는 다음 달 예정 상태로 현재 미배부에 반영되지 않습니다.";
         else if (!p.classCount)
           reason = "이 교재가 매칭된 운영반이 없습니다.";
         else if (!p.total)
@@ -2008,23 +2002,7 @@
         receipt = null;
         lastStudentReceipt = null;
         render();
-        if (matchMedia("(max-width:720px)").matches)
-          requestAnimationFrame(() => {
-            const target = document.querySelector(".workspace-side");
-            if (target) {
-              target.classList.add("mobile-focus");
-              target.scrollIntoView({ behavior: "smooth", block: "start" });
-            }
-          });
       }
-      document.addEventListener("click", (event) => {
-        if (!event.target.closest(".student-process-list tr")) return;
-        if (!matchMedia("(max-width:720px)").matches) return;
-        requestAnimationFrame(() => {
-          const target = document.querySelector(".workspace-side");
-          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      });
       document.addEventListener("keydown", (event) => {
         const row = event.target.closest(".student-process-list tr[onclick]");
         if (!row || !["Enter", " "].includes(event.key)) return;
@@ -2480,6 +2458,7 @@
                 (b) =>
                   b.active !== false &&
                   !bookDistributionIsClosed(b) &&
+                  !bookDistributionIsScheduled(b) &&
                   held(studentId, b.id) === 0,
               ),
           rows = books.map((b) => {
@@ -2544,7 +2523,7 @@
             continue;
           for (const bid of assignedBooksIn(st, sid)) {
             const book = st.books?.[bid];
-            if (!book || book.active === false || bookDistributionIsClosed(book))
+            if (!book || book.active === false || bookDistributionIsClosed(book) || bookDistributionIsScheduled(book))
               continue;
             if (Number(s.holdings?.[bid] || 0) > 0) continue;
             (byBook[bid] ||= []).push(sid);
@@ -3029,7 +3008,7 @@
         return arr(c.books)
           .map((bid) => {
             const b = st.books?.[bid];
-            if (!b || b.active === false || bookDistributionIsClosed(b))
+            if (!b || b.active === false || bookDistributionIsClosed(b) || bookDistributionIsScheduled(b))
               return null;
             const eligibleStudents = students.filter(
                 (s) => !studentBookIsExcluded(st, s.id, bid, c.periodId || selectedPeriodId()),
@@ -3343,7 +3322,7 @@
       }
       function bookBulkPlan(st, bid) {
         const b = st.books?.[bid];
-        if (!b || b.active === false || bookDistributionIsClosed(b))
+        if (!b || b.active === false || bookDistributionIsClosed(b) || bookDistributionIsScheduled(b))
           return null;
         const ids = arr(st.students)
           .filter(
@@ -3373,7 +3352,7 @@
       function academyBulkPlanUncached(st) {
         const pid = selectedPeriodId() || st.currentPeriodId,
           activeBooks = arr(st.books).filter(
-            (b) => b.active !== false && !bookDistributionIsClosed(b),
+            (b) => b.active !== false && !bookDistributionIsClosed(b) && !bookDistributionIsScheduled(b),
           ),
           activeBookIds = new Set(activeBooks.map((b) => b.id)),
           classBooks = new Map();
@@ -4777,12 +4756,16 @@
       function bookPickerButton(book, handler) {
         return `<button type="button" onmousedown="event.preventDefault()" onclick="${handler}('${book.id}')"><b>${esc(book.name)}</b><small>${esc(book.subject || "미지정")} · ${esc(book.teacher || "학원 공통")}</small></button>`;
       }
+      function catalogBookMatchesState(book, state) {
+        if (state === "전체") return true;
+        return bookDistributionStateLabel(book) === state;
+      }
       function catalogBookCandidates(value) {
         const q = String(value || "").normalize("NFKC").trim().toLocaleLowerCase("ko"), subject = window.bookManageSubject || "전체", teacher = window.bookManageTeacher || "전체", state = window.bookManageState || "배부 가능", priceState = window.bookManagePriceState || "전체", relevant = periodBookIds();
-        return arr(S.books).filter((book) => relevant.has(book.id) && (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && (state === "전체" || (state === "배부 가능" ? book.active !== false && !bookDistributionIsClosed(book) : book.active === false || bookDistributionIsClosed(book))) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
+        return arr(S.books).filter((book) => relevant.has(book.id) && (subject === "전체" || book.subject === subject) && (teacher === "전체" || (book.teacher || "학원 공통") === teacher) && catalogBookMatchesState(book,state) && (priceState === "전체" || bookPriceValue(book) == null) && (!q || `${book.subject} ${book.teacher || "학원 공통"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showCatalogBookPicker(value) { if(S.books?.[window.bookManageChoice]?.name!==value){window.bookManageChoice="";for(const row of document.querySelectorAll(".catalog-table tr.book-picker-selected"))row.classList.remove("book-picker-selected");} const box=document.getElementById("bookManageResults"); if(box) box.innerHTML=catalogBookCandidates(value).map((b)=>bookPickerButton(b,"chooseCatalogBook")).join(""); }
-      function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; window.bookManageDraftQuery=book.name; const input=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(input)input.value=book.name;filterCatalogBookRows(book.name,false);const box=document.getElementById("bookManageResults");if(box)box.innerHTML="";requestAnimationFrame(()=>{const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}}); }
+      function chooseCatalogBook(id) { const book=S.books?.[id]; if(!book)return; window.bookManageChoice=id; window.bookManageQuery=book.name; window.bookManageDraftQuery=book.name; const input=[...document.querySelectorAll("#screen section")].find((section)=>section.querySelector("h2")?.textContent.trim()==="교재 관리")?.querySelector(".catalog-filter input");if(input)input.value=book.name;filterCatalogBookRows(book.name,false);const box=document.getElementById("bookManageResults");if(box)box.innerHTML="";const row=document.querySelector(`.catalog-table tr[data-book-id="${id}"]`);if(row)row.classList.add("book-picker-selected"); }
       function confirmCatalogBookSearch(event) {
         if(event.key!=="Enter") return;
         event.preventDefault();
@@ -4812,7 +4795,7 @@
         return arr(S.books).filter((book)=>relevant.has(book.id)&&(subject==="전체"||book.subject===subject)&&(teacher==="전체"||(book.teacher||"미지정")===teacher)&&(state==="전체"||(state==="재고있음"&&Number(book.stock||0)>0)||(state==="재고0"&&Number(book.stock||0)===0)||(state==="차이있음"&&Number(book.audit?.diff||0)!==0)||(state==="미실사"&&book.audit?.physical==null))&&(!q||`${book.subject} ${book.teacher||"미지정"} ${book.name}`.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40);
       }
       function showInventoryBookPicker(value){const box=document.getElementById("inventoryBookResults");if(box)box.innerHTML=inventoryBookCandidates(value).map((b)=>bookPickerButton(b,"chooseInventoryBook")).join("");}
-      function chooseInventoryBook(id){const book=S.books?.[id];if(!book)return;window.inventoryBookChoice=id;window.invQuery=book.name;inventory();requestAnimationFrame(()=>{const row=document.querySelector(`#inventoryRows tr[data-book-id="${id}"]`);if(row){row.classList.add("book-picker-selected");row.scrollIntoView({block:"nearest"});}});}
+      function chooseInventoryBook(id){const book=S.books?.[id];if(!book)return;window.inventoryBookChoice=id;window.invQuery=book.name;inventory();const row=document.querySelector(`#inventoryRows tr[data-book-id="${id}"]`);if(row)row.classList.add("book-picker-selected");}
       function showStudentProcessBookPicker(value){const box=document.getElementById("studentProcessBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko");const seen=new Set();const books=[...document.querySelectorAll(".student-process-list tr[data-book-id]")].map((row)=>S.books?.[row.dataset.bookId]).filter((book)=>book&&!seen.has(book.id)&&seen.add(book.id)&&(!q||book.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q)));box.innerHTML=books.slice(0,40).map((b)=>bookPickerButton(b,"chooseStudentProcessBook")).join("");}
       function chooseStudentProcessBook(id){const book=S.books?.[id];if(!book)return;window.processStudentBookQuery=book.name;window.bid=id;window.selected=[];render();}
       function showManagedCombo(id) {
@@ -4939,9 +4922,9 @@
           bookTeachers = orderedTeachers(allBooks.filter((b)=>bookSubject === "전체" || b.subject === bookSubject).map((b)=>b.teacher || "학원 공통")),
           bookTeacher = bookTeachers.includes(window.bookManageTeacher) ? window.bookManageTeacher : "전체",
           bookQuery = String(window.bookManageQuery || "").trim().toLocaleLowerCase("ko"),
-          bookState = window.bookManageState || "배부 가능",
+          bookState = window.bookManageState || "현재 미배부 반영",
           bookPriceState = window.bookManagePriceState || "전체",
-          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && (bookState === "전체" || (bookState === "배부 가능" ? b.active !== false && !bookDistributionIsClosed(b) : b.active === false || bookDistributionIsClosed(b))) && (bookPriceState === "전체" || bookPriceValue(b) == null)),
+          shownBooks = allBooks.filter((b)=>(bookSubject === "전체" || b.subject === bookSubject) && (bookTeacher === "전체" || (b.teacher || "학원 공통") === bookTeacher) && catalogBookMatchesState(b,bookState) && (bookPriceState === "전체" || bookPriceValue(b) == null)),
           classSubject = window.classManageSubject || "전체",
           classTeachers = uniq(classes.filter((c)=>classSubject === "전체" || c.subject === classSubject).map((c)=>c.teacher || "미지정")).sort((a,b)=>a.localeCompare(b,"ko")),
           classTeacher = classTeachers.includes(window.classManageTeacher) ? window.classManageTeacher : "전체",
@@ -4967,6 +4950,8 @@
           </div><div class="receipt" id="newClassBookList">${classBookDraftHtml()}</div></section>
           <section class="panel"><h2>교재 관리</h2><div class="catalog-filter"><label>과목<select onchange="bookManageSubject=this.value;bookManageTeacher='전체';bookManageQuery='';bookManageDraftQuery='';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===bookSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="bookManageTeacher=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()"><option>전체</option>${bookTeachers.map((x)=>`<option ${x===bookTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="bookManageState=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()">${["배부 가능","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재비<select onchange="bookManagePriceState=this.value;bookManageQuery='';bookManageDraftQuery='';catalogManagement()">${["전체","미등록"].map((x)=>`<option ${x===bookPriceState?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input value="${esc(window.bookManageDraftQuery ?? window.bookManageQuery ?? "")}" placeholder="교재명 일부 입력 시 전체 결과 표시" onfocus="showCatalogBookPicker(this.value)" oninput="filterCatalogBookRows(this.value)" onkeydown="confirmCatalogBookSearch(event)" onblur="setTimeout(()=>{const b=document.getElementById('bookManageResults');if(b)b.innerHTML=''},160)"><div id="bookManageResults" class="picker-results"></div></div></label></div><p class="muted" id="catalogBookCount">검색 결과 ${shownBooks.length}종 / 전체 ${allBooks.length}종</p><div class="scroll"><table class="catalog-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>재고</th><th>학생보유</th><th>운영반</th><th>교재비</th><th>상태</th><th>교재 관리</th></tr></thead><tbody>${shownBooks.map((b)=>{const heldQty=arr(S.students).reduce((n,s)=>n+held(s.id,b.id),0),mapped=arr(S.classes).filter((c)=>c.active!==false&&arr(c.books).includes(b.id)).length,price=bookPriceValue(b);return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher||"학원 공통")}</td><td><b>${esc(b.name)}</b></td><td>${b.stock||0}</td><td>${heldQty}</td><td><button onclick="showBookClassDetail('${b.id}')">${mapped}</button></td><td><div class="catalog-price-line"><input id="bookPrice_${b.id}" type="number" min="0" step="1" value="${price==null?"":price}" placeholder="미등록"><button onclick="saveBookPrice('${b.id}')">저장</button></div></td><td></td><td></td></tr>`}).join("") || '<tr><td colspan="9">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div></section>
           <section class="panel"><h2>운영 반 관리</h2><div class="catalog-filter"><label>과목<select onchange="classManageSubject=this.value;classManageTeacher='전체';catalogManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===classSubject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="classManageTeacher=this.value;catalogManagement()"><option>전체</option>${classTeachers.map((x)=>`<option ${x===classTeacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.classManageQuery || "")}" placeholder="반명 입력" oninput="classManageQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(catalogManagement,180)"></label></div><div class="list">${shownClasses.map((c)=>`<div class="row"><span><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b><small>매칭 교재: ${arr(c.books).map((id)=>esc(S.books[id]?.name||"")).join(" · ") || "없음"}</small></span><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i>${c.active===false?"":`<button onclick="closeClass('${c.id}')">종료</button>`}</div>`).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
+        const stateFilter = [...document.querySelectorAll(".catalog-filter label")].find((label) => label.firstChild?.textContent?.trim() === "상태")?.querySelector("select");
+        if (stateFilter) stateFilter.innerHTML = ["현재 미배부 반영","다음 달 예정","배부 종료","전체"].map((x)=>`<option ${x===bookState?"selected":""}>${x}</option>`).join("");
         document.querySelector("#screen > section:last-child")?.remove();
         const catalogRows = document.querySelectorAll(
           "#screen > section:nth-of-type(4) tbody tr",
@@ -4976,8 +4961,8 @@
           if (row) row.dataset.bookId = book.id;
           const statusCell = row?.children[7], manageCell = row?.children[8];
           if (!statusCell || !manageCell) return;
-          const closed = bookDistributionIsClosed(book);
-          statusCell.innerHTML = `<div class="catalog-status-line"><span class="badge ${closed ? "" : "ok"}">${closed ? "배부 종료" : "배부 가능"}</span><input id="bookEnd_${book.id}" type="date" value="${esc(book.distributionEndDate || "")}" title="배부 종료일"><button onclick="saveBookDistributionEndDate('${book.id}')">저장</button></div>`;
+          const state = bookDistributionState(book);
+          statusCell.innerHTML = `<div class="catalog-status-line"><select id="bookState_${book.id}" aria-label="교재 반영 상태"><option value="ACTIVE" ${state === "ACTIVE" ? "selected" : ""}>현재 미배부 반영</option><option value="SCHEDULED" ${state === "SCHEDULED" ? "selected" : ""}>다음 달 예정</option><option value="CLOSED" ${state === "CLOSED" ? "selected" : ""}>배부 종료</option></select><button onclick="saveBookDistributionState('${book.id}')">저장</button></div>`;
           const unused = unusedBookBlockers(S, book.id).length === 0;
           manageCell.innerHTML = unused ? `<div class="row-actions"><button onclick="editUnusedBook('${book.id}')">수정</button><button onclick="deleteUnusedBook('${book.id}')">삭제</button></div>` : '<span class="muted">사용 중</span>';
           if (window.bookManageChoice === book.id) row.classList.add("book-picker-selected");
@@ -5329,6 +5314,29 @@
         if (tab === "관리") catalogManagement();
         else bookManagement();
       }
+      async function saveBookDistributionState(bid) {
+        const book = S.books?.[bid], nextState = document.getElementById(`bookState_${bid}`)?.value;
+        if (!book || !["ACTIVE", "SCHEDULED", "CLOSED"].includes(nextState)) return;
+        const label = ({ACTIVE:"현재 미배부 반영",SCHEDULED:"다음 달 예정",CLOSED:"배부 종료"})[nextState];
+        const explanation = nextState === "ACTIVE"
+          ? "지금부터 대상 학생의 미배부·금액과 배부 대상에 포함됩니다."
+          : nextState === "SCHEDULED"
+            ? "반 매칭·재고·이력은 유지하고 현재 미배부·금액·일괄배부에서는 제외됩니다."
+            : "새 배부만 막고 기존 보유·재고·이력은 유지됩니다.";
+        if (!(await askConfirm(`${book.name}\n상태를 ‘${label}’로 바꿀까요?\n${explanation}`))) return;
+        const r = await transaction((st) => {
+          const target = st.books?.[bid];
+          if (!target || target.active === false) return false;
+          target.distributionStatus = nextState;
+          delete target.distributionClosed;
+          delete target.distributionEndDate;
+          target.distributionStatusUpdatedAt = now();
+          target.distributionStatusUpdatedBy = actor;
+        });
+        if (r.committed) S = r.snapshot.val();
+        alert(r.committed ? `${book.name}: ${label}` : "상태를 저장하지 못했습니다.");
+        catalogManagement();
+      }
       async function setBookDistributionClosed(bid, closed) {
         const book = S.books?.[bid];
         if (!book) return;
@@ -5343,7 +5351,8 @@
         const r = await transaction((st) => {
           const target = st.books?.[bid];
           if (!target || target.active === false) return false;
-          target.distributionClosed = closed;
+          target.distributionStatus = closed ? "CLOSED" : "ACTIVE";
+          delete target.distributionClosed;
           if (!closed) delete target.distributionEndDate;
           target.distributionStatusUpdatedAt = now();
           target.distributionStatusUpdatedBy = actor;
@@ -5369,8 +5378,8 @@
           const target = st.books?.[bid];
           if (!target || target.active === false) return false;
           delete target.distributionClosed;
-          if (endDate) target.distributionEndDate = endDate;
-          else delete target.distributionEndDate;
+          if (endDate) { target.distributionEndDate = endDate; target.distributionStatus = "CLOSED"; }
+          else { delete target.distributionEndDate; target.distributionStatus = "ACTIVE"; }
           target.distributionScheduleUpdatedAt = now();
           target.distributionScheduleUpdatedBy = actor;
         });
