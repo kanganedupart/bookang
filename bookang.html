@@ -1164,6 +1164,26 @@
       // let an older intermediate snapshot overwrite the optimistic result
       // that the employee is already checking on screen.
       let pendingRemoteState = null;
+      const BOOKFLOW_CACHE_KEY = "bookflowFastOpenV1";
+      function saveFastOpenCache(st) {
+        try {
+          const cached = { savedAt: Date.now(), data: {} };
+          for (const key of ["books","classes","students","periods","currentPeriodId","staffProfiles","refundTasks","chargeTasks","ecodingEvents"])
+            if (st?.[key] != null) cached.data[key] = st[key];
+          localStorage.setItem(BOOKFLOW_CACHE_KEY, JSON.stringify(cached));
+        } catch (_) { localStorage.removeItem(BOOKFLOW_CACHE_KEY); }
+      }
+      function loadFastOpenCache() {
+        try {
+          const cached = JSON.parse(localStorage.getItem(BOOKFLOW_CACHE_KEY) || "null");
+          if (!cached?.data || Date.now() - Number(cached.savedAt || 0) > 86400000) return false;
+          S = { ...S, ...cached.data };
+          resetDerivedState();
+          renderActor();
+          render();
+          return true;
+        } catch (_) { return false; }
+      }
       function scheduleRemoteRender() {
         clearTimeout(remoteRenderTimer);
         cancelAnimationFrame(remoteRenderFrame);
@@ -1221,6 +1241,7 @@
               }
             }
             resetDerivedState();
+            saveFastOpenCache(S);
             scheduleRemoteRender();
             if (actor && !ecodingAutoSyncTimer) startEcodingAutoSync();
           },
@@ -1235,7 +1256,7 @@
       }
       firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
       firebase.auth().onAuthStateChanged((user) => {
-        if (user) connectBookflowData();
+        if (user) { if (actor) loadFastOpenCache(); connectBookflowData(); }
         else staffLoginScreen();
       });
       function staffLoginScreen() {
@@ -1295,6 +1316,7 @@
         clearInterval(ecodingAutoSyncTimer);
         ecodingAutoSyncTimer = 0;
         clearSavedStaffLogin();
+        localStorage.removeItem(BOOKFLOW_CACHE_KEY);
         actor = "";
         actorRole = "";
         renderActor();
