@@ -293,6 +293,12 @@ try {
     assert.equal(await page.locator(".app-dialog").count(), 0, `${viewport.name}: delayed completion modal remained after save`);
     await page.getByRole("heading", { name: "퇴반완료 내역", exact: true }).waitFor();
 
+    await page.evaluate((key) => {
+      const saved = JSON.parse(localStorage.getItem(key));
+      saved.refundTasks.RTASK_EXACT.returnDecisions.BHELD.quantity = 2;
+      saved.students.SEXIT.holdings.BHELD = 99;
+      localStorage.setItem(key, JSON.stringify(saved));
+    }, FAKE_STATE_KEY);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator('[data-main-tab="퇴반대기"]').waitFor();
     await page.locator('[data-main-tab="퇴반대기"]').click();
@@ -307,7 +313,19 @@ try {
     assert.match(await completedCandidate.innerText(), /퇴반완료/, `${viewport.name}: completed student missing from search`);
     await completedCandidate.click();
     await page.getByRole("heading", { name: /퇴반검수/ }).waitFor();
+    const historyIdentityChecks = await page.evaluate(() => {
+      const target = { id: "SAME-1", name: "동명이인" }, other = { id: "SAME-2", name: "동명이인" };
+      return {
+        exact: historyBelongsToStudent({ studentId: "SAME-1", studentName: "동명이인" }, target, [target, other]),
+        wrongId: historyBelongsToStudent({ studentId: "SAME-2", studentName: "동명이인" }, target, [target, other]),
+        ambiguousLegacy: historyBelongsToStudent({ studentName: "동명이인" }, target, [target, other]),
+        uniqueLegacy: historyBelongsToStudent({ studentName: "동명이인" }, target, [target]),
+      };
+    });
+    assert.deepEqual(historyIdentityChecks, { exact: true, wrongId: false, ambiguousLegacy: false, uniqueLegacy: true }, `${viewport.name}: same-name history exact-set failed`);
     assert.match(await page.locator("#studentStatusDetail").innerText(), /퇴반완료 내역/);
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /퇴반일 .* · 교재 6권 · 배부 4권 · 미배부 2권/);
+    assert.equal(await page.locator("#studentStatusDetail .history-details").count(), 1, `${viewport.name}: completed withdrawal lost recent history`);
     assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: completed withdrawal duplicated the general student table`);
     assert.equal(await page.locator("#studentStatusDetail .exit-review-card tbody tr").count(), 5, `${viewport.name}: completed withdrawal lost distributed books`);
     await page.locator("#studentStatusSearch").fill("기록검수");

@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.37" />
+    <meta name="bookflow-build" content="2026-09-05.38" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-05.37", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-05.38", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -185,7 +185,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.37";
+      const BOOKFLOW_BUILD = "2026-09-05.38";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -366,6 +366,15 @@
       function studentNameIdentityKey(studentOrName) {
         const normalizedName = normalizedStudentName(studentOrName);
         return normalizedName ? `name:${normalizedName}` : "";
+      }
+      function historyBelongsToStudent(movement, student, students = arr(S.students)) {
+        if (!movement || !student) return false;
+        const directIds = [movement.studentId, ...arr(movement.studentIds)].filter(Boolean);
+        if (directIds.length) return directIds.includes(student.id);
+        const normalizedName = normalizedStudentName(student);
+        return normalizedName &&
+          students.filter((candidate) => normalizedStudentName(candidate) === normalizedName).length === 1 &&
+          normalizedStudentName(movement.studentName) === normalizedName;
       }
       function normalizeExternalId(value) {
         return String(value ?? "").normalize("NFKC").trim();
@@ -6964,6 +6973,7 @@
             extra.push({
               type: "신규등록",
               time: s.createdAt,
+              studentId: s.id,
               studentName: s.name,
               actor: s.createdBy,
               memo: "학생 등록",
@@ -6985,6 +6995,7 @@
             extra.push({
               type: "반변경",
               time: x.time,
+              studentId: s.id,
               studentName: s.name,
               actor: x.actor,
               memo: `${changeSummary} · ${x.memo}`,
@@ -6994,6 +7005,7 @@
             extra.push({
               type: "퇴반",
               time: x.time,
+              studentId: s.id,
               studentName: s.name,
               actor: x.actor,
               memo: `${arr(x.beforeClasses).join(", ") || "반 없음"} · ${x.reason}`,
@@ -7020,6 +7032,8 @@
           extra.push({
             type: h.type,
             time: h.time,
+            studentId: h.studentId,
+            taskId: h.taskId,
             studentName: h.studentName,
             bookName: h.bookName,
             actor: h.actor,
@@ -7029,6 +7043,8 @@
           extra.push({
             type: "환불완료",
             time: h.time,
+            studentId: h.studentId,
+            taskId: h.taskId,
             studentName: h.studentName,
             bookName: arr(h.bookNames).join(" · "),
             actor: h.actor,
@@ -7038,6 +7054,8 @@
           extra.push({
             type: "재등록 종결",
             time: h.time,
+            studentId: h.studentId,
+            taskId: h.taskId,
             studentName: h.studentName,
             actor: h.actor,
             memo: h.memo || "재등록으로 환불대기 종결",
@@ -9004,7 +9022,13 @@
           displayedWithdrawalTask = focusedTask || automaticWithdrawalTask;
         let detail = "";
         if (s && displayedWithdrawalTask) {
-          detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${displayedWithdrawalTask.status === "DONE" ? "ok" : "warn"}">${displayedWithdrawalTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">퇴반 교재 확인 화면</span></div></div>${exitReviewPanel(s, displayedWithdrawalTask)}</div>`;
+          const withdrawalRows = withdrawalSettlementRows(S, displayedWithdrawalTask),
+            quantityOf = (rows) => rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 0)), 0),
+            distributedCount = quantityOf(withdrawalRows.filter((row) => row.source === "HELD" || row.source === "RETURNED")),
+            missingCount = quantityOf(withdrawalRows.filter((row) => row.source === "MISSING")),
+            totalBookCount = quantityOf(withdrawalRows),
+            recent = allHistory().filter((movement) => historyBelongsToStudent(movement, s, students)).slice(0, 30);
+          detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${displayedWithdrawalTask.status === "DONE" ? "ok" : "warn"}">${displayedWithdrawalTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">퇴반일 ${esc(refundTaskExitDate(S, displayedWithdrawalTask) || "-")} · 교재 ${totalBookCount}권 · 배부 ${distributedCount}권 · 미배부 ${missingCount}권</span></div></div>${exitReviewPanel(s, displayedWithdrawalTask)}<details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details></div>`;
         }
         if (s && !displayedWithdrawalTask) {
           const classes = clsOf(s.id);
@@ -9512,7 +9536,7 @@
       }
       function exitReturnDecisionRows(state, task) {
         const student = state.students?.[task?.studentId], decisions = task?.returnDecisions || {};
-        if (!student) return Object.entries(decisions).map(([bookId, decision]) => ({
+        if (!student || task?.status === "DONE") return Object.entries(decisions).map(([bookId, decision]) => ({
           bookId,
           bookName: state.books?.[bookId]?.name || decision?.bookName || bookId,
           quantity: Number(decision?.quantity || 0),
