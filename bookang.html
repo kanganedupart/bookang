@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.21" />
+    <meta name="bookflow-build" content="2026-09-05.23" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.21";
+      const BOOKFLOW_BUILD = "2026-09-05.23";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -742,6 +742,17 @@
           ids = [...new Set(storedIds.length ? storedIds : legacyIds)];
         return ids.map((id) => S.books?.[id]).filter(Boolean);
       }
+      function refundTaskExitDate(st, task) {
+        const explicit = String(task?.exitDate || "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(explicit)) return explicit;
+        if (!task || task.source === "ECODING") return "";
+        const student = st.students?.[task.studentId], withdrawals = arr(student?.withdrawals)
+          .filter((item) => item.periodId === task.periodId),
+          linked = withdrawals.find((item) => item.id === task.withdrawalId),
+          latest = withdrawals.sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0],
+          time = linked?.time || latest?.time || task.createdAt || "";
+        return time ? localDateKey(time) : "";
+      }
       function refundTaskForStudent(sid, skipStoredLookup = false) {
         const pid = selectedPeriodId();
         const stored = skipStoredLookup
@@ -749,7 +760,7 @@
           : arr(S.refundTasks)
               .filter(
                 (task) => {
-                  const period=S.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
+                  const periodEligible = refundTaskMeetsPeriodRule(S, task);
                   return task.studentId === sid && (!pid || task.periodId === pid) && (task.status !== "PENDING" || periodEligible);
                 },
               )
@@ -764,7 +775,7 @@
                   String(b.createdAt || "").localeCompare(String(a.createdAt || "")) ||
                   String(b.id || "").localeCompare(String(a.id || ""));
               })[0];
-        if (stored) return stored;
+        if (stored) return { ...stored, exitDate: refundTaskExitDate(S, stored) };
         const student = S.students?.[sid];
         if (!student || !studentExitedInPeriod(student, pid)) return null;
         const withdrawal = arr(student.withdrawals)
@@ -792,6 +803,8 @@
           studentName: student.name,
           status: "PENDING",
           books,
+          exitDate: withdrawal?.time ? localDateKey(withdrawal.time) : "",
+          source: "MANUAL",
           createdAt: withdrawal?.time || now(),
           createdBy: withdrawal?.actor || "",
           legacy: true,
@@ -1075,7 +1088,7 @@
         if (!task) return false;
         const period = st.periods?.[task.periodId] || {},
           startDate = String(period.refundEffectiveStartDate || period.bookStartDate || "").slice(0,10),
-          exitDate = String(task.exitDate || "").slice(0,10);
+          exitDate = refundTaskExitDate(st, task);
         if (!startDate && task.source !== "ECODING") return true;
         return /^\d{4}-\d{2}-\d{2}$/.test(exitDate) && (!startDate || exitDate >= startDate);
       }
@@ -1104,10 +1117,9 @@
               );
           }
         }
-        return [...tasks.values()].filter((task) => {
-          const period=st.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
-          return task.status === "PENDING" && periodEligible && !refundTaskHasActivePendingReentry(st, task);
-        });
+        return [...tasks.values()].filter((task) =>
+          task.status === "PENDING" && refundTaskMeetsPeriodRule(st, task) && !refundTaskHasActivePendingReentry(st, task)
+        );
       }
       function pendingRefundCount() {
         const count = pendingRefundRows().length;
@@ -6133,6 +6145,7 @@
         )
           return;
         const pid = selectedPeriodId(),
+          exitDate = localDateKey(),
           refundId = id("R", `${sid}|${pid}`),
           r = await transaction((st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
@@ -6177,6 +6190,7 @@
               ),
               beforeClasses: before,
               reason: String(reason).trim(),
+              effectiveDate: exitDate,
               actor,
               time: now(),
             };
@@ -6188,6 +6202,8 @@
               studentName: student.name,
               withdrawalId: wid,
               beforeClassNames: before,
+              exitDate,
+              source: "MANUAL",
               status: "PENDING",
               books: {},
               createdAt: now(),
@@ -6204,6 +6220,8 @@
               };
             }
             task.beforeClassNames = before;
+            task.exitDate = exitDate;
+            task.source = "MANUAL";
             task.status = "PENDING";
           });
         if (r.committed) {
@@ -6222,8 +6240,8 @@
         alert(
           r.committed
             ? S.students[sid]?.pendingReturn
-              ? "퇴반 완료 — 보유교재 회수 화면으로 이동합니다."
-              : "퇴반 완료 — 이후 일괄배부 대상에서 제외됩니다."
+              ? "퇴반대기에 등록했습니다. 보유교재 회수 화면으로 이동합니다. 미배부 확인 후 퇴반완료하세요."
+              : "퇴반대기에 등록했습니다. 미배부와 환불예정 금액을 확인한 뒤 퇴반완료하세요."
             : "퇴반 처리 실패",
         );
         render();
@@ -6246,6 +6264,7 @@
         )
           return;
         const pid = selectedPeriodId(),
+          exitDate = localDateKey(),
           refundId = id("R", `${sid}|${pid}`),
           r = await transaction((st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
@@ -6287,6 +6306,7 @@
               ),
               beforeClasses,
               reason: String(reason).trim(),
+              effectiveDate: exitDate,
               disposition: "KEEP_BOOKS",
               memo: "회수 없이 전체 퇴반 · 창고재고 변화 없음",
               actor,
@@ -6300,6 +6320,8 @@
               studentName: student.name,
               withdrawalId: wid,
               beforeClassNames: beforeClasses,
+              exitDate,
+              source: "MANUAL",
               status: "PENDING",
               books: {},
               createdAt: now(),
@@ -6316,6 +6338,8 @@
               };
             }
             task.beforeClassNames = beforeClasses;
+            task.exitDate = exitDate;
+            task.source = "MANUAL";
             task.status = "PENDING";
           });
         if (r.committed) {
@@ -6326,7 +6350,7 @@
         }
         alert(
           r.committed
-            ? "회수 없이 전체 퇴반 처리했습니다. 학생 보유교재와 창고재고는 변경하지 않았습니다."
+            ? "회수 없이 퇴반대기에 등록했습니다. 보유교재와 창고재고는 변경하지 않았습니다. 미배부 확인 후 퇴반완료하세요."
             : "전체 퇴반 처리에 실패했습니다.",
         );
         render();
@@ -9393,7 +9417,7 @@
                 (task) =>
                   !activeIds.size || !task.periodId || activeIds.has(task.periodId),
               )
-              .map((task) => [`${task.periodId || ""}|${task.studentId}`, task]),
+              .map((task) => [`${task.periodId || ""}|${task.studentId}`, { ...task, exitDate: refundTaskExitDate(S, task) }]),
           );
         for (const student of arr(S.students).filter(
           (item) => item.active === false,
@@ -9540,6 +9564,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             st.refundTasks = st.refundTasks || {};
              const target = st.refundTasks[task.id];
              if (!target || target.status !== "PENDING") return false;
+            if (!refundTaskMeetsPeriodRule(st, target)) return false;
+            target.exitDate = refundTaskExitDate(st, target);
             const latestConfirmation = refundConfirmationSnapshot(st, target);
             if (!latestConfirmation || latestConfirmation.signature !== confirmation.signature)
               return false;
@@ -9605,6 +9631,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
               periodId: target.periodId,
               studentId: target.studentId,
               studentName: target.studentName,
+              exitDate: target.exitDate,
               bookNames: names,
               bookAmounts,
               quantity: bookAmounts.reduce(
