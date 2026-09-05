@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.35" />
+    <meta name="bookflow-build" content="2026-09-05.36" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -151,7 +151,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.35";
+      const BOOKFLOW_BUILD = "2026-09-05.36";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -264,6 +264,11 @@
             input?.select();
           });
         });
+      }
+      function showOperationProgress(message) {
+        const host = document.querySelector("#appDialogHost");
+        if (!host) return;
+        host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="status" aria-live="assertive"><h2>처리 중</h2><div class="app-dialog-message">${esc(dialogText(message))}</div><div class="app-dialog-actions"><button disabled>저장 중...</button></div></section></div>`;
       }
       function askWithdrawalDetails(studentName) {
         const host = document.querySelector("#appDialogHost");
@@ -9593,7 +9598,8 @@
         }).join('') || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>';
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '실제로 회수할 교재만 선택한 뒤 퇴반완료하세요.';
         const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
-        return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><div class="receipt"><b>최종 환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === '전체' ? 'selected' : ''}>전체</option><option ${filter === '배부' ? 'selected' : ''}>배부</option><option ${filter === '미배부' ? 'selected' : ''}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 삭제는 환불 대상에서만 제외하며 기록은 남습니다.</p>${completionButton}</section>`;
+        const completionNotice = window.withdrawalCompletionNotice?.taskId === task.id ? `<div class="receipt transaction-result"><b>${esc(window.withdrawalCompletionNotice.message)}</b></div>` : '';
+        return `<section class="exit-review-card">${completionNotice}<h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><div class="receipt"><b>최종 환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === '전체' ? 'selected' : ''}>전체</option><option ${filter === '배부' ? 'selected' : ''}>배부</option><option ${filter === '미배부' ? 'selected' : ''}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 삭제는 환불 대상에서만 제외하며 기록은 남습니다.</p>${completionButton}</section>`;
       }
       function withdrawalSettlementRows(state, task) {
         const done = task?.status === 'DONE', legacyDone = done && Number(task?.refundRuleVersion || 1) < 2, rows = new Map();
@@ -9762,6 +9768,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         };
       }
       async function completeRefund(sid, taskId = "") {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const task = taskId ? S.refundTasks?.[taskId] : refundTaskForStudent(sid),
           confirmation = refundConfirmationSnapshot(S, task),
           settlementRows = withdrawalSettlementRows(S, task),
@@ -9793,6 +9800,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
           return alert(`교재비 미등록으로 퇴반완료할 수 없습니다.\n\n${missingPrices.map((book) => book.bookName).join("\n")}\n\n관리의 반·교재에서 금액을 먼저 입력하세요.`);
         if (!(await askWithdrawalCompletion(S.students?.[sid]?.name || task.studentName, task, settlementRows, totalAmount)))
           return;
+        operationBusy = true;
+        showOperationProgress("퇴반완료와 최종 환불금액을 저장하고 있습니다. 잠시만 기다려 주세요.");
         const completedAt = now(),
           r = await transaction((st) => {
             st.refundTasks = st.refundTasks || {};
@@ -9900,11 +9909,13 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
               time: completedAt,
               memo: `퇴반완료 · 미배부+회수 환불 ${bookAmounts.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}권 · ${won(target.totalAmount)} 확정`,
             };
-          });
-        if (!r.committed)
-          return alert("이미 처리됐거나 미배부 항목이 변경됐습니다.");
+          }).catch(() => null);
+        operationBusy = false;
+        closeAppDialog(false);
+        if (!r?.committed)
+          return alert("저장하지 못했습니다. 이미 처리됐거나 교재 상태가 변경됐는지 다시 확인하세요.");
         S = r.snapshot.val();
-        alert("퇴반완료했습니다. 미배부와 회수완료 교재의 최종 환불금액을 확정했습니다.");
+        window.withdrawalCompletionNotice = { taskId: task.id, message: "퇴반완료 · 최종 환불금액 저장 완료" };
         studentStatus();
       }
       function histApply() {

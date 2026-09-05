@@ -117,6 +117,14 @@ function installFakeFirebase({ seed, stateKey }) {
       return Promise.resolve(snapshot(read()));
     },
     async transaction(update) {
+      globalThis.__bookflowFakeTransactionCount = Number(globalThis.__bookflowFakeTransactionCount || 0) + 1;
+      const delayMs = Number(globalThis.__bookflowFakeTransactionDelayMs || 0);
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      globalThis.__bookflowFakeTransactionDelayMs = 0;
+      if (globalThis.__bookflowFakeTransactionRejectOnce) {
+        globalThis.__bookflowFakeTransactionRejectOnce = false;
+        throw new Error("forced isolated transaction failure");
+      }
       const current = read();
       const result = update(clone(current));
       if (result === undefined) return { committed: false, snapshot: snapshot(current) };
@@ -249,9 +257,22 @@ try {
     assert.match(await page.locator(".app-dialog").innerText(), /최종 환불 2종 · 32,000원/);
     assert.match(await page.locator(".app-dialog").innerText(), /미배부 1종 \+ 회수완료 1종/);
     assert.match(await page.locator(".app-dialog").innerText(), /환불 제외 3종/);
+    await page.evaluate(() => { window.__bookflowFakeTransactionDelayMs = 150; window.__bookflowFakeTransactionRejectOnce = true; });
     await page.locator(".app-dialog .confirm-button").click();
-    await page.getByText(/퇴반완료했습니다/).waitFor();
+    await page.getByRole("status").getByText(/퇴반완료와 최종 환불금액을 저장하고 있습니다/).waitFor();
+    await page.getByText(/저장하지 못했습니다/).waitFor();
     await page.locator(".app-dialog .confirm-button").click();
+    const failedTask = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).refundTasks.RTASK_EXACT, FAKE_STATE_KEY);
+    assert.equal(failedTask.status, "PENDING", `${viewport.name}: failed save was falsely completed`);
+    await page.getByRole("button", { name: "퇴반완료", exact: true }).click();
+    await page.getByRole("heading", { name: /퇴반완료 확인/ }).waitFor();
+    await page.evaluate(() => { window.__bookflowFakeTransactionDelayMs = 150; });
+    const transactionCountBeforeDoubleClick = await page.evaluate(() => Number(window.__bookflowFakeTransactionCount || 0));
+    await page.locator(".app-dialog .confirm-button").evaluate((button) => { button.click(); button.click(); });
+    await page.getByRole("status").getByText(/퇴반완료와 최종 환불금액을 저장하고 있습니다/).waitFor();
+    await page.getByText("퇴반완료 · 최종 환불금액 저장 완료", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => Number(window.__bookflowFakeTransactionCount || 0)), transactionCountBeforeDoubleClick + 1, `${viewport.name}: rapid double click started duplicate saves`);
+    assert.equal(await page.locator(".app-dialog").count(), 0, `${viewport.name}: delayed completion modal remained after save`);
     await page.getByRole("heading", { name: "퇴반완료 내역", exact: true }).waitFor();
 
     await page.reload({ waitUntil: "domcontentloaded" });
