@@ -47,6 +47,7 @@ contains(returnDecision, /type\s*:\s*["']RETURN["']/, "회수 결정이 RETURN �
 contains(returnDecision, /stockBefore/, "회수 원장에 재고 전 수량이 없습니다.");
 contains(returnDecision, /stockAfter/, "회수 원장에 재고 후 수량이 없습니다.");
 contains(returnDecision, /studentDeltas/, "회수 원장에 학생 보유수량 차감이 없습니다.");
+contains(returnDecision, /pendingReturn\s*=\s*true/, "퇴반완료 전 배부 차단을 유지하지 않습니다.");
 contains(returnDecision, /decision\s*===?\s*["']RETURNED["']|RETURNED["']\s*\)/,
   "이미 회수완료된 행의 중복 실행 차단 근거가 없습니다.");
 
@@ -69,6 +70,7 @@ contains(panel, /completeRefund/, "퇴반 상세에 퇴반완료가 연결되지
 const complete = functionSource("completeRefund");
 contains(complete, /returnDecisions/, "퇴반완료가 보유교재 결정 완료 여부를 검사하지 않습니다.");
 contains(complete, /RETAINED|RETURNED/, "퇴반완료가 회수/유지 결정을 검사하지 않습니다.");
+contains(complete, /row\.decision\s*===\s*["']RETURNED["'][\s\S]*student\.holdings/, "회수 후 재배부된 교재의 완료 차단 근거가 없습니다.");
 contains(complete, /EXCLUDED/, "퇴반완료가 환불제외 행을 구분하지 않습니다.");
 contains(complete, /unitPrice/, "퇴반완료가 확정 단가를 스냅샷하지 않습니다.");
 contains(complete, /refundAmount/, "퇴반완료가 행별 확정 환불금액을 저장하지 않습니다.");

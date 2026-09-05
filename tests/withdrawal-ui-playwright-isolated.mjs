@@ -32,14 +32,17 @@ function seedState() {
     },
     books: {
       BHELD: { id: "BHELD", name: "보유 검수교재", subject: "국어", teacher: "공통", price: 22000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
+      BRETURN: { id: "BRETURN", name: "회수 검수교재", subject: "국어", teacher: "공통", price: 18000, stock: 7, active: true, periodIds: { [periodId]: periodId } },
+      BNEWHELD: { id: "BNEWHELD", name: "대기중 추가보유 교재", subject: "국어", teacher: "공통", price: 11000, stock: 5, active: true, periodIds: { [periodId]: periodId } },
       BMISSING: { id: "BMISSING", name: "미배부 검수교재", subject: "국어", teacher: "공통", price: 14000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
+      BEXCLUDED: { id: "BEXCLUDED", name: "환불제외 검수교재", subject: "국어", teacher: "공통", price: 9000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
     },
     classes: {
       C1: { id: "C1", name: "정규 검수반", subject: "국어", teacher: "검수강사", active: true, periodId, books: { BMISSING: "BMISSING" } },
     },
     students: {
       SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
-      SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BMISSING: 0 }, withdrawals: {} },
+      SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BRETURN: 1, BNEWHELD: 1, BMISSING: 0 }, withdrawals: {} },
     },
     refundTasks: {
       RTASK_EXACT: {
@@ -55,8 +58,12 @@ function seedState() {
         beforeClassNames: ["정규 검수반"],
         books: {
           BMISSING: { bookId: "BMISSING", bookName: "미배부 검수교재", quantity: 1, status: "PENDING", source: "UNDISTRIBUTED" },
+          BEXCLUDED: { bookId: "BEXCLUDED", bookName: "환불제외 검수교재", quantity: 1, status: "PENDING", source: "UNDISTRIBUTED" },
         },
-        returnDecisions: {},
+        returnDecisions: {
+          BHELD: { bookId: "BHELD", bookName: "보유 검수교재", quantity: 1, decision: "UNDECIDED" },
+          BRETURN: { bookId: "BRETURN", bookName: "회수 검수교재", quantity: 1, decision: "UNDECIDED" },
+        },
       },
       RTASK_ORPHAN: {
         id: "RTASK_ORPHAN",
@@ -75,7 +82,9 @@ function seedState() {
         returnDecisions: {},
       },
     },
-    movements: {}, processedOperations: {}, chargeTasks: {}, refundHistory: {}, refundTaskEvents: {}, ecodingEvents: {},
+    movements: {
+      MDIST_RETURN: { id: "MDIST_RETURN", periodId, type: "DISTRIBUTE", bookId: "BRETURN", studentId: "SEXIT", studentDeltas: { SEXIT: 1 }, periodStudentDeltas: { [periodId]: { SEXIT: 1 } }, quantity: 1, stockBefore: 8, stockAfter: 7, time: "2026-09-04T09:00:00+09:00" },
+    }, processedOperations: {}, chargeTasks: {}, refundHistory: {}, refundTaskEvents: {}, ecodingEvents: {},
   };
 }
 
@@ -196,17 +205,29 @@ try {
     await exactTaskRow.getByRole("button", { name: "상세 확인", exact: true }).click();
     await page.getByRole("heading", { name: "퇴반대기 교재 확인", exact: true }).waitFor();
     assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
+    assert.equal(await page.getByRole("button", { name: "보유 유지", exact: true }).count(), 0, `${viewport.name}: per-book retain button should not exist`);
+    assert.equal(await page.getByRole("button", { name: "회수", exact: true }).count(), 3, `${viewport.name}: current held-set return buttons missing`);
+    assert.match(await page.locator(".exit-review-card").innerText(), /미회수\(기본\)/);
+    await page.locator(".exit-review-card tr", { hasText: "회수 검수교재" }).getByRole("button", { name: "회수", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText("회수완료", { exact: true }).waitFor();
+    const stateAfterReturn = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(stateAfterReturn.students.SEXIT.pendingReturn, true, `${viewport.name}: distribution lock released before withdrawal completion`);
 
-    await page.getByRole("button", { name: "환불 제외", exact: true }).click();
+    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByRole("button", { name: "환불 제외", exact: true }).click();
     await page.locator("#appDialogInput").fill("격리 검수 제외");
     await page.locator(".app-dialog .confirm-button").click();
-    await page.getByText("환불 제외", { exact: true }).waitFor();
+    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByText("환불 제외", { exact: true }).waitFor();
     const taskAfterDecision = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).refundTasks.RTASK_EXACT, FAKE_STATE_KEY);
-    assert.equal(taskAfterDecision.books.BMISSING.status, "EXCLUDED", `${viewport.name}: refund exclusion not persisted`);
-    await page.getByRole("button", { name: "환불 포함으로 변경", exact: true }).click();
+    assert.equal(taskAfterDecision.books.BEXCLUDED.status, "EXCLUDED", `${viewport.name}: refund exclusion not persisted`);
     await page.getByRole("button", { name: "퇴반완료", exact: true }).waitFor();
 
     await page.getByRole("button", { name: "퇴반완료", exact: true }).click();
+    await page.getByRole("heading", { name: /퇴반완료 확인/ }).waitFor();
+    assert.match(await page.locator(".app-dialog").innerText(), /회수완료 1종 1권/);
+    assert.match(await page.locator(".app-dialog").innerText(), /미회수·학생 보유 2종 2권/);
+    assert.match(await page.locator(".app-dialog").innerText(), /미배부 환불 1종 · 14,000원/);
+    assert.match(await page.locator(".app-dialog").innerText(), /환불 제외 1종/);
     await page.locator(".app-dialog .confirm-button").click();
     await page.getByText(/퇴반완료했습니다/).waitFor();
     await page.locator(".app-dialog .confirm-button").click();
@@ -238,9 +259,15 @@ try {
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 14000, `${viewport.name}: refund amount mismatch`);
-    assert.equal(persisted.students.SEXIT.retainedBooksOnExit, false, `${viewport.name}: retained flag mismatch`);
+    assert.equal(persisted.students.SEXIT.retainedBooksOnExit, true, `${viewport.name}: retained flag mismatch`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.returnDecisions.BHELD.decision, "RETAINED", `${viewport.name}: default retained decision missing`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.returnDecisions.BNEWHELD.decision, "RETAINED", `${viewport.name}: newly held book was not retained on completion`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.returnDecisions.BRETURN.decision, "RETURNED", `${viewport.name}: selected return decision missing`);
+    assert.equal(persisted.students.SEXIT.holdings.BRETURN, 0, `${viewport.name}: returned holding not cleared`);
+    assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
+    assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
-    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
+    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", selectiveReturn: "PASS", defaultRetain: "PASS", refundDecision: "INCLUDED_1_EXCLUDED_1", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
     await context.close();
   }
   assert.deepEqual(productionFirebaseRequests, [], "production Firebase database was contacted");
