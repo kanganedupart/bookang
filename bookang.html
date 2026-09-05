@@ -3,7 +3,41 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.36" />
+    <meta name="bookflow-build" content="2026-09-05.37" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
+    <script>
+      (() => {
+        const currentBuild = "2026-09-05.37", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
+        const updateKey = (build) => `bookflow-version-attempt:${build}`;
+        const showUpdateBanner = (build) => {
+          const show = () => {
+            if (document.getElementById("bookflowUpdateBanner")) return;
+            const banner = document.createElement("div");
+            banner.id = "bookflowUpdateBanner";
+            banner.style.cssText = "position:fixed;z-index:9999;left:12px;right:12px;top:10px;padding:10px 14px;background:#fff3cd;border:1px solid #e1b94f;border-radius:8px;text-align:center;font-weight:700";
+            banner.innerHTML = `새 화면이 준비되었습니다. <a href="./bookang.html?v=${encodeURIComponent(build)}&refresh=${Date.now()}">최신 화면 열기</a>`;
+            document.body.prepend(banner);
+          };
+          if (document.body) show(); else document.addEventListener("DOMContentLoaded", show, { once:true });
+        };
+        const openLatestOnce = (build) => {
+          const key = updateKey(build);
+          if (sessionStorage.getItem(key)) { reveal(); showUpdateBanner(build); return; }
+          sessionStorage.setItem(key, "1");
+          location.replace(`./bookang.html?v=${encodeURIComponent(build)}&refresh=${Date.now()}`);
+        };
+        const gateTimer = setTimeout(reveal, 2500);
+        latestBuild().then((build) => { clearTimeout(gateTimer); if (build && build !== currentBuild) openLatestOnce(build); else { if (build) sessionStorage.removeItem(updateKey(build)); reveal(); } }).catch(() => { clearTimeout(gateTimer); reveal(); });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState !== "visible") return;
+          latestBuild().then((build) => { if (build && build !== currentBuild) showUpdateBanner(build); }).catch(() => {});
+        });
+      })();
+    </script>
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -151,7 +185,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.36";
+      const BOOKFLOW_BUILD = "2026-09-05.37";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;

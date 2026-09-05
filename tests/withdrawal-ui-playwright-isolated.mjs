@@ -5,6 +5,8 @@ import { chromium } from "playwright";
 
 const htmlPath = new URL("../bookang.html", import.meta.url);
 const html = await readFile(htmlPath, "utf8");
+const currentBuild = html.match(/bookflow-build" content="([^"]+)/)?.[1];
+assert.ok(currentBuild, "bookflow build metadata missing");
 const FAKE_STATE_KEY = "__bookflow_isolated_firebase_state__";
 
 function fnvId(prefix, value) {
@@ -154,10 +156,19 @@ function installFakeFirebase({ seed, stateKey }) {
   };
 }
 
+let forcedStaleResponses = 0;
 const server = createServer((request, response) => {
+  if (request.url.startsWith("/version.json")) {
+    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    response.end(JSON.stringify({ build: currentBuild }));
+    return;
+  }
   if (request.url === "/" || request.url.startsWith("/bookang.html")) {
+    if (request.url.includes("stale-twice=1")) forcedStaleResponses = 2;
+    const serveStale = forcedStaleResponses > 0;
+    if (serveStale) forcedStaleResponses--;
     response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    response.end(html);
+    response.end(serveStale ? html.replaceAll(currentBuild, "2026-09-05.stale") : html);
     return;
   }
   response.writeHead(404);
@@ -182,6 +193,13 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    await page.goto(`http://127.0.0.1:${port}/bookang.html?stale-twice=1`, { waitUntil: "domcontentloaded" });
+    await page.waitForURL(new RegExp(`bookang\\.html\\?v=${currentBuild.replaceAll(".", "\\.")}`));
+    await page.locator("#bookflowUpdateBanner").waitFor();
+    assert.equal(await page.locator('meta[name="bookflow-build"]').getAttribute("content"), "2026-09-05.stale", `${viewport.name}: deployment-skew scenario did not serve stale HTML twice`);
+    await page.locator("#bookflowUpdateBanner a").click();
+    await page.waitForFunction((build) => document.querySelector('meta[name="bookflow-build"]')?.content === build, currentBuild);
+    assert.equal(await page.locator("#bookflowUpdateBanner").count(), 0, `${viewport.name}: update banner remained after current HTML loaded`);
     await page.goto(`http://127.0.0.1:${port}/bookang.html?dataset=isolated`, { waitUntil: "domcontentloaded" });
     await page.locator("#staffName").fill("검수자");
     await page.locator("#staffPin").fill("0000");
