@@ -1,0 +1,207 @@
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { chromium } from "playwright";
+
+const htmlPath = new URL("../bookang.html", import.meta.url);
+const html = await readFile(htmlPath, "utf8");
+const FAKE_STATE_KEY = "__bookflow_isolated_firebase_state__";
+
+function fnvId(prefix, value) {
+  let hash = 2166136261;
+  for (const char of String(value)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return prefix + (hash >>> 0).toString(36);
+}
+
+function seedState() {
+  const periodId = "P2026T3";
+  return {
+    currentPeriodId: periodId,
+    periods: {
+      [periodId]: {
+        id: periodId,
+        year: "2027",
+        name: "정규 3학기",
+        status: "ACTIVE",
+        bookStartDate: "2026-09-04",
+        refundEffectiveStartDate: "2026-09-04",
+      },
+    },
+    staffProfiles: {
+      [fnvId("U", "검수자")]: { id: fnvId("U", "검수자"), name: "검수자", role: "admin", active: true },
+    },
+    books: {
+      BHELD: { id: "BHELD", name: "보유 검수교재", subject: "국어", teacher: "공통", price: 22000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
+      BMISSING: { id: "BMISSING", name: "미배부 검수교재", subject: "국어", teacher: "공통", price: 14000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
+    },
+    classes: {
+      C1: { id: "C1", name: "정규 검수반", subject: "국어", teacher: "검수강사", active: true, periodId, books: { BMISSING: "BMISSING" } },
+    },
+    students: {
+      SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
+      SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BMISSING: 0 }, withdrawals: {} },
+    },
+    refundTasks: {
+      RTASK_EXACT: {
+        id: "RTASK_EXACT",
+        periodId,
+        studentId: "SEXIT",
+        studentName: "퇴반검수",
+        status: "PENDING",
+        source: "MANUAL",
+        exitDate: "2026-09-05",
+        createdAt: "2026-09-05T09:00:00+09:00",
+        createdBy: "검수자",
+        beforeClassNames: ["정규 검수반"],
+        books: {
+          BMISSING: { bookId: "BMISSING", bookName: "미배부 검수교재", quantity: 1, status: "PENDING", source: "UNDISTRIBUTED" },
+        },
+        returnDecisions: {},
+      },
+    },
+    movements: {}, processedOperations: {}, chargeTasks: {}, refundHistory: {}, refundTaskEvents: {}, ecodingEvents: {},
+  };
+}
+
+function installFakeFirebase({ seed, stateKey }) {
+  const hadState = !!localStorage.getItem(stateKey);
+  if (!hadState) {
+    localStorage.removeItem("bookflowStaffName");
+    localStorage.removeItem("bookflowStaffRole");
+    localStorage.setItem(stateKey, JSON.stringify(seed));
+  }
+  const clone = (value) => structuredClone(value);
+  const read = () => JSON.parse(localStorage.getItem(stateKey));
+  const snapshot = (value) => ({ val: () => clone(value) });
+  const listeners = new Set();
+  const root = {
+    on(event, success) {
+      if (event !== "value") throw new Error(`unexpected fake Firebase event: ${event}`);
+      listeners.add(success);
+      setTimeout(() => success(snapshot(read())), 0);
+    },
+    off(event, success) {
+      if (!success) listeners.clear();
+      else listeners.delete(success);
+    },
+    once(event) {
+      if (event !== "value") throw new Error(`unexpected fake Firebase once: ${event}`);
+      return Promise.resolve(snapshot(read()));
+    },
+    async transaction(update) {
+      const current = read();
+      const result = update(clone(current));
+      if (result === undefined) return { committed: false, snapshot: snapshot(current) };
+      localStorage.setItem(stateKey, JSON.stringify(result));
+      for (const listener of listeners) queueMicrotask(() => listener(snapshot(result)));
+      return { committed: true, snapshot: snapshot(result) };
+    },
+  };
+  const authListeners = new Set();
+  const authObject = {
+    currentUser: hadState && localStorage.getItem("bookflowStaffName") ? { uid: "isolated-audit-user" } : null,
+    setPersistence: async () => {},
+    onAuthStateChanged(callback) { authListeners.add(callback); setTimeout(() => callback(this.currentUser), 0); return () => authListeners.delete(callback); },
+    signInWithEmailAndPassword: async () => {
+      this.currentUser = { uid: "isolated-audit-user" };
+      for (const callback of authListeners) setTimeout(() => callback(this.currentUser), 0);
+      return { user: this.currentUser };
+    },
+    signOut: async () => { this.currentUser = null; },
+  };
+  const auth = () => authObject;
+  auth.Auth = { Persistence: { LOCAL: "LOCAL" } };
+  globalThis.firebase = {
+    initializeApp: () => ({}),
+    auth,
+    database: () => ({ ref: () => root }),
+  };
+}
+
+const server = createServer((request, response) => {
+  if (request.url === "/" || request.url.startsWith("/bookang.html")) {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    response.end(html);
+    return;
+  }
+  response.writeHead(404);
+  response.end("not found");
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const { port } = server.address();
+
+const browser = await chromium.launch({ headless: true, executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe" });
+const results = [];
+const productionFirebaseRequests = [];
+try {
+  for (const viewport of [{ name: "pc", width: 1365, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+    const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+    context.on("request", (request) => {
+      if (/refund-book-default-rtdb|firebasedatabase\.app/i.test(request.url())) productionFirebaseRequests.push(request.url());
+    });
+    await context.route(/gstatic\.com\/firebasejs\//, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+    await context.route(/cdn\.jsdelivr\.net/, (route) => route.abort());
+    await context.route("https://asia-northeast3-refund-book.cloudfunctions.net/bookflowStaffLogin", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ firebaseEmail: "isolated@example.invalid", firebasePassword: "isolated", role: "admin" }) }));
+    await context.addInitScript(installFakeFirebase, { seed: seedState(), stateKey: FAKE_STATE_KEY });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await page.goto(`http://127.0.0.1:${port}/bookang.html?dataset=isolated`, { waitUntil: "domcontentloaded" });
+    await page.locator("#staffName").fill("검수자");
+    await page.locator("#staffPin").fill("0000");
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await page.locator('[data-main-tab="학생"]').waitFor({ timeout: 15000 });
+    assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
+
+    await page.locator('[data-main-tab="학생"]').click();
+    await page.locator("#studentStatusSearch").fill("재원검수");
+    const activeCandidate = page.locator("#studentStatusAutoResults button", { hasText: "재원검수" });
+    await activeCandidate.waitFor();
+    await activeCandidate.click();
+    await page.getByRole("heading", { name: /재원검수/ }).waitFor();
+
+    await page.locator('[data-main-tab="퇴반대기"]').click();
+    await page.getByRole("heading", { name: /퇴반대기/ }).waitFor();
+    assert.match(await page.locator("#screen").innerText(), /퇴반검수/);
+    assert.equal(await page.locator("#refundRows button", { hasText: "상세 확인" }).count(), 1, `${viewport.name}: exact task detail button mismatch`);
+    await page.locator("#refundRows button", { hasText: "상세 확인" }).click();
+    await page.getByRole("heading", { name: "퇴반대기 교재 확인", exact: true }).waitFor();
+    assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
+
+    await page.getByRole("button", { name: "환불 제외", exact: true }).click();
+    await page.locator("#appDialogInput").fill("격리 검수 제외");
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText("환불 제외", { exact: true }).waitFor();
+    const taskAfterDecision = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).refundTasks.RTASK_EXACT, FAKE_STATE_KEY);
+    assert.equal(taskAfterDecision.books.BMISSING.status, "EXCLUDED", `${viewport.name}: refund exclusion not persisted`);
+    await page.getByRole("button", { name: "환불 포함으로 변경", exact: true }).click();
+    await page.getByRole("button", { name: "퇴반완료", exact: true }).waitFor();
+
+    await page.getByRole("button", { name: "퇴반완료", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText(/퇴반완료했습니다/).waitFor();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByRole("heading", { name: "퇴반완료 내역", exact: true }).waitFor();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator('[data-main-tab="퇴반대기"]').waitFor();
+    await page.locator('[data-main-tab="퇴반대기"]').click();
+    const statusSelect = page.locator('select[onchange="refundStatus=this.value;refundTaskScreen()"]');
+    await statusSelect.selectOption("DONE");
+    await page.locator("#refundRows", { hasText: "퇴반검수" }).waitFor();
+    assert.match(await page.locator("#refundRows").innerText(), /퇴반완료/);
+    const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 14000, `${viewport.name}: refund amount mismatch`);
+    assert.equal(persisted.students.SEXIT.retainedBooksOnExit, false, `${viewport.name}: retained flag mismatch`);
+    assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
+    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
+    await context.close();
+  }
+  assert.deepEqual(productionFirebaseRequests, [], "production Firebase database was contacted");
+} finally {
+  await browser.close();
+  await new Promise((resolve) => server.close(resolve));
+}
+
+console.log(JSON.stringify({ isolated: true, productionFirebaseRequests: productionFirebaseRequests.length, results }, null, 2));
