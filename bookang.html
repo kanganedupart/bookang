@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.20" />
+    <meta name="bookflow-build" content="2026-09-05.21" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,13 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.20";
+      const BOOKFLOW_BUILD = "2026-09-05.21";
+      const ECODING_OPERATION_LOCKED = true;
+      function blockUnverifiedEcodingOperation(){
+        if(!ECODING_OPERATION_LOCKED)return false;
+        alert("ACA 원본 명단 연동을 검증하는 동안 이코딩 자동연동 기능을 잠시 잠갔습니다. 학생조회·배부·회수와 수동 신규·반변경·퇴반은 정상적으로 사용할 수 있습니다.");
+        return true;
+      }
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -6950,11 +6956,15 @@
         const headers=section?.querySelectorAll('.scroll thead th')||[];
         if(headers[0])headers[0].textContent='연결 저장 대상';
         if(headers[1])headers[1].textContent='이번 일괄입력 대상';
-        for(const button of section?.querySelectorAll('button')||[]){
-          if(button.textContent.trim()==='해당 반 선택')button.textContent='같은 강사 반 선택';
-          if(button.textContent.trim()==='선택 반에 적용')button.textContent='일괄선택 반에 입력';
-          if(button.textContent.trim()==='선택 반 저장')button.textContent='연결 반 저장';
-        }
+         for(const button of section?.querySelectorAll('button')||[]){
+           if(button.textContent.trim()==='해당 반 선택')button.textContent='같은 강사 반 선택';
+           if(button.textContent.trim()==='선택 반에 적용')button.textContent='일괄선택 반에 입력';
+           if(button.textContent.trim()==='선택 반 저장')button.textContent='연결 반 저장';
+           if(['이코딩 반 불러오기','연결 반 저장','신규·반이동·퇴반 확인'].includes(button.textContent.trim())){
+             button.disabled=true;
+             button.title='ACA 원본 연동 검증 전까지 잠금';
+           }
+         }
         const tableScroll=section?.querySelector('.scroll');
         if(tableScroll&&!section.querySelector('.ecoding-list-filter')){
           const draft=ecodingDraftState(),subject=window.ecodingListSubject||'전체',
@@ -7146,6 +7156,7 @@
         };
       }
       async function refreshEcodingPreview(){
+        if(blockUnverifiedEcodingOperation())return;
         const pid=selectedPeriodId(); if(!pid) return alert('대상을 먼저 선택하세요.');
         const button=document.querySelector('button[onclick="refreshEcodingPreview()"]');
         const originalText=button?.textContent||'이코딩 반 불러오기';
@@ -7194,6 +7205,7 @@
         for(const cls of classes){const item=draft[cls.id]||{};if(!item.enabled)continue;rows[cls.id]={...item,enabled:true,externalClassId:cls.id,externalClassName:cls.name,subject:String(item.subject||'').trim(),teacher:String(item.teacher||'').trim(),bookName:String(item.bookName||'').trim(),price:item.price==null||item.price===''?null:Number(item.price)};}return rows;
       }
       async function saveEcodingMappings(){
+        if(blockUnverifiedEcodingOperation())return;
         const pid=selectedPeriodId(),rows=ecodingMapDraft(); if(!Object.keys(rows).length)return alert('사용할 반을 선택하세요.');
         const bad=Object.values(rows).find(x=>!x.subject||!x.teacher||!x.bookName||x.price==null||!Number.isInteger(x.price)||x.price<0); if(bad)return alert('선택 반의 과목·강사·교재명·교재비를 모두 입력하세요.');
         const invalidExistingLink = Object.values(rows).find((mapping) => {
@@ -7306,6 +7318,7 @@
         return {processed:true,refundQueued:true,reason:'',exitDate:eligibility.exitDate};
       }
       async function runEcodingDiff(){
+        if(blockUnverifiedEcodingOperation())return {blocked:true,reason:"ACA_SOURCE_UNVERIFIED"};
         const pid=selectedPeriodId(),snap=S.ecodingSnapshots?.[pid],maps=S.ecodingClassMappings?.[pid]||{};if(!snap||!Object.keys(maps).length)return alert('반을 불러오고 선택 반을 먼저 저장하세요.');
         try{const fresh=await fetchEcodingSnapshot(),before=new Map((snap.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps,S,pid)])),after=new Map((fresh.students||[]).map(s=>[s.id,normalizedEcodingStudent(s,maps,S,pid)]));let counts={NEW:0,MOVE:0,EXIT:0};const r=await transaction(st=>{st.ecodingEvents=st.ecodingEvents||{};for(const [eid,next] of after){const prev=before.get(eid),has=Object.keys(next.classIds).length;if(!has)continue;let type=!prev||!Object.keys(prev.classIds).length?'NEW':JSON.stringify(Object.keys(prev.classIds).sort())!==JSON.stringify(Object.keys(next.classIds).sort())?'MOVE':'';if(type){const key=id('E',`${pid}|${eid}|${type}|${JSON.stringify(next.classIds)}`);if(!st.ecodingEvents[key]){st.ecodingEvents[key]={id:key,type,status:'PENDING',periodId:pid,externalStudentId:eid,studentName:next.name,beforeClassIds:prev?.classIds||{},afterClassIds:next.classIds,createdAt:now()};counts[type]++;}}}for(const [eid,prev] of before){if(!Object.keys(prev.classIds).length)continue;const next=after.get(eid);if(next&&Object.keys(next.classIds).length)continue;const key=id('E',`${pid}|${eid}|EXIT`);if(!st.ecodingEvents[key]){const exitResult=queueEcodingExitRefund(st,pid,eid,prev);st.ecodingEvents[key]={id:key,type:'EXIT',status:exitResult.processed?'DONE':'PENDING',periodId:pid,externalStudentId:eid,studentName:prev.name,beforeClassIds:prev.classIds,afterClassIds:{},createdAt:now(),exitDate:exitResult.exitDate||'',queuedToRefundAt:exitResult.refundQueued?now():null,refundDecision:exitResult.reason||'QUEUED'};counts.EXIT++;}}st.ecodingSnapshots[pid]={...fresh,previousStudents:fresh.students,periodId:pid};});if(r.committed){S=r.snapshot.val();alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n재고는 변하지 않았습니다.`);render();}}
         catch(error){alert(error.message)}
