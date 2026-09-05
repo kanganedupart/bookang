@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-04.17" />
+    <meta name="bookflow-build" content="2026-09-05.18" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-04.17";
+      const BOOKFLOW_BUILD = "2026-09-05.18";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -497,17 +497,14 @@
       }
       function openNextOnboarding() {
         const reference = S.students[window.sid];
-        const referenceDate = reference?.createdAt
-          ? localDateKey(reference.createdAt)
-          : window.registrationDate || "";
+        const referenceDate = studentAdmissionDate(reference) || window.registrationDate || "";
         const next = arr(S.students)
           .filter(
             (s) =>
               s.active !== false &&
               s.onboarding &&
               s.createdPeriodId === selectedPeriodId() &&
-              (!referenceDate ||
-                (s.createdAt && localDateKey(s.createdAt) === referenceDate)),
+              (!referenceDate || studentAdmissionDate(s) === referenceDate),
           )
           .sort((a, b) =>
             String(a.createdAt || "").localeCompare(String(b.createdAt || "")),
@@ -515,10 +512,15 @@
         window.studentHubView = "new";
         window.newStudentId = next?.id || "";
         window.newAssigned = [];
-        if (next?.createdAt) window.registrationDate = localDateKey(next.createdAt);
+        if (next) window.registrationDate = studentAdmissionDate(next);
         render();
         if (!next)
-          alert("선택한 등록일에 반배정 전 신규생이 없습니다.");
+          alert("선택한 입학일에 반배정 전 신규생이 없습니다.");
+      }
+      function studentAdmissionDate(student) {
+        const stored = String(student?.admissionDate || "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(stored)) return stored;
+        return student?.createdAt ? localDateKey(student.createdAt) : "";
       }
       function debounceScreenSearch(input, stateKey, renderFn) {
         clearTimeout(searchTimer);
@@ -1712,7 +1714,7 @@
           target.set(key, existing ? preferredRosterRecord(existing, student) : student);
         };
         for (const student of arr(st.students)) {
-          const registered = student.createdAt ? localDateKey(student.createdAt) : "";
+          const registered = studentAdmissionDate(student);
           const withdrawals = arr(student.withdrawals)
             .filter((item) => !pid || item.periodId === pid)
             .map((item) => item.time ? localDateKey(item.time) : "")
@@ -5068,7 +5070,7 @@
           classQuery = String(window.classManageQuery || "").trim().toLocaleLowerCase("ko"),
           shownClasses = classes.filter((c)=>(classSubject === "전체" || c.subject === classSubject) && (classTeacher === "전체" || (c.teacher || "미지정") === classTeacher) && (!classQuery || `${c.subject} ${c.teacher || "미지정"} ${c.name}`.toLocaleLowerCase("ko").includes(classQuery)));
         document.querySelector("#screen").innerHTML = `
-          <section class="panel"><h2>공통반 재원생</h2><div class="filter-row"><label>기준일<input type="date" value="${rosterDate}" onchange="commonRosterDate=this.value;catalogManagement()"></label><div class="receipt"><b>${roster.rows.length}명</b>${roster.unknown.length ? `<small>등록일 미확인 ${roster.unknown.length}명은 과거 기준 인원에서 제외</small>` : ""}</div></div><details class="compact-details"><summary>명단 보기</summary><div class="list">${roster.rows.map((student)=>`<div class="row"><b>${esc(student.name)}</b></div>`).join("") || '<p class="muted">해당 기준일의 확인 가능한 재원생이 없습니다.</p>'}</div></details></section>
+          <section class="panel"><h2>공통반 재원생</h2><div class="filter-row"><label>기준일<input type="date" value="${rosterDate}" onchange="commonRosterDate=this.value;catalogManagement()"></label><div class="receipt"><b>${roster.rows.length}명</b>${roster.unknown.length ? `<small>입학일 미확인 ${roster.unknown.length}명은 과거 기준 인원에서 제외</small>` : ""}</div></div><details class="compact-details"><summary>명단 보기</summary><div class="list">${roster.rows.map((student)=>`<div class="row"><b>${esc(student.name)}</b></div>`).join("") || '<p class="muted">해당 기준일의 확인 가능한 재원생이 없습니다.</p>'}</div></details></section>
           <section class="panel catalog-step"><div class="catalog-step-head"><b>1</b><h2>새 교재 등록</h2></div><div class="catalog-book-row">
             ${managedComboField("newBookSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newBookTeacher","강사",teachersAll,"선택하거나 입력")}
@@ -5841,7 +5843,7 @@
           registered = students
             .filter(
               (s) =>
-                s.createdAt && localDateKey(s.createdAt) === registrationDate,
+                studentAdmissionDate(s) === registrationDate,
             )
             .sort((a, b) =>
               String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
@@ -5870,7 +5872,7 @@
           returnCandidates = arr(S.books).filter(
             (b) => held(editId, b.id) > 0 && !afterBookIds.has(b.id),
           );
-        const newPanel = `<section class="panel"><h2>신규생 등록·반배정</h2><p class="muted">이름은 여러 명을 한 번에 저장할 수 있지만 반배정과 교재 처리는 학생별로 진행합니다.</p><label>신규생 이름</label><textarea id="newNames" rows="4" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div><hr><div class="three"><label>등록일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><span></span><span></span></div><div class="list">${registered.map((s) => { const d = studentDistributionSummary(s.id); return `<button style="width:100%;text-align:left;margin:3px 0" onclick="${s.active === false ? (s.pendingReturn ? `openStudentProcess('${s.id}')` : `statusStudentId='${s.id}';studentHubView='status';render()`) : s.onboarding ? `selectNewStudent('${s.id}')` : `openStudentProcess('${s.id}')`}">${esc(s.name)} · ${s.active === false ? (s.pendingReturn ? "퇴반·회수대기" : "퇴반") : s.onboarding ? "반배정 전" : `반 ${activePeriodClassIds(S, s.id).length}개 · 대상 ${d.total}종 / 배부 ${d.distributed}종 / 미배부 ${d.missing}종${d.shortage ? ` / 재고부족 ${d.shortage}종` : ""}`}</button>`; }).join("") || '<p class="muted">선택한 날짜에 등록한 학생이 없습니다.</p>'}</div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<hr><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장 후 교재 처리</button></div>` : newStudent ? '<p class="muted">반배정이 끝난 학생은 해당 행을 누르면 교재 처리로 이동합니다.</p>' : '<p class="muted">위 명단에서 반배정할 학생을 선택하세요.</p>'}</section>`;
+        const newPanel = `<section class="panel"><h2>신규생 등록·반배정</h2><p class="muted">이름은 여러 명을 한 번에 저장할 수 있지만 반배정과 교재 처리는 학생별로 진행합니다.</p><label>신규생 이름</label><textarea id="newNames" rows="4" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div><hr><div class="three"><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><span></span><span></span></div><div class="list">${registered.map((s) => { const d = studentDistributionSummary(s.id); return `<button style="width:100%;text-align:left;margin:3px 0" onclick="${s.active === false ? (s.pendingReturn ? `openStudentProcess('${s.id}')` : `statusStudentId='${s.id}';studentHubView='status';render()`) : s.onboarding ? `selectNewStudent('${s.id}')` : `openStudentProcess('${s.id}')`}">${esc(s.name)} · ${s.active === false ? (s.pendingReturn ? "퇴반·회수대기" : "퇴반") : s.onboarding ? "반배정 전" : `반 ${activePeriodClassIds(S, s.id).length}개 · 대상 ${d.total}종 / 배부 ${d.distributed}종 / 미배부 ${d.missing}종${d.shortage ? ` / 재고부족 ${d.shortage}종` : ""}`}</button>`; }).join("") || '<p class="muted">선택한 입학일에 등록한 학생이 없습니다.</p>'}</div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<hr><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장 후 교재 처리</button></div>` : newStudent ? '<p class="muted">반배정이 끝난 학생은 해당 행을 누르면 교재 처리로 이동합니다.</p>' : '<p class="muted">위 명단에서 반배정할 학생을 선택하세요.</p>'}</section>`;
         const movePanel = current ? `<section class="panel"><div class="student-head"><div><h2>${esc(current.name)}</h2><span>재원 · 현재 반 ${periodClassIds(S, editId).length}개 · 보유 ${arr(S.books).reduce((n,b)=>n+held(editId,b.id),0)}권</span></div>${studentWorkspaceActions(editId, "move")}</div></section><div class="workspace-split"><section class="panel"><h2>반변경</h2><div class="move-summary"><span>현재 반 <b>${periodClassIds(S, editId).length}개</b></span><span>변경 후 <b>${(window.editAssigned || []).length}개</b></span></div><details class="compact-details"><summary>현재 반 펼쳐보기</summary><div class="class-chip-list">${clsOf(editId).map((c) => `<span>${esc(c.subject)} · ${esc(c.teacher || "미지정")} · ${esc(c.name)}</span>`).join("")}</div></details>${classPicker("edit", window.editAssigned)}<label>변경 메모<input id="classMemo" value="${esc(window.classMemoDraft || "")}" oninput="classMemoDraft=this.value" placeholder="예: 수학 Q반 → T반 / 추가결제 필요"></label>${studentExitPanel(editId)}</section><section class="panel workspace-side"><h2>반변경 후 교재 차이</h2>${newBookCandidates.length ? `<div class="receipt"><b>새로 배부할 교재 ${newBookCandidates.length}권</b><br>${newBookCandidates.map((b) => `${esc(b.name)} · ${b.stock || 0} → -1 → ${(b.stock || 0) - 1}`).join("<br>")}</div>` : ""}${returnCandidates.length ? `<div class="receipt" style="border-left-color:#8b4a43"><b>회수 검토 교재 ${returnCandidates.length}권</b><br>${returnCandidates.map((b) => `${esc(b.name)} · ${(b.stock || 0)} → +${held(editId, b.id)} → ${(b.stock || 0) + held(editId, b.id)}`).join("<br>")}</div>` : ""}${!newBookCandidates.length && !returnCandidates.length ? '<div class="flow-placeholder">반을 변경하면 배부·회수 검토가 필요한<br>교재의 재고 전·후가 표시됩니다.</div>' : ""}<div class="flow"><div>현재 창고재고<br><b>변화 없음</b></div><div class="arrow">반정보 저장 →</div><div>저장 후 재고<br><b>동일</b></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="moveStudent('${editId}')">반변경 저장</button></section></div>` : '<section class="panel"><p class="error">학생을 다시 선택하세요.</p></section>';
         if (mode === "move")
           document.querySelector("#screen").innerHTML = movePanel;
@@ -5878,11 +5880,11 @@
       }
       function legacyRenderNewStudentQueue(registrationDate, registered, newStudent) {
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>신규생 등록·반배정·배부</h2><div class="grid"><div><label>신규생 이름</label><textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div></div><div><label>등록일</label><input style="max-width:180px" type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></div></div><div class="section-title" style="margin-top:24px">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반배정</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="receipt"><h3 style="margin-top:0">${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button><button onclick="newStudentId='';newAssigned=[];studentAdmin()">취소</button></div></div>` : ""}</section>`;
+          `<section class="panel"><h2>신규생 등록·반배정·배부</h2><div class="grid"><div><label>신규생 이름</label><textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div></div><div><label>입학일</label><input style="max-width:180px" type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></div></div><div class="section-title" style="margin-top:24px">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반배정</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="receipt"><h3 style="margin-top:0">${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button><button onclick="newStudentId='';newAssigned=[];studentAdmin()">취소</button></div></div>` : ""}</section>`;
       }
       function renderNewStudentQueue(registrationDate, registered, newStudent) {
         document.querySelector("#screen").innerHTML =
-          `<div class="grid manage-split new-student-workspace"><section class="panel"><h2>신규생 등록·반배정</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>등록일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];receipt=null;studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="assignment-box"><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}</div>` : ""}</section>${newStudentStockPanel(newStudent)}</div>`;
+          `<div class="grid manage-split new-student-workspace"><section class="panel"><h2>신규생 등록·반배정</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];receipt=null;studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="assignment-box"><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}</div>` : ""}</section>${newStudentStockPanel(newStudent)}</div>`;
       }
       async function distributeNewStudent(sid, button) {
         const s = S.students[sid],
@@ -5945,6 +5947,7 @@
               holdings: st.students[sid]?.holdings || {},
               active: true,
               onboarding: true,
+              admissionDate: window.registrationDate || localDateKey(),
               createdAt: now(),
               createdBy: actor,
               createdPeriodId: pid,
@@ -5957,7 +5960,7 @@
           window.newAssigned = [];
           const firstId = id("S", names[0]);
           window.newStudentId = firstId;
-          window.registrationDate = localDateKey();
+          window.registrationDate = window.registrationDate || localDateKey();
         }
         alert(
           r.committed
@@ -8710,7 +8713,7 @@
         )}</td><td><b class="${held(s.id, b.id) ? "success" : "danger"}">${held(s.id, b.id) ? "배부됨" : "미배부"}</b></td><td>${held(s.id, b.id)}</td></tr>`,
     )
     .join("")}</tbody></table></div>
-  <div class="action-row">${s.active === false ? `<button class="danger-btn" onclick="openStudentProcess('${s.id}')">보유교재 회수</button>` : s.onboarding ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${s.createdAt ? localDateKey(s.createdAt) : localDateKey()}';render()">신규생 반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>` : `<button class="btn" onclick="openStudentProcess('${s.id}')">배부·회수·추가배부</button><button onclick="openStudentMove('${s.id}')">반변경</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">퇴반 처리</button>`}</div>
+  <div class="action-row">${s.active === false ? `<button class="danger-btn" onclick="openStudentProcess('${s.id}')">보유교재 회수</button>` : s.onboarding ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${studentAdmissionDate(s) || localDateKey()}';render()">신규생 반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>` : `<button class="btn" onclick="openStudentProcess('${s.id}')">배부·회수·추가배부</button><button onclick="openStudentMove('${s.id}')">반변경</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">퇴반 처리</button>`}</div>
   <h3>최근 배부·회수·변경 이력</h3><div class="list">${recent.map((m) => `<div class="row"><span>${fmt(m.time)} · <b>${esc(movementLabel(m))}</b> · ${esc(movementBookName(m) || "")}<small>${esc(m.actor || "")} · ${esc(m.memo || "")}</small></span><b>${m.stockBefore == null ? "" : `${m.stockBefore}→${m.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div>`;
         }
         document.querySelector("#screen").innerHTML =
@@ -8889,7 +8892,7 @@
             exitedInSelectedPeriod
               ? `${heldBooks.length ? `<button class="done-btn" onclick="openStudentProcess('${s.id}')">보유 교재 회수</button>` : ""}${refundPending ? `<button onclick="completeRefund('${s.id}')">퇴반완료</button>` : ""}`
               : s.onboarding
-                ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${s.createdAt ? localDateKey(s.createdAt) : localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
+                ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${studentAdmissionDate(s) || localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
                 : `${studentWorkspaceActions(s.id, "status")}${refundPending ? `<button class="danger-btn" onclick="completeRefund('${s.id}')">퇴반완료</button>` : ""}`;
           detail = `<div id="studentDetail">
           <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
