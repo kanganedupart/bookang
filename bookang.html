@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.21" />
+    <meta name="bookflow-build" content="2026-09-05.22" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.21";
+      const BOOKFLOW_BUILD = "2026-09-05.22";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -478,6 +478,8 @@
         window.editAssignedStudent = "";
         window.studentHubView = "move";
         window.lastStudentReceipt = null;
+        window.classChangeDate = localDateKey();
+        window.withdrawalDateDraft = localDateKey();
         render();
       }
       function openClassExit(id, classId) {
@@ -521,12 +523,127 @@
         if (next) window.registrationDate = studentAdmissionDate(next);
         render();
         if (!next)
-          alert("선택한 입학일에 반배정 전 신규생이 없습니다.");
+          alert("선택한 입반일에 반배정 전 신규생이 없습니다.");
       }
       function studentAdmissionDate(student) {
         const stored = String(student?.admissionDate || "").slice(0, 10);
         if (/^\d{4}-\d{2}-\d{2}$/.test(stored)) return stored;
         return student?.createdAt ? localDateKey(student.createdAt) : "";
+      }
+      function validBusinessDate(value) {
+        const date = String(value || "").slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+      }
+      function previousBusinessDate(value) {
+        const date = validBusinessDate(value);
+        if (!date) return "";
+        const instant = new Date(`${date}T00:00:00Z`);
+        instant.setUTCDate(instant.getUTCDate() - 1);
+        return instant.toISOString().slice(0, 10);
+      }
+      function classMembershipActiveOn(student, pid, cid, dateKey = localDateKey()) {
+        const intervals = student?.periodClassIntervals?.[pid]?.[cid];
+        if (Array.isArray(intervals) && intervals.length)
+          return intervals.some((item) => {
+            const entryDate = validBusinessDate(item.entryDate), exitDate = validBusinessDate(item.exitDate);
+            return (!entryDate || entryDate <= dateKey) && (!exitDate || exitDate > dateKey);
+          });
+        const dates = student?.periodClassDates?.[pid]?.[cid] || {},
+          entryDate = validBusinessDate(dates.entryDate),
+          exitDate = validBusinessDate(dates.exitDate);
+        return (!entryDate || entryDate <= dateKey) && (!exitDate || exitDate > dateKey);
+      }
+      function ensureClassIntervals(student, pid, cid) {
+        student.periodClassIntervals = student.periodClassIntervals || {};
+        student.periodClassIntervals[pid] = student.periodClassIntervals[pid] || {};
+        const intervals = (student.periodClassIntervals[pid][cid] ||= []);
+        if (!intervals.length) {
+          const legacy = student?.periodClassDates?.[pid]?.[cid] || {};
+          if (validBusinessDate(legacy.entryDate) || validBusinessDate(legacy.exitDate))
+            intervals.push({ entryDate: validBusinessDate(legacy.entryDate), exitDate: validBusinessDate(legacy.exitDate) });
+        }
+        return intervals;
+      }
+      function openClassMembership(student, pid, cid, entryDate) {
+        const date = validBusinessDate(entryDate), intervals = ensureClassIntervals(student, pid, cid);
+        if (!intervals.some((item) => (!validBusinessDate(item.entryDate) || validBusinessDate(item.entryDate) <= date) && (!validBusinessDate(item.exitDate) || validBusinessDate(item.exitDate) > date)))
+          intervals.push({ entryDate: date, exitDate: "" });
+        student.periodClassDates = student.periodClassDates || {};
+        student.periodClassDates[pid] = student.periodClassDates[pid] || {};
+        student.periodClassDates[pid][cid] = { entryDate: date };
+      }
+      function closeClassMembership(student, pid, cid, exitDate) {
+        const date = validBusinessDate(exitDate), intervals = ensureClassIntervals(student, pid, cid);
+        for (const item of intervals) {
+          const entryDate = validBusinessDate(item.entryDate), currentExit = validBusinessDate(item.exitDate);
+          if (currentExit && currentExit <= date) continue;
+          if (entryDate && entryDate > date) continue;
+          item.exitDate = date;
+        }
+        student.periodClassDates = student.periodClassDates || {};
+        student.periodClassDates[pid] = student.periodClassDates[pid] || {};
+        (student.periodClassDates[pid][cid] ||= {}).exitDate = date;
+      }
+      function studentPeriodExitDate(student, pid) {
+        return validBusinessDate(student?.periodExitDates?.[pid]);
+      }
+      function futureStudentClassChange(student, pid) {
+        return arr(student?.classChanges).find((item) =>
+          item.periodId === pid && validBusinessDate(item.effectiveDate) > localDateKey()
+        );
+      }
+      function futureStudentWithdrawal(student, pid) {
+        return arr(student?.withdrawals).find((item) =>
+          item.periodId === pid && validBusinessDate(item.effectiveDate) > localDateKey()
+        );
+      }
+      function scheduledManualTransitionPanel(student, pid) {
+        const move = futureStudentClassChange(student, pid), withdrawal = futureStudentWithdrawal(student, pid);
+        if (!move && !withdrawal) return "";
+        const item = move || withdrawal, kind = move ? "반변경" : "퇴반",
+          detail = move ? `${move.before || "없음"} → ${move.after || "없음"}` : (item.disposition === "KEEP_BOOKS" ? "회수 없이 전체퇴반" : "회수 필요 전체퇴반");
+        return `<div class="receipt"><b>${kind} 예정 ${esc(item.effectiveDate)}</b><br>${esc(detail)}<small>${esc(item.memo || item.reason || "")}</small><div class="action-row"><button class="cancel-btn" onclick="cancelManualTransition('${student.id}','${pid}','${move ? "MOVE" : "EXIT"}','${item.id}')">예정 취소</button></div></div>`;
+      }
+      async function cancelManualTransition(sid, pid, type, eventId) {
+        const student = S.students?.[sid], event = type === "MOVE" ? student?.classChanges?.[eventId] : student?.withdrawals?.[eventId],
+          effectiveDate = validBusinessDate(event?.effectiveDate);
+        if (!event || !effectiveDate || effectiveDate <= localDateKey()) return alert("이미 적용되었거나 취소할 수 없는 예정입니다.");
+        if (!(await askConfirm(`${student.name} 학생의 ${effectiveDate} ${type === "MOVE" ? "반변경" : "퇴반"} 예정을 취소할까요?`))) return;
+        const r = await transaction((st) => {
+          const target = st.students?.[sid], current = type === "MOVE" ? target?.classChanges?.[eventId] : target?.withdrawals?.[eventId];
+          if (!target || !current || validBusinessDate(current.effectiveDate) <= localDateKey()) return false;
+          const beforeIds = Object.keys(current.beforeClassIds || {}), afterIds = Object.keys(current.afterClassIds || {});
+          for (const cid of beforeIds) {
+            for (const interval of target.periodClassIntervals?.[pid]?.[cid] || [])
+              if (validBusinessDate(interval.exitDate) === effectiveDate) interval.exitDate = "";
+            if (validBusinessDate(target.periodClassDates?.[pid]?.[cid]?.exitDate) === effectiveDate)
+              delete target.periodClassDates[pid][cid].exitDate;
+          }
+          if (type === "MOVE") {
+            for (const cid of afterIds.filter((cid) => !beforeIds.includes(cid))) {
+              const intervals = target.periodClassIntervals?.[pid]?.[cid] || [];
+              target.periodClassIntervals[pid][cid] = intervals.filter((interval) => validBusinessDate(interval.entryDate) !== effectiveDate);
+              if (!target.periodClassIntervals[pid][cid].length) {
+                delete target.periodClassIntervals[pid][cid];
+                if (target.periodClasses?.[pid]) delete target.periodClasses[pid][cid];
+                if (target.periodClassDates?.[pid]) delete target.periodClassDates[pid][cid];
+              }
+            }
+            delete target.classChanges[eventId];
+          } else {
+            if (target.periodExitDates) delete target.periodExitDates[pid];
+            if (target.withdrawalBooks) delete target.withdrawalBooks[pid];
+            for (const [taskId, task] of Object.entries(st.refundTasks || {}))
+              if (task.studentId === sid && task.periodId === pid && task.withdrawalId === eventId && task.status === "PENDING") delete st.refundTasks[taskId];
+            delete target.withdrawals[eventId];
+            target.retainedBooksOnExit = false;
+            target.pendingReturn = false;
+          }
+          rebuildStudentClasses(target);
+        });
+        if (r.committed) S = r.snapshot.val();
+        alert(r.committed ? "예정을 취소했습니다. 현재 반·교재·재고는 변경되지 않았습니다." : "취소하지 못했습니다. 화면을 새로고침해 확인하세요.");
+        render();
       }
       function debounceScreenSearch(input, stateKey, renderFn) {
         clearTimeout(searchTimer);
@@ -749,7 +866,7 @@
           : arr(S.refundTasks)
               .filter(
                 (task) => {
-                  const period=S.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
+                  const period=S.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&exitDate<=localDateKey()&&(!startDate||exitDate>startDate);
                   return task.studentId === sid && (!pid || task.periodId === pid) && (task.status !== "PENDING" || periodEligible);
                 },
               )
@@ -764,13 +881,16 @@
                   String(b.createdAt || "").localeCompare(String(a.createdAt || "")) ||
                   String(b.id || "").localeCompare(String(a.id || ""));
               })[0];
-        if (stored) return stored;
+        if (stored) return stored.deferredBooks && stored.status === "PENDING"
+          ? { ...stored, books: deferredRefundBooks(S, stored) }
+          : stored;
         const student = S.students?.[sid];
         if (!student || !studentExitedInPeriod(student, pid)) return null;
         const withdrawal = arr(student.withdrawals)
           .filter((item) => !pid || item.periodId === pid)
           .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
         if (!withdrawal) return null;
+        if (withdrawal.refundEligible === false || withdrawal.noRefund === true) return null;
         const books = Object.fromEntries(
           withdrawalBooks(sid)
             .filter((book) => !studentBookIsExcluded(S, sid, book.id, pid))
@@ -799,11 +919,39 @@
       }
       function studentExitedInPeriod(student, pid = selectedPeriodId(), st = S) {
         if (!student || !pid) return student?.active === false;
+        const scheduledExit = studentPeriodExitDate(student, pid);
+        if (scheduledExit) return scheduledExit <= localDateKey();
         if (student.periodMembership?.[pid] === true) return false;
         if (student.periodMembership?.[pid] === false) return true;
         return arr(st.refundTasks).some(
           (task) => task.studentId === student.id && task.periodId === pid,
         );
+      }
+      function studentNeedsReturn(student, pid = selectedPeriodId(), st = S) {
+        return !!student && !student.retainedBooksOnExit && studentExitedInPeriod(student, pid, st) &&
+          Object.values(student.holdings || {}).some((quantity) => Number(quantity) > 0);
+      }
+      function deferredRefundBooks(st, task) {
+        const student = st.students?.[task?.studentId], pid = task?.periodId,
+          exitDate = validBusinessDate(task?.exitDate || studentPeriodExitDate(student, pid)),
+          activeBeforeExit = previousBusinessDate(exitDate), ids = new Set(), realClassIds = [];
+        if (!student || !pid || !activeBeforeExit) return structuredClone(task?.books || {});
+        for (const classId of Object.keys(student.periodClasses?.[pid] || {})) {
+          const cls = st.classes?.[classId];
+          if (!cls || cls.systemCommon === true || !classMembershipActiveOn(student, pid, classId, activeBeforeExit)) continue;
+          realClassIds.push(classId);
+          for (const bookId of Object.keys(cls.books || {})) ids.add(bookId);
+        }
+        if (realClassIds.length)
+          for (const commonClass of systemCommonClasses(st, pid))
+            for (const bookId of Object.keys(commonClass.books || {})) ids.add(bookId);
+        const books = Object.fromEntries(Object.entries(task?.books || {}).filter(([, book]) => book.source !== "UNDISTRIBUTED"));
+        for (const bookId of ids) {
+          const book = st.books?.[bookId];
+          if (!book || studentBookIsExcluded(st, student.id, bookId, pid) || Number(student.holdings?.[bookId] || 0) > 0) continue;
+          books[bookId] = { bookId, bookName: book.name || bookId, status: "PENDING", source: "UNDISTRIBUTED", addedAt: task.createdAt || now() };
+        }
+        return books;
       }
       function closeRefundTasksForReenrollment(st, sid, pid) {
         for (const task of arr(st.refundTasks)) {
@@ -813,6 +961,7 @@
             task.status !== "PENDING"
           )
             continue;
+          if (validBusinessDate(task.exitDate) > localDateKey()) continue;
           const closedAt = now();
           task.status = "CANCELLED";
           task.closedAt = closedAt;
@@ -1076,8 +1225,9 @@
         const period = st.periods?.[task.periodId] || {},
           startDate = String(period.refundEffectiveStartDate || period.bookStartDate || "").slice(0,10),
           exitDate = String(task.exitDate || "").slice(0,10);
-        if (!startDate && task.source !== "ECODING") return true;
-        return /^\d{4}-\d{2}-\d{2}$/.test(exitDate) && (!startDate || exitDate >= startDate);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate) || exitDate > localDateKey()) return false;
+        if (task.source === "MANUAL" && studentPeriodExitDate(st.students?.[task.studentId], task.periodId) !== exitDate) return false;
+        return !startDate || exitDate > startDate;
       }
       function pendingRefundRowsUncached(st = S) {
         const activeIds = deskPeriodIds(st);
@@ -1105,8 +1255,7 @@
           }
         }
         return [...tasks.values()].filter((task) => {
-          const period=st.periods?.[task.periodId]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10),exitDate=String(task.exitDate||"").slice(0,10),periodEligible=!startDate&&task.source!=="ECODING"||(/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate));
-          return task.status === "PENDING" && periodEligible && !refundTaskHasActivePendingReentry(st, task);
+          return task.status === "PENDING" && refundTaskMeetsPeriodRule(st, task) && !refundTaskHasActivePendingReentry(st, task);
         });
       }
       function pendingRefundCount() {
@@ -1698,7 +1847,7 @@
           return { eligible: false, reason: "EXIT_DATE_REQUIRED", exitDate: "", effectiveStartDate };
         if (!normalizedExitDate)
           return { eligible: true, reason: "", exitDate: "", effectiveStartDate: "" };
-        if (effectiveStartDate && normalizedExitDate < effectiveStartDate)
+        if (effectiveStartDate && normalizedExitDate <= effectiveStartDate)
           return { eligible: false, reason: "BEFORE_EFFECTIVE_START", exitDate: normalizedExitDate, effectiveStartDate };
         return { eligible: true, reason: "", exitDate: normalizedExitDate, effectiveStartDate };
       }
@@ -1721,6 +1870,8 @@
         };
         for (const student of arr(st.students)) {
           const registered = studentAdmissionDate(student);
+          const periodExitDate = studentPeriodExitDate(student, pid);
+          if (periodExitDate && periodExitDate <= dateKey) continue;
           const withdrawals = arr(student.withdrawals)
             .filter((item) => !pid || item.periodId === pid)
             .map((item) => item.time ? localDateKey(item.time) : "")
@@ -1747,10 +1898,9 @@
                 localDateKey(event.time) > dateKey,
             );
           });
-          const currentMember = Object.keys(student.periodClasses?.[pid] || {}).some(
-            (cid) =>
-              st.classes?.[cid]?.active !== false &&
-              st.classes?.[cid]?.systemCommon !== true,
+          const currentMember = Object.keys(student.periodClasses?.[pid] || {}).some((cid) =>
+            st.classes?.[cid]?.active !== false && st.classes?.[cid]?.systemCommon !== true &&
+            classMembershipActiveOn(student, pid, cid, dateKey)
           );
           // 공통반 인원은 현재 대상에 실제 일반반이 남아 있는 학생만 센다.
           // 과거 가져오기 과정에서 남은 학생 레코드를 기준일 집계에 다시 포함하면
@@ -1776,7 +1926,10 @@
       function periodClassIds(st, sid, pid = selectedPeriodId()) {
         const s = st.students?.[sid];
         if (!s) return [];
-        if (s?.integrationSync?.ecoding?.[pid]?.status === "WAITING") return [];
+        const periodExitDate = studentPeriodExitDate(s, pid);
+        if (periodExitDate && periodExitDate <= localDateKey()) return [];
+        if (s?.integrationSync?.ecoding?.[pid]?.status === "WAITING" && !periodExitDate) return [];
+        if (s.periodMembership?.[pid] === false) return [];
         let ids;
         if (
           pid &&
@@ -1791,6 +1944,7 @@
               st.classes?.[cid]?.periodId === pid ||
               (!st.classes?.[cid]?.periodId && pid === st.currentPeriodId),
           );
+        ids = ids.filter((cid) => classMembershipActiveOn(s, pid, cid));
         const commonIds = new Set(
             systemCommonClasses(st, pid).map((item) => item.id),
           ),
@@ -2119,7 +2273,7 @@
       function studentWorkspaceActions(sid, active) {
         const s = S.students?.[sid];
         if (!s) return "";
-        return `<div class="student-workspace-actions"><button class="${active === "status" ? "btn" : ""}" onclick="openStudentStatus('${sid}')">현황</button><button class="${active === "process" ? "btn" : ""}" onclick="openStudentProcess('${sid}')">교재 처리</button><button class="${active === "move" ? "btn" : ""}" onclick="openStudentMove('${sid}')" ${s.active === false ? "disabled" : ""}>반 관리</button></div>`;
+        return `<div class="student-workspace-actions"><button class="${active === "status" ? "btn" : ""}" onclick="openStudentStatus('${sid}')">현황</button><button class="${active === "process" ? "btn" : ""}" onclick="openStudentProcess('${sid}')">교재 처리</button><button class="${active === "move" ? "btn" : ""}" onclick="openStudentMove('${sid}')" ${s.active === false ? "disabled" : ""}>반 관리</button></div>${scheduledManualTransitionPanel(s, selectedPeriodId())}`;
       }
       function studentExitPanel(sid) {
         const s = S.students?.[sid],
@@ -2127,7 +2281,7 @@
             .filter((b) => held(sid, b.id) > 0)
             .sort((a, b) => a.name.localeCompare(b.name, "ko"));
         if (!s || s.active === false) return "";
-        return `<details class="compact-details"><summary>전체퇴반</summary><div class="receipt"><b>현재 보유교재 ${heldBooks.reduce((n, b) => n + held(sid, b.id), 0)}권</b><br>회수 필요를 선택하면 퇴반 후 같은 학생의 전체회수 화면으로 이어집니다. 회수 없음을 선택하면 재고는 변하지 않습니다.</div><div class="scroll"><table><thead><tr><th>교재</th><th>학생 보유</th><th>회수 시 재고 전→후</th><th>미회수 시</th></tr></thead><tbody>${heldBooks.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td>${held(sid, b.id)}권</td><td>${b.stock || 0}권 → <b>${(b.stock || 0) + held(sid, b.id)}권</b></td><td>재고 ${b.stock || 0}권 유지</td></tr>`).join("") || '<tr><td colspan="4">보유교재가 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="danger-btn" onclick="withdrawStudent('${sid}')">회수 필요로 전체퇴반</button><button class="cancel-btn" onclick="withdrawStudentKeepBooks('${sid}')">회수 없이 전체퇴반</button></div></details>`;
+        return `<details class="compact-details"><summary>전체퇴반</summary><label>퇴반일<input id="withdrawalDate" type="date" value="${esc(window.withdrawalDateDraft || localDateKey())}" onchange="withdrawalDateDraft=this.value"></label><div class="receipt"><b>현재 보유교재 ${heldBooks.reduce((n, b) => n + held(sid, b.id), 0)}권</b><br>퇴반일 전날까지만 재원으로 봅니다. 미래 퇴반일은 그날부터 명단에서 제외됩니다.<br>회수 필요를 선택하면 퇴반 후 같은 학생의 전체회수 화면으로 이어집니다. 회수 없음을 선택하면 재고는 변하지 않습니다.</div><div class="scroll"><table><thead><tr><th>교재</th><th>학생 보유</th><th>회수 시 재고 전→후</th><th>미회수 시</th></tr></thead><tbody>${heldBooks.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td>${held(sid, b.id)}권</td><td>${b.stock || 0}권 → <b>${(b.stock || 0) + held(sid, b.id)}권</b></td><td>재고 ${b.stock || 0}권 유지</td></tr>`).join("") || '<tr><td colspan="4">보유교재가 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="danger-btn" onclick="withdrawStudent('${sid}')">회수 필요로 전체퇴반</button><button class="cancel-btn" onclick="withdrawStudentKeepBooks('${sid}')">회수 없이 전체퇴반</button></div></details>`;
       }
       function selectStudentProcessBook(bookId, suggestedAction = "") {
         bid = bookId;
@@ -4438,17 +4592,26 @@
             let refundTask = null;
             if (isReturn && studentExitedInPeriod(s, refundPeriodId, st)) {
               st.refundTasks = st.refundTasks || {};
+              const currentExitDate = studentPeriodExitDate(s, refundPeriodId),
+                currentWithdrawal = arr(s.withdrawals)
+                  .filter((item) => item.periodId === refundPeriodId && (!currentExitDate || validBusinessDate(item.effectiveDate) === currentExitDate))
+                  .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
               refundTask = arr(st.refundTasks).find(
                 (task) =>
-                  task.studentId === sid && task.periodId === refundPeriodId,
+                  task.studentId === sid && task.periodId === refundPeriodId && task.status === "PENDING" &&
+                  (currentWithdrawal?.id ? task.withdrawalId === currentWithdrawal.id : validBusinessDate(task.exitDate) === currentExitDate),
               );
               if (!refundTask) {
-                const refundId = id("R", `${sid}|${refundPeriodId}`);
+                const transitionKey = currentWithdrawal?.id || currentExitDate || crypto.randomUUID(),
+                  refundId = id("R", `${sid}|${refundPeriodId}|${transitionKey}`);
                 refundTask = st.refundTasks[refundId] = {
                   id: refundId,
                   periodId: refundPeriodId,
                   studentId: sid,
                   studentName: s.name,
+                  withdrawalId: currentWithdrawal?.id || "",
+                  exitDate: currentExitDate,
+                  source: currentWithdrawal ? "MANUAL" : "RETURNED",
                   beforeClassNames: [],
                   status: "PENDING",
                   books: {},
@@ -4457,7 +4620,6 @@
                 };
               }
               refundTask.books = refundTask.books || {};
-              refundTask.status = "PENDING";
             }
             const historicalClassNames = refundTask?.beforeClassNames || [];
             const details = [];
@@ -4596,7 +4758,8 @@
               const b = S.books[bid],
                 targets = arr(S.students).filter(
                   (s) =>
-                    s.active !== false && !s.pendingReturn && s.classes?.[c.id],
+                    s.active !== false && !s.pendingReturn &&
+                    activePeriodClassIds(S, s.id, c.periodId).includes(c.id),
                 ),
                 done = targets.filter((s) => held(s.id, bid) > 0),
                 missing = targets
@@ -5076,7 +5239,7 @@
           classQuery = String(window.classManageQuery || "").trim().toLocaleLowerCase("ko"),
           shownClasses = classes.filter((c)=>(classSubject === "전체" || c.subject === classSubject) && (classTeacher === "전체" || (c.teacher || "미지정") === classTeacher) && (!classQuery || `${c.subject} ${c.teacher || "미지정"} ${c.name}`.toLocaleLowerCase("ko").includes(classQuery)));
         document.querySelector("#screen").innerHTML = `
-          <section class="panel"><h2>공통반 재원생</h2><div class="filter-row"><label>기준일<input type="date" value="${rosterDate}" onchange="commonRosterDate=this.value;catalogManagement()"></label><div class="receipt"><b>${roster.rows.length}명</b>${roster.unknown.length ? `<small>입학일 미확인 ${roster.unknown.length}명은 과거 기준 인원에서 제외</small>` : ""}</div></div><details class="compact-details"><summary>명단 보기</summary><div class="list">${roster.rows.map((student)=>`<div class="row"><b>${esc(student.name)}</b></div>`).join("") || '<p class="muted">해당 기준일의 확인 가능한 재원생이 없습니다.</p>'}</div></details></section>
+          <section class="panel"><h2>공통반 재원생</h2><div class="filter-row"><label>기준일<input type="date" value="${rosterDate}" onchange="commonRosterDate=this.value;catalogManagement()"></label><div class="receipt"><b>${roster.rows.length}명</b>${roster.unknown.length ? `<small>입반일 미확인 ${roster.unknown.length}명은 과거 기준 인원에서 제외</small>` : ""}</div></div><details class="compact-details"><summary>명단 보기</summary><div class="list">${roster.rows.map((student)=>`<div class="row"><b>${esc(student.name)}</b></div>`).join("") || '<p class="muted">해당 기준일의 확인 가능한 재원생이 없습니다.</p>'}</div></details></section>
           <section class="panel catalog-step"><div class="catalog-step-head"><b>1</b><h2>새 교재 등록</h2></div><div class="catalog-book-row">
             ${managedComboField("newBookSubject","과목",subjects,"선택하거나 입력")}
             ${managedComboField("newBookTeacher","강사",teachersAll,"선택하거나 입력")}
@@ -5878,19 +6041,19 @@
           returnCandidates = arr(S.books).filter(
             (b) => held(editId, b.id) > 0 && !afterBookIds.has(b.id),
           );
-        const newPanel = `<section class="panel"><h2>신규생 등록·반배정</h2><p class="muted">이름은 여러 명을 한 번에 저장할 수 있지만 반배정과 교재 처리는 학생별로 진행합니다.</p><label>신규생 이름</label><textarea id="newNames" rows="4" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div><hr><div class="three"><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><span></span><span></span></div><div class="list">${registered.map((s) => { const d = studentDistributionSummary(s.id); return `<button style="width:100%;text-align:left;margin:3px 0" onclick="${s.active === false ? (s.pendingReturn ? `openStudentProcess('${s.id}')` : `statusStudentId='${s.id}';studentHubView='status';render()`) : s.onboarding ? `selectNewStudent('${s.id}')` : `openStudentProcess('${s.id}')`}">${esc(s.name)} · ${s.active === false ? (s.pendingReturn ? "퇴반·회수대기" : "퇴반") : s.onboarding ? "반배정 전" : `반 ${activePeriodClassIds(S, s.id).length}개 · 대상 ${d.total}종 / 배부 ${d.distributed}종 / 미배부 ${d.missing}종${d.shortage ? ` / 재고부족 ${d.shortage}종` : ""}`}</button>`; }).join("") || '<p class="muted">선택한 입학일에 등록한 학생이 없습니다.</p>'}</div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<hr><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장 후 교재 처리</button></div>` : newStudent ? '<p class="muted">반배정이 끝난 학생은 해당 행을 누르면 교재 처리로 이동합니다.</p>' : '<p class="muted">위 명단에서 반배정할 학생을 선택하세요.</p>'}</section>`;
-        const movePanel = current ? `<section class="panel"><div class="student-head"><div><h2>${esc(current.name)}</h2><span>재원 · 현재 반 ${periodClassIds(S, editId).length}개 · 보유 ${arr(S.books).reduce((n,b)=>n+held(editId,b.id),0)}권</span></div>${studentWorkspaceActions(editId, "move")}</div></section><div class="workspace-split"><section class="panel"><h2>반변경</h2><div class="move-summary"><span>현재 반 <b>${periodClassIds(S, editId).length}개</b></span><span>변경 후 <b>${(window.editAssigned || []).length}개</b></span></div><details class="compact-details"><summary>현재 반 펼쳐보기</summary><div class="class-chip-list">${clsOf(editId).map((c) => `<span>${esc(c.subject)} · ${esc(c.teacher || "미지정")} · ${esc(c.name)}</span>`).join("")}</div></details>${classPicker("edit", window.editAssigned)}<label>변경 메모<input id="classMemo" value="${esc(window.classMemoDraft || "")}" oninput="classMemoDraft=this.value" placeholder="예: 수학 Q반 → T반 / 추가결제 필요"></label>${studentExitPanel(editId)}</section><section class="panel workspace-side"><h2>반변경 후 교재 차이</h2>${newBookCandidates.length ? `<div class="receipt"><b>새로 배부할 교재 ${newBookCandidates.length}권</b><br>${newBookCandidates.map((b) => `${esc(b.name)} · ${b.stock || 0} → -1 → ${(b.stock || 0) - 1}`).join("<br>")}</div>` : ""}${returnCandidates.length ? `<div class="receipt" style="border-left-color:#8b4a43"><b>회수 검토 교재 ${returnCandidates.length}권</b><br>${returnCandidates.map((b) => `${esc(b.name)} · ${(b.stock || 0)} → +${held(editId, b.id)} → ${(b.stock || 0) + held(editId, b.id)}`).join("<br>")}</div>` : ""}${!newBookCandidates.length && !returnCandidates.length ? '<div class="flow-placeholder">반을 변경하면 배부·회수 검토가 필요한<br>교재의 재고 전·후가 표시됩니다.</div>' : ""}<div class="flow"><div>현재 창고재고<br><b>변화 없음</b></div><div class="arrow">반정보 저장 →</div><div>저장 후 재고<br><b>동일</b></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="moveStudent('${editId}')">반변경 저장</button></section></div>` : '<section class="panel"><p class="error">학생을 다시 선택하세요.</p></section>';
+        const newPanel = `<section class="panel"><h2>신규생 등록·반배정</h2><p class="muted">이름은 여러 명을 한 번에 저장할 수 있지만 반배정과 교재 처리는 학생별로 진행합니다.</p><label>신규생 이름</label><textarea id="newNames" rows="4" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div><hr><div class="three"><label>입반일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><span></span><span></span></div><div class="list">${registered.map((s) => { const d = studentDistributionSummary(s.id); return `<button style="width:100%;text-align:left;margin:3px 0" onclick="${s.active === false ? (s.pendingReturn ? `openStudentProcess('${s.id}')` : `statusStudentId='${s.id}';studentHubView='status';render()`) : s.onboarding ? `selectNewStudent('${s.id}')` : `openStudentProcess('${s.id}')`}">${esc(s.name)} · ${s.active === false ? (s.pendingReturn ? "퇴반·회수대기" : "퇴반") : s.onboarding ? "반배정 전" : `반 ${activePeriodClassIds(S, s.id).length}개 · 대상 ${d.total}종 / 배부 ${d.distributed}종 / 미배부 ${d.missing}종${d.shortage ? ` / 재고부족 ${d.shortage}종` : ""}`}</button>`; }).join("") || '<p class="muted">선택한 입반일에 등록한 학생이 없습니다.</p>'}</div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<hr><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장 후 교재 처리</button></div>` : newStudent ? '<p class="muted">반배정이 끝난 학생은 해당 행을 누르면 교재 처리로 이동합니다.</p>' : '<p class="muted">위 명단에서 반배정할 학생을 선택하세요.</p>'}</section>`;
+        const movePanel = current ? `<section class="panel"><div class="student-head"><div><h2>${esc(current.name)}</h2><span>재원 · 현재 반 ${periodClassIds(S, editId).length}개 · 보유 ${arr(S.books).reduce((n,b)=>n+held(editId,b.id),0)}권</span></div>${studentWorkspaceActions(editId, "move")}</div></section><div class="workspace-split"><section class="panel"><h2>반변경</h2><div class="move-summary"><span>현재 반 <b>${periodClassIds(S, editId).length}개</b></span><span>변경 후 <b>${(window.editAssigned || []).length}개</b></span></div><details class="compact-details"><summary>현재 반 펼쳐보기</summary><div class="class-chip-list">${clsOf(editId).map((c) => `<span>${esc(c.subject)} · ${esc(c.teacher || "미지정")} · ${esc(c.name)}</span>`).join("")}</div></details>${classPicker("edit", window.editAssigned)}<label>반변경일<input id="classChangeDate" type="date" value="${esc(window.classChangeDate || localDateKey())}" onchange="classChangeDate=this.value"></label><label>변경 메모<input id="classMemo" value="${esc(window.classMemoDraft || "")}" oninput="classMemoDraft=this.value" placeholder="예: 수학 Q반 → T반 / 추가결제 필요"></label>${studentExitPanel(editId)}</section><section class="panel workspace-side"><h2>반변경 후 교재 차이</h2>${newBookCandidates.length ? `<div class="receipt"><b>새로 배부할 교재 ${newBookCandidates.length}권</b><br>${newBookCandidates.map((b) => `${esc(b.name)} · ${b.stock || 0} → -1 → ${(b.stock || 0) - 1}`).join("<br>")}</div>` : ""}${returnCandidates.length ? `<div class="receipt" style="border-left-color:#8b4a43"><b>회수 검토 교재 ${returnCandidates.length}권</b><br>${returnCandidates.map((b) => `${esc(b.name)} · ${(b.stock || 0)} → +${held(editId, b.id)} → ${(b.stock || 0) + held(editId, b.id)}`).join("<br>")}</div>` : ""}${!newBookCandidates.length && !returnCandidates.length ? '<div class="flow-placeholder">반을 변경하면 배부·회수 검토가 필요한<br>교재의 재고 전·후가 표시됩니다.</div>' : ""}<div class="flow"><div>현재 창고재고<br><b>변화 없음</b></div><div class="arrow">반정보 저장 →</div><div>저장 후 재고<br><b>동일</b></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="moveStudent('${editId}')">반변경 저장</button></section></div>` : '<section class="panel"><p class="error">학생을 다시 선택하세요.</p></section>';
         if (mode === "move")
           document.querySelector("#screen").innerHTML = movePanel;
         else renderNewStudentQueue(registrationDate, registered, newStudent);
       }
       function legacyRenderNewStudentQueue(registrationDate, registered, newStudent) {
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>신규생 등록·반배정·배부</h2><div class="grid"><div><label>신규생 이름</label><textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div></div><div><label>입학일</label><input style="max-width:180px" type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></div></div><div class="section-title" style="margin-top:24px">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반배정</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="receipt"><h3 style="margin-top:0">${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button><button onclick="newStudentId='';newAssigned=[];studentAdmin()">취소</button></div></div>` : ""}</section>`;
+          `<section class="panel"><h2>신규생 등록·반배정·배부</h2><div class="grid"><div><label>신규생 이름</label><textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div></div><div><label>입반일</label><input style="max-width:180px" type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></div></div><div class="section-title" style="margin-top:24px">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반배정</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="receipt"><h3 style="margin-top:0">${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button><button onclick="newStudentId='';newAssigned=[];studentAdmin()">취소</button></div></div>` : ""}</section>`;
       }
       function renderNewStudentQueue(registrationDate, registered, newStudent) {
         document.querySelector("#screen").innerHTML =
-          `<div class="grid manage-split new-student-workspace"><section class="panel"><h2>신규생 등록·반배정</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];receipt=null;studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="assignment-box"><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}</div>` : ""}</section>${newStudentStockPanel(newStudent)}</div>`;
+          `<div class="grid manage-split new-student-workspace"><section class="panel"><h2>신규생 등록·반배정</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입반일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];receipt=null;studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="assignment-box"><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}</div>` : ""}</section>${newStudentStockPanel(newStudent)}</div>`;
       }
       async function distributeNewStudent(sid, button) {
         const s = S.students[sid],
@@ -5922,7 +6085,8 @@
                 .filter(Boolean),
             ),
           ],
-          pid = selectedPeriodId();
+          pid = selectedPeriodId(),
+          admissionDate = validBusinessDate(window.registrationDate) || localDateKey();
         if (!names.length) return alert("학생명을 입력하세요.");
         const dup = names.find((n) =>
           arr(S.students).some((s) => s.name === n),
@@ -5953,7 +6117,7 @@
               holdings: st.students[sid]?.holdings || {},
               active: true,
               onboarding: true,
-              admissionDate: window.registrationDate || localDateKey(),
+              admissionDate,
               createdAt: now(),
               createdBy: actor,
               createdPeriodId: pid,
@@ -5966,7 +6130,7 @@
           window.newAssigned = [];
           const firstId = id("S", names[0]);
           window.newStudentId = firstId;
-          window.registrationDate = window.registrationDate || localDateKey();
+          window.registrationDate = admissionDate;
         }
         alert(
           r.committed
@@ -6006,6 +6170,12 @@
           s.classes = cs;
           s.periodClasses = s.periodClasses || {};
           s.periodClasses[pid] = cs;
+          s.periodMembership = s.periodMembership || {};
+          s.periodMembership[pid] = true;
+          s.periodClassDates = s.periodClassDates || {};
+          s.periodClassDates[pid] = s.periodClassDates[pid] || {};
+          const entryDate = studentAdmissionDate(s) || localDateKey();
+          for (const cid of classIds) openClassMembership(s, pid, cid, entryDate);
           s.onboarding = false;
           s.assignedAt = now();
           s.assignedBy = actor;
@@ -6028,9 +6198,16 @@
       async function moveStudent(sid) {
         const classIds = window.editAssigned || [],
           memo = (window.classMemoDraft || "").trim(),
+          changeDate = validBusinessDate(window.classChangeDate),
           pid = selectedPeriodId();
-        if (!sid || !classIds.length || !memo)
-          return alert("변경할 반과 메모를 입력하세요.");
+        if (!sid || !classIds.length || !memo || !changeDate)
+          return alert("변경할 반·반변경일·메모를 입력하세요.");
+        if (changeDate < localDateKey())
+          return alert("수동 반변경일은 오늘 또는 미래 날짜만 선택하세요. 과거 이력 수정은 이코딩 원본에서 처리해야 합니다.");
+        if (studentPeriodExitDate(S.students?.[sid], pid) > localDateKey())
+          return alert("미래 퇴반 예약이 있어 반변경을 저장할 수 없습니다. 퇴반일을 먼저 확인하세요.");
+        if (futureStudentClassChange(S.students?.[sid], pid))
+          return alert("이미 미래 반변경이 예약되어 있습니다. 겹치는 예약은 저장할 수 없습니다.");
         const beforeClassIds = activePeriodClassIds(S, sid),
           before = clsOf(sid)
           .map((c) => c.name)
@@ -6046,6 +6223,7 @@
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students[sid];
           if (!s || s.active === false || s.onboarding) return false;
+          if (studentPeriodExitDate(s, pid) || futureStudentClassChange(s, pid)) return false;
           if (
             classIds.some(
               (cid) =>
@@ -6055,16 +6233,21 @@
             )
           )
             return false;
-          const cs = {};
-          classIds.forEach((x) => (cs[x] = x));
-          const ended = Object.fromEntries(
-            periodClassIds(st, sid, pid)
-              .filter((cid) => st.classes?.[cid]?.active === false)
-              .map((cid) => [cid, cid]),
-          );
-          const stored = { ...ended, ...cs };
+          const currentIds = activePeriodClassIds(st, sid, pid),
+            stored = { ...(s.periodClasses?.[pid] || {}) };
+          classIds.forEach((cid) => (stored[cid] = cid));
           s.periodClasses = s.periodClasses || {};
           s.periodClasses[pid] = stored;
+          s.periodMembership = s.periodMembership || {};
+          s.periodMembership[pid] = true;
+          s.periodClassDates = s.periodClassDates || {};
+          s.periodClassDates[pid] = s.periodClassDates[pid] || {};
+          for (const cid of currentIds) {
+            if (!classIds.includes(cid)) closeClassMembership(s, pid, cid, changeDate);
+          }
+          for (const cid of classIds) {
+            if (!currentIds.includes(cid)) openClassMembership(s, pid, cid, changeDate);
+          }
           rebuildStudentClasses(s);
           s.classChanges = s.classChanges || {};
           const x = "C" + crypto.randomUUID();
@@ -6077,14 +6260,14 @@
             afterClassIds: Object.fromEntries(classIds.map((id) => [id, id])),
             memo,
             actor,
+            effectiveDate: changeDate,
             time: now(),
           };
         });
-        if (r.committed) {
+        const futureChange = changeDate > localDateKey();
+        if (r.committed && !futureChange) {
           S = r.snapshot.val();
-          const remainingAssignedBookIds = new Set(
-            Object.keys(S.students?.[sid]?.classes || {}).flatMap((classId) => Object.keys(S.classes?.[classId]?.books || {})),
-          );
+          const remainingAssignedBookIds = ecodingAllAssignedBookIds(S, S.students?.[sid]);
           distributeIds = [...afterBookIds].filter((bookId) => !beforeBookIds.has(bookId) && held(sid, bookId) === 0);
           returnIds = [...beforeBookIds].filter((bookId) => !remainingAssignedBookIds.has(bookId) && held(sid, bookId) > 0);
           window.classMemoDraft = "";
@@ -6098,12 +6281,21 @@
             memo,
             savedAt: now(),
           };
+        } else if (r.committed) {
+          S = r.snapshot.val();
+          window.classMemoDraft = "";
         }
         alert(
           r.committed
-            ? `반정보 변경 완료 — 새 배부 ${distributeIds.length}종, 회수 검토 ${returnIds.length}종을 이어서 확인합니다.`
+            ? futureChange
+              ? `${changeDate} 반변경 예정으로 저장했습니다. 변경일 전에는 기존 반과 교재 대상이 유지됩니다.`
+              : `반정보 변경 완료 — 새 배부 ${distributeIds.length}종, 회수 검토 ${returnIds.length}종을 이어서 확인합니다.`
             : "변경 실패",
         );
+        if (futureChange) {
+          render();
+          return;
+        }
         tab = "학생";
         studentHubView = "process";
         statusStudentId = sid;
@@ -6121,23 +6313,48 @@
         selected = [];
         render();
       }
+      async function requestedManualWithdrawalDate() {
+        const visible = document.getElementById("withdrawalDate"),
+          entered = visible
+            ? visible.value
+            : await askPrompt("퇴반일을 입력하세요.", localDateKey(), "date"),
+          exitDate = validBusinessDate(entered);
+        if (!exitDate) {
+          alert("퇴반일을 정확히 입력하세요.");
+          return "";
+        }
+        if (exitDate < localDateKey()) {
+          alert("수동 퇴반일은 오늘 또는 미래 날짜만 선택하세요. 과거 퇴반일은 이코딩 원본에서 처리해야 합니다.");
+          return "";
+        }
+        window.withdrawalDateDraft = exitDate;
+        return exitDate;
+      }
       async function withdrawStudent(sid) {
         const s = S.students?.[sid];
         if (!s || s.active === false) return alert("이미 퇴반 처리된 학생입니다.");
+        const exitDate = await requestedManualWithdrawalDate();
+        if (!exitDate) return;
+        const pid = selectedPeriodId();
+        if (studentExitedInPeriod(s, pid)) return alert("이미 해당 대상에서 퇴반 처리된 학생입니다.");
+        if (studentPeriodExitDate(s, pid)) return alert("이미 저장된 퇴반일이 있습니다. 중복 퇴반은 저장할 수 없습니다.");
+        if (futureStudentClassChange(s, pid))
+          return alert("미래 반변경 예약이 있어 전체퇴반을 저장할 수 없습니다. 반변경 예약을 먼저 확인하세요.");
         const reason = await askPrompt("퇴반 사유를 입력하세요.");
         if (!String(reason || "").trim()) return;
         if (
           !(await askConfirm(
-            `${s.name} 학생을 모든 반에서 제외할까요? 보유교재는 삭제되지 않고 회수대기로 남습니다.`,
+            `${s.name} 학생을 ${exitDate}부터 모든 반에서 제외할까요? 보유교재는 삭제되지 않고 회수대기로 남습니다.`,
           ))
         )
           return;
-        const pid = selectedPeriodId(),
-          refundId = id("R", `${sid}|${pid}`),
+        const withdrawalId = "W" + crypto.randomUUID(),
+          refundId = id("R", `${sid}|${pid}|${withdrawalId}`),
           r = await transaction((st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
             const student = st.students?.[sid];
             if (!student || student.active === false) return false;
+            if (studentPeriodExitDate(student, pid) || futureStudentClassChange(student, pid)) return false;
             const beforeClassIds = periodClassIds(st, sid, pid),
               before = beforeClassIds
                 .map((cid) => st.classes?.[cid]?.name)
@@ -6150,25 +6367,28 @@
               hasBooks = Object.values(student.holdings || {}).some(
                 (q) => Number(q) > 0,
               );
-            student.active = false;
             student.onboarding = false;
-            student.pendingReturn = hasBooks;
+            student.pendingReturn = exitDate <= localDateKey() && hasBooks;
             student.retainedBooksOnExit = false;
-            markManualEcodingExitPending(student, pid, reason);
+            if (exitDate <= localDateKey()) markManualEcodingExitPending(student, pid, reason);
             student.withdrawalBooks = student.withdrawalBooks || {};
             student.withdrawalBooks[pid] = Object.fromEntries(
               beforeBookIds.map((bid) => [bid, bid]),
             );
             student.periodClasses = student.periodClasses || {};
             student.periodMembership = student.periodMembership || {};
-            student.periodMembership[pid] = false;
-            student.periodClasses[pid] = {};
+            student.periodMembership[pid] = true;
+            student.periodExitDates = student.periodExitDates || {};
+            student.periodExitDates[pid] = exitDate;
+            student.periodClassDates = student.periodClassDates || {};
+            student.periodClassDates[pid] = student.periodClassDates[pid] || {};
+            for (const cid of Object.keys(student.periodClasses?.[pid] || {}))
+              closeClassMembership(student, pid, cid, exitDate);
             rebuildStudentClasses(student);
-            student.active = Object.values(student.periodMembership).some(
-              (value) => value === true,
-            );
+            student.active = true;
             student.withdrawals = student.withdrawals || {};
-            const wid = "W" + crypto.randomUUID();
+            const refundEligible = refundExitEligibility(st, pid, exitDate).eligible;
+            const wid = withdrawalId;
             student.withdrawals[wid] = {
               id: wid,
               periodId: pid,
@@ -6177,40 +6397,51 @@
               ),
               beforeClasses: before,
               reason: String(reason).trim(),
+              effectiveDate: exitDate,
+              refundEligible,
+              noRefund: !refundEligible,
               actor,
               time: now(),
             };
-            st.refundTasks = st.refundTasks || {};
-            const task = (st.refundTasks[refundId] ||= {
+            if (refundEligible) {
+              st.refundTasks = st.refundTasks || {};
+              const task = (st.refundTasks[refundId] ||= {
               id: refundId,
               periodId: pid,
               studentId: sid,
               studentName: student.name,
               withdrawalId: wid,
               beforeClassNames: before,
+              exitDate,
+              source: "MANUAL",
               status: "PENDING",
               books: {},
               createdAt: now(),
               createdBy: actor,
-            });
-            for (const bid of beforeBookIds) {
-              if (Number(student.holdings?.[bid] || 0) > 0) continue;
-              task.books[bid] = {
-                bookId: bid,
-                bookName: st.books?.[bid]?.name || bid,
-                status: "PENDING",
-                source: "UNDISTRIBUTED",
-                addedAt: now(),
-              };
+              });
+              task.deferredBooks = exitDate > localDateKey();
+              if (!task.deferredBooks) {
+                for (const bid of beforeBookIds) {
+                  if (Number(student.holdings?.[bid] || 0) > 0) continue;
+                  task.books[bid] = {
+                    bookId: bid,
+                    bookName: st.books?.[bid]?.name || bid,
+                    status: "PENDING",
+                    source: "UNDISTRIBUTED",
+                    addedAt: now(),
+                  };
+                }
+              }
+              task.beforeClassNames = before;
+              task.exitDate = exitDate;
+              task.status = "PENDING";
             }
-            task.beforeClassNames = before;
-            task.status = "PENDING";
           });
         if (r.committed) {
           S = r.snapshot.val();
           window.statusStudentId = sid;
           window.studentQuery = S.students[sid]?.name || "";
-          if (S.students[sid]?.pendingReturn) {
+          if (exitDate <= localDateKey() && S.students[sid]?.pendingReturn) {
             window.sid = sid;
             window.processStudentQuery = window.studentQuery;
             window.studentHubView = "process";
@@ -6221,7 +6452,9 @@
         }
         alert(
           r.committed
-            ? S.students[sid]?.pendingReturn
+            ? exitDate > localDateKey()
+              ? `${exitDate} 퇴반 예정으로 저장했습니다. 퇴반일 전에는 현재 명단이 유지됩니다.`
+              : S.students[sid]?.pendingReturn
               ? "퇴반 완료 — 보유교재 회수 화면으로 이동합니다."
               : "퇴반 완료 — 이후 일괄배부 대상에서 제외됩니다."
             : "퇴반 처리 실패",
@@ -6232,6 +6465,13 @@
         const s = S.students?.[sid];
         if (!s || s.active === false)
           return alert("이미 전체 퇴반 처리된 학생입니다.");
+        const exitDate = await requestedManualWithdrawalDate();
+        if (!exitDate) return;
+        const pid = selectedPeriodId();
+        if (studentExitedInPeriod(s, pid)) return alert("이미 해당 대상에서 퇴반 처리된 학생입니다.");
+        if (studentPeriodExitDate(s, pid)) return alert("이미 저장된 퇴반일이 있습니다. 중복 퇴반은 저장할 수 없습니다.");
+        if (futureStudentClassChange(s, pid))
+          return alert("미래 반변경 예약이 있어 전체퇴반을 저장할 수 없습니다. 반변경 예약을 먼저 확인하세요.");
         const reason = await askPrompt(
           "회수 없이 전체 퇴반하는 사유를 입력하세요.",
         );
@@ -6241,16 +6481,17 @@
           .map((book) => `${book.name} ${held(sid, book.id)}권`);
         if (
           !(await askConfirm(
-            `${s.name} 학생을 모든 반에서 제외합니다.\n보유교재는 회수하지 않으며 창고재고도 증가하지 않습니다.\n\n보유: ${heldNames.join(", ") || "없음"}`,
+            `${s.name} 학생을 ${exitDate}부터 모든 반에서 제외합니다.\n보유교재는 회수하지 않으며 창고재고도 증가하지 않습니다.\n\n보유: ${heldNames.join(", ") || "없음"}`,
           ))
         )
           return;
-        const pid = selectedPeriodId(),
-          refundId = id("R", `${sid}|${pid}`),
+        const withdrawalId = "W" + crypto.randomUUID(),
+          refundId = id("R", `${sid}|${pid}|${withdrawalId}`),
           r = await transaction((st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
             const student = st.students?.[sid];
             if (!student || student.active === false) return false;
+            if (studentPeriodExitDate(student, pid) || futureStudentClassChange(student, pid)) return false;
             const beforeClassIds = periodClassIds(st, sid, pid),
               beforeClasses = beforeClassIds
                 .map((cid) => st.classes?.[cid]?.name)
@@ -6260,25 +6501,28 @@
                   beforeClassIds.flatMap((cid) => arr(st.classes?.[cid]?.books)),
                 ),
               ].filter((bid) => !studentBookIsExcluded(st, sid, bid, pid));
-            student.active = false;
             student.onboarding = false;
             student.pendingReturn = false;
             student.retainedBooksOnExit = true;
-            markManualEcodingExitPending(student, pid, reason);
+            if (exitDate <= localDateKey()) markManualEcodingExitPending(student, pid, reason);
             student.withdrawalBooks = student.withdrawalBooks || {};
             student.withdrawalBooks[pid] = Object.fromEntries(
               beforeBookIds.map((bid) => [bid, bid]),
             );
             student.periodClasses = student.periodClasses || {};
             student.periodMembership = student.periodMembership || {};
-            student.periodMembership[pid] = false;
-            student.periodClasses[pid] = {};
+            student.periodMembership[pid] = true;
+            student.periodExitDates = student.periodExitDates || {};
+            student.periodExitDates[pid] = exitDate;
+            student.periodClassDates = student.periodClassDates || {};
+            student.periodClassDates[pid] = student.periodClassDates[pid] || {};
+            for (const cid of Object.keys(student.periodClasses?.[pid] || {}))
+              closeClassMembership(student, pid, cid, exitDate);
             rebuildStudentClasses(student);
-            student.active = Object.values(student.periodMembership).some(
-              (value) => value === true,
-            );
+            student.active = true;
             student.withdrawals = student.withdrawals || {};
-            const wid = "W" + crypto.randomUUID();
+            const refundEligible = refundExitEligibility(st, pid, exitDate).eligible;
+            const wid = withdrawalId;
             student.withdrawals[wid] = {
               id: wid,
               periodId: pid,
@@ -6287,36 +6531,47 @@
               ),
               beforeClasses,
               reason: String(reason).trim(),
+              effectiveDate: exitDate,
+              refundEligible,
+              noRefund: !refundEligible,
               disposition: "KEEP_BOOKS",
               memo: "회수 없이 전체 퇴반 · 창고재고 변화 없음",
               actor,
               time: now(),
             };
-            st.refundTasks = st.refundTasks || {};
-            const task = (st.refundTasks[refundId] ||= {
+            if (refundEligible) {
+              st.refundTasks = st.refundTasks || {};
+              const task = (st.refundTasks[refundId] ||= {
               id: refundId,
               periodId: pid,
               studentId: sid,
               studentName: student.name,
               withdrawalId: wid,
               beforeClassNames: beforeClasses,
+              exitDate,
+              source: "MANUAL",
               status: "PENDING",
               books: {},
               createdAt: now(),
               createdBy: actor,
-            });
-            for (const bid of beforeBookIds) {
-              if (Number(student.holdings?.[bid] || 0) > 0) continue;
-              task.books[bid] = {
-                bookId: bid,
-                bookName: st.books?.[bid]?.name || bid,
-                status: "PENDING",
-                source: "UNDISTRIBUTED",
-                addedAt: now(),
-              };
+              });
+              task.deferredBooks = exitDate > localDateKey();
+              if (!task.deferredBooks) {
+                for (const bid of beforeBookIds) {
+                  if (Number(student.holdings?.[bid] || 0) > 0) continue;
+                  task.books[bid] = {
+                    bookId: bid,
+                    bookName: st.books?.[bid]?.name || bid,
+                    status: "PENDING",
+                    source: "UNDISTRIBUTED",
+                    addedAt: now(),
+                  };
+                }
+              }
+              task.beforeClassNames = beforeClasses;
+              task.exitDate = exitDate;
+              task.status = "PENDING";
             }
-            task.beforeClassNames = beforeClasses;
-            task.status = "PENDING";
           });
         if (r.committed) {
           S = r.snapshot.val();
@@ -6326,7 +6581,9 @@
         }
         alert(
           r.committed
-            ? "회수 없이 전체 퇴반 처리했습니다. 학생 보유교재와 창고재고는 변경하지 않았습니다."
+            ? exitDate > localDateKey()
+              ? `${exitDate} 회수 없는 퇴반 예정으로 저장했습니다. 퇴반일 전에는 현재 명단이 유지됩니다.`
+              : "회수 없이 전체 퇴반 처리했습니다. 학생 보유교재와 창고재고는 변경하지 않았습니다."
             : "전체 퇴반 처리에 실패했습니다.",
         );
         render();
@@ -7231,8 +7488,8 @@
             if(normalizeExternalId(source.id))snapshotExternalIds.add(normalizeExternalId(source.id));
             if(!Object.keys(linked.classIds).length)continue;
             const existing=linkedPeople.get(key);
-            if(existing){Object.assign(existing.classIds,linked.classIds);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;if(!existing.admissionDate&&linked.admissionDate)existing.admissionDate=linked.admissionDate;}
-            else linkedPeople.set(key,{externalId:source.id,name:source.name,number:source.number||'',admissionDate:linked.admissionDate||'',classIds:{...linked.classIds}});
+            if(existing){Object.assign(existing.classIds,linked.classIds);Object.assign(existing.activeClassDates,linked.activeClassDates);if(!existing.externalId&&source.id)existing.externalId=source.id;if(!existing.number&&source.number)existing.number=source.number;if(!existing.admissionDate&&linked.admissionDate)existing.admissionDate=linked.admissionDate;}
+            else linkedPeople.set(key,{externalId:source.id,name:source.name,number:source.number||'',admissionDate:linked.admissionDate||'',classIds:{...linked.classIds},activeClassDates:{...linked.activeClassDates}});
           }
           for(const student of arr(st.students)){
             if(student.periodMembership?.[pid]!==true)continue;
@@ -7254,7 +7511,7 @@
             if(!student&&ecodingPreparationActive(st,pid)&&startDate&&admissionDate>=startDate)continue;
             const sid=student?.id||id('S',`ECODING|${source.externalId||sourceKey}`);
             student=student||{id:sid,externalId:source.externalId,name:source.name,number:source.number||'',classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-            student.name=source.name||student.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};rebuildStudentClasses(student);st.students[sid]=student;closeRefundTasksForReenrollment(st,sid,pid);
+            student.name=source.name||student.name;student.number=source.number||student.number||'';student.externalId=student.externalId||source.externalId;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodClassDates=student.periodClassDates||{};student.periodClassDates[pid]=student.periodClassDates[pid]||{};student.periodMembership[pid]=true;student.periodClasses[pid]={...(student.periodClasses[pid]||{}),...source.classIds};for(const classId of Object.keys(source.classIds||{})){const entryDate=validBusinessDate(source.activeClassDates?.[classId])||admissionDate;if(entryDate&&!student.periodClassDates[pid][classId]?.entryDate)openClassMembership(student,pid,classId,entryDate);}rebuildStudentClasses(student);st.students[sid]=student;closeRefundTasksForReenrollment(st,sid,pid);
           }
         });if(r.committed){S=r.snapshot.val();window.ecodingMapDrafts[pid]=Object.fromEntries(Object.entries(rows).map(([key,value])=>[key,{...value}]));window.ecodingMappingView='CONNECTED';alert('선택 반·교재와 현재 학생을 연결했습니다. 전체공통 반은 프로그램에서 자동 관리합니다. 입고·배부·재고는 변하지 않았습니다.');targetManagement();}
       }
@@ -7289,7 +7546,7 @@
         if(matches.length!==1)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
         const student=matches[0];
         if(!student)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
-        const rawExitDate=String(prev?.exitDate||'').trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):'',period=st.periods?.[pid]||{},effectiveStartDate=String(period.refundEffectiveStartDate||period.bookStartDate||'').trim(),eligibility=!exitDate?{eligible:false,reason:'EXIT_DATE_REQUIRED',exitDate,effectiveStartDate}:effectiveStartDate&&exitDate<effectiveStartDate?{eligible:false,reason:'BEFORE_EFFECTIVE_START',exitDate,effectiveStartDate}:{eligible:true,reason:'',exitDate,effectiveStartDate};
+        const rawExitDate=String(prev?.exitDate||'').trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):'',period=st.periods?.[pid]||{},effectiveStartDate=String(period.refundEffectiveStartDate||period.bookStartDate||'').trim(),eligibility=!exitDate?{eligible:false,reason:'EXIT_DATE_REQUIRED',exitDate,effectiveStartDate}:effectiveStartDate&&exitDate<=effectiveStartDate?{eligible:false,reason:'BEFORE_EFFECTIVE_START',exitDate,effectiveStartDate}:{eligible:true,reason:'',exitDate,effectiveStartDate};
         if(eligibility.reason==='EXIT_DATE_REQUIRED')return {processed:false,refundQueued:false,reason:eligibility.reason};
         if(!eligibility.eligible){
           student.periodMembership=student.periodMembership||{};
@@ -7412,7 +7669,7 @@
           changeLabel = ecodingClassChangeLabel(event, changed),
           className = (id) => id ? (S.classes?.[id]?.name || id) : "",
           businessDate = ecodingEventBusinessDate(event, source),
-          businessDateLabel = event.type === "NEW" ? "입학일" : "반 변경일";
+          businessDateLabel = event.type === "NEW" ? "입반일" : "반변경일";
         return `<div class="student-head"><div><h2>${esc(event.studentName)}</h2><span>${esc(deskPeriodName(event.periodId))}</span></div><span class="badge ${event.type === "NEW" ? "ok" : "warn"}">${esc(changeLabel)}</span></div>
           ${event.type === "NEW" ? "" : `<div class="receipt"><b>${businessDateLabel} · ${esc(businessDate)}</b>${businessDate === "미제공" ? "<small>이코딩에서 이번 반 변경 날짜를 확인할 수 없어 날짜를 임의로 표시하지 않습니다.</small>" : ""}</div>`}
           <div class="receipt"><b>현재 교재 프로그램 상태</b><br>${event.type === "NEW" && !local ? "아직 입반 전" : currentMatchesBefore ? "이전 반 상태 · 아직 변경 전" : "현재 반정보가 대기자료와 달라 최종 반영 차단 대상"}<small>학생을 선택하거나 아래 미리보기를 눌러도 저장되지 않습니다.</small></div>
@@ -7447,22 +7704,19 @@
       }
       function ecodingAllAssignedBookIds(st, student) {
         const ids = new Set();
-        for (const classId of Object.keys(student?.classes || {}))
-          for (const bookId of Object.keys(st.classes?.[classId]?.books || {})) ids.add(bookId);
         for (const [pid, isMember] of Object.entries(student?.periodMembership || {})) {
           if (isMember !== true) continue;
-          const actualClassIds = Object.keys(student?.periodClasses?.[pid] || {}).filter((classId) => {
-            const cls = st.classes?.[classId];
-            return cls && cls.active !== false && cls.systemCommon !== true;
-          });
-          if (!actualClassIds.length) continue;
-          for (const commonClass of systemCommonClasses(st, pid))
-            for (const bookId of Object.keys(commonClass.books || {})) ids.add(bookId);
+          for (const classId of periodClassIds(st, student.id, pid))
+            for (const bookId of Object.keys(st.classes?.[classId]?.books || {})) ids.add(bookId);
         }
         return ids;
       }
       async function applyEcodingEvent(eventId){
         const event=S.ecodingEvents?.[eventId];if(!event)return;
+        const eventBusinessDate=event.type==='NEW'?validBusinessDate(event.admissionDate):validBusinessDate(event.moveDetectedDate),
+          eventClassDates=Object.keys(event.afterClassIds||{}).map((classId)=>validBusinessDate(event.activeClassDates?.[classId])||eventBusinessDate);
+        if(!eventBusinessDate)return alert('이코딩에서 입반일 또는 반변경일을 확인할 수 없어 반영하지 않았습니다.');
+        if(eventBusinessDate>localDateKey()||eventClassDates.some((date)=>!date||date>localDateKey()))return alert('아직 효력일이 되지 않은 입반 반이 있어 현재 반영할 수 없습니다.');
         const expectedFingerprint=[event.type,event.periodId,normalizeExternalId(event.externalStudentId),ecodingEventClassSignature(event.beforeClassIds),ecodingEventClassSignature(event.afterClassIds)].join('::');
         let localSid=arr(S.students).find(s=>normalizeExternalId(s.externalId)===normalizeExternalId(event.externalStudentId))?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
         const beforeBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.beforeClassIds),afterBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.afterClassIds);
@@ -7481,7 +7735,9 @@
             e.status='CANCELLED';e.closedAt=now();e.closedBy=actor;e.closeReason='ALREADY_APPLIED';outcome='ALREADY_APPLIED';return;
           }
           const currentClassIds = existing?.periodMembership?.[e.periodId] === true
-            ? (existing.periodClasses?.[e.periodId] || {}) : {};
+            ? Object.fromEntries(periodClassIds(st, existing.id, e.periodId)
+                .filter((classId) => st.classes?.[classId]?.systemCommon !== true)
+                .map((classId) => [classId, classId])) : {};
           if (ecodingEventClassSignature(currentClassIds) !== ecodingEventClassSignature(e.beforeClassIds)) {
             outcome = 'STALE_CURRENT';
             return false;
@@ -7489,7 +7745,17 @@
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodClassDates=student.periodClassDates||{};student.periodClassDates[e.periodId]=student.periodClassDates[e.periodId]||{};student.periodMembership[e.periodId]=true;
+          const eventDate=e.type==='NEW'?validBusinessDate(e.admissionDate):validBusinessDate(e.moveDetectedDate);
+          if(!eventDate||eventDate>localDateKey())return false;
+          for(const classId of Object.keys(e.beforeClassIds||{}))if(!e.afterClassIds?.[classId])closeClassMembership(student,e.periodId,classId,eventDate);
+          for(const classId of Object.keys(e.afterClassIds||{}))if(!e.beforeClassIds?.[classId])openClassMembership(student,e.periodId,classId,validBusinessDate(e.activeClassDates?.[classId])||eventDate);
+          student.periodClasses[e.periodId]=e.type==='MOVE'?{...(student.periodClasses[e.periodId]||{}),...(e.afterClassIds||{})}:{...(e.afterClassIds||{})};
+          if(e.type==='NEW'){
+            student.periodExitDates=student.periodExitDates||{};delete student.periodExitDates[e.periodId];if(student.integrationSync?.ecoding)delete student.integrationSync.ecoding[e.periodId];
+            for(const task of arr(st.refundTasks))if(task.studentId===student.id&&task.periodId===e.periodId&&task.status==='PENDING'){task.status='CANCELLED';task.closedAt=now();task.closedBy=actor;task.closeReason='ECODING_NEW_REENTRY';}
+          }
+          rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
         });
         if(r.committed){
           S=r.snapshot.val();
@@ -7508,6 +7774,8 @@
         const r = await transaction((st) => {
           for (const student of arr(st.students)) {
             if (!ecodingManualExitPending(student, pid)) continue;
+            const exitDate = studentPeriodExitDate(student, pid);
+            if (exitDate && exitDate > localDateKey()) continue;
             student.periodMembership = student.periodMembership || {};
             student.periodClasses = student.periodClasses || {};
             student.periodMembership[pid] = false;
@@ -7576,7 +7844,9 @@
         if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
         const localStudent = localMatches[0],
           localClassIds = localStudent?.periodMembership?.[pid] === true
-            ? (localStudent.periodClasses?.[pid] || {}) : {},
+            ? Object.fromEntries(periodClassIds(st, localStudent.id, pid)
+                .filter((classId) => st.classes?.[classId]?.systemCommon !== true)
+                .map((classId) => [classId, classId])) : {},
           exactPendingNew = arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
             event, pid, externalId, "NEW", {}, nextClassIds,
           ));
@@ -7588,6 +7858,9 @@
             scheduledNew = !!startDate && !!admissionDateKey && admissionDateKey >= startDate,
             initialRoster = !!startDate && !!today && today < startDate && !scheduledNew;
           if (initialRoster) return { blocked: false, type: "BASELINE", beforeClassIds: {} };
+          const classEntryDates=Object.keys(nextClassIds||{}).map((classId)=>validBusinessDate(activeClassDates[classId])||admissionDateKey);
+          if (!admissionDateKey || admissionDateKey > today || classEntryDates.some((date)=>!date||date>today))
+            return { blocked: false, type: "", beforeClassIds: {} };
           return {
           blocked: false,
           type: exactPendingNew || shouldQueueEcodingNew(st, pid, externalId, nextClassIds) ? "NEW" : "",
@@ -7607,7 +7880,7 @@
           matchedDates=[...new Set([...removedDates,...addedDates])],
           moveBusinessDate=matchedDates.length===1?matchedDates[0]:"",
           historicalStartRoster=classesChanged&&!!periodStartDate&&localDateKey()===periodStartDate&&removedDates.length===removedClassIds.length&&removedDates.length>0&&removedDates.every((date)=>date<periodStartDate)&&addedDates.length===addedClassIds.length&&addedDates.every((date)=>date>=periodStartDate),
-          validMoveDate=!classesChanged||(removedClassIds.length>0&&addedClassIds.length>0&&removedDates.length===removedClassIds.length&&addedDates.length===addedClassIds.length&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
+          validMoveDate=!classesChanged||(removedClassIds.length>0&&addedClassIds.length>0&&removedDates.length===removedClassIds.length&&addedDates.length===addedClassIds.length&&!!moveBusinessDate&&moveBusinessDate<=localDateKey()&&(!periodStartDate||moveBusinessDate>=periodStartDate));
         if(staleAtOperationalStart||historicalStartRoster)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds,baselineReason:"SOURCE_CHANGE_BEFORE_PERIOD_START" };
         return {
@@ -7629,8 +7902,14 @@
         student.externalId = student.externalId || externalId;
         student.periodClasses = student.periodClasses || {};
         student.periodMembership = student.periodMembership || {};
+        student.periodClassDates = student.periodClassDates || {};
+        student.periodClassDates[pid] = student.periodClassDates[pid] || {};
         student.periodMembership[pid] = true;
         student.periodClasses[pid] = { ...(next.classIds || {}) };
+        for (const classId of Object.keys(next.classIds || {})) {
+          const entryDate = validBusinessDate(next.activeClassDates?.[classId]) || validBusinessDate(next.admissionDate);
+          if (entryDate) openClassMembership(student, pid, classId, entryDate);
+        }
         student.active = true;
         rebuildStudentClasses(student);
         st.students[sid] = student;
@@ -7649,7 +7928,7 @@
         }
         for (const task of arr(st.refundTasks)) {
           if (task?.periodId !== pid || task.status !== "PENDING") continue;
-          const exitDate=String(task.exitDate||"").slice(0,10),eligible=/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>=startDate);
+          const exitDate=String(task.exitDate||"").slice(0,10),eligible=/^\d{4}-\d{2}-\d{2}$/.test(exitDate)&&(!startDate||exitDate>startDate);
           if(prestart||(!!startDate&&!eligible)||(task.source==="ECODING"&&!eligible)){task.status = "CANCELLED"; task.closedAt = now(); task.closedBy = "연동 기준정리"; task.closeReason = prestart?"PRESTART_NOT_REFUND_ELIGIBLE":"INVALID_EXIT_DATE"; count++;}
         }
         if(prestart&&startDate){
@@ -7657,7 +7936,7 @@
           st.movements=st.movements||{};
           for(const source of sourceRows){
             const exitDate=String(source?.exitDate||"").slice(0,10);
-            if(!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)||exitDate>=startDate||Object.keys(normalizedEcodingStudent(source,maps,st,pid).classIds).length)continue;
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)||exitDate>startDate||Object.keys(normalizedEcodingStudent(source,maps,st,pid).classIds).length)continue;
             const matches=arr(st.students).filter(student=>normalizeExternalId(student.externalId)===normalizeExternalId(source.id));
             if(matches.length!==1)continue;
             const student=matches[0],hasHoldings=Object.values(student.holdings||{}).some(quantity=>Number(quantity)>0);
@@ -7850,6 +8129,11 @@
               if (!ecodingManualExitPending(student, pid) || !student.externalId) continue;
               const normalizedExternalId = normalizeExternalId(student.externalId);
               manualExternalIds.add(normalizedExternalId);
+              const scheduledExitDate = studentPeriodExitDate(student, pid);
+              if (scheduledExitDate && scheduledExitDate > localDateKey()) {
+                counts.WAITING++;
+                continue;
+              }
               const next = after.get(normalizedExternalId),
                 stillLinked = !!next && Object.keys(next.classIds || {}).length > 0;
               student.periodMembership = student.periodMembership || {};
@@ -7925,7 +8209,8 @@
                   id: key, type, status: "PENDING", periodId: pid,
                   externalStudentId: externalId, studentName: next.name,
                   beforeClassIds: eventBeforeClassIds, afterClassIds: next.classIds,
-                  admissionDate: next.admissionDate || "", moveDetectedDate:desired.moveBusinessDate||"", createdAt: now(),
+                  admissionDate: next.admissionDate || "", moveDetectedDate:desired.moveBusinessDate||"",
+                  activeClassDates: next.activeClassDates || {}, inactiveClassDates: next.inactiveClassDates || {}, createdAt: now(),
                   writerBuild: BOOKFLOW_BUILD, writerRuleVersion: "SAME_DAY_MOVE_V1",
                   trigger: silent ? "AUTO" : "MANUAL", sourceSyncedAt: fresh.syncedAt || "", createdBy: actor || "",
                 };
@@ -8983,7 +9268,7 @@
       function periodManagement() {
         const ps = periods();
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>대상 생성·선택</h2><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div><p class="muted">환불 적용 시작일 이전 퇴반자는 해당 대상의 환불대기에 들어가지 않습니다. 퇴반일이 확인되지 않은 경우도 자동 환불대기에 넣지 않습니다.</p><div class="section-title">등록된 대상</div><div class="scroll"><table><thead><tr><th>대상</th><th>운영상태</th><th>환불 적용 시작일</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
+          `<section class="panel"><h2>대상 생성·선택</h2><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div><p class="muted">환불 적용 시작일 당일까지 퇴반한 학생은 해당 대상의 환불대기에 들어가지 않습니다. 퇴반일이 확인되지 않은 경우도 자동 환불대기에 넣지 않습니다.</p><div class="section-title">등록된 대상</div><div class="scroll"><table><thead><tr><th>대상</th><th>운영상태</th><th>환불 적용 시작일</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
             .map((p) => {
               const classCount = arr(S.classes).filter(
                   (c) => c.periodId === p.id,
@@ -8991,7 +9276,7 @@
                 pending = arr(S.chargeTasks).filter(
                   (x) => x.periodId === p.id && x.status === "PENDING",
                 ).length;
-              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="action-row"><input id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div><small>해당 날짜 포함 이후 퇴반만 환불대기</small></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
+              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="action-row"><input id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div><small>해당 날짜 다음날 이후 퇴반만 환불대기</small></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
       }
@@ -9000,7 +9285,7 @@
         if (!period) return alert("대상을 찾을 수 없습니다.");
         if (dateKey && !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return alert("날짜를 확인하세요.");
         const message = dateKey
-          ? `${periodLabel(period)}의 환불 적용 시작일을 ${dateKey}로 저장할까요? 이 날짜를 포함해 이후 퇴반한 학생만 자동 환불대기에 들어갑니다.`
+          ? `${periodLabel(period)}의 환불 적용 시작일을 ${dateKey}로 저장할까요? 이 날짜 다음날부터 퇴반한 학생만 자동 환불대기에 들어갑니다.`
           : `${periodLabel(period)}의 환불 적용 시작일을 삭제할까요? 삭제하면 날짜가 확인된 모든 퇴반이 환불대상이 될 수 있습니다.`;
         if (!(await askConfirm(message))) return;
         const r = await transaction((st) => {
@@ -9393,7 +9678,12 @@
                 (task) =>
                   !activeIds.size || !task.periodId || activeIds.has(task.periodId),
               )
-              .map((task) => [`${task.periodId || ""}|${task.studentId}`, task]),
+              .map((task) => {
+                const effective = task.deferredBooks && task.status === "PENDING"
+                  ? { ...task, books: deferredRefundBooks(S, task) }
+                  : task;
+                return [`${task.periodId || ""}|${task.studentId}`, effective];
+              }),
           );
         for (const student of arr(S.students).filter(
           (item) => item.active === false,
@@ -9500,6 +9790,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             periodId: task.periodId || "",
             studentId: task.studentId || "",
             status: task.status,
+            exitDate: validBusinessDate(task.exitDate),
             books,
           }),
         };
@@ -9540,9 +9831,18 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             st.refundTasks = st.refundTasks || {};
              const target = st.refundTasks[task.id];
              if (!target || target.status !== "PENDING") return false;
-            const latestConfirmation = refundConfirmationSnapshot(st, target);
+            const effectiveTarget = target.deferredBooks
+              ? { ...target, books: deferredRefundBooks(st, target) }
+              : target,
+              latestConfirmation = refundConfirmationSnapshot(st, effectiveTarget);
+            if (!refundTaskMeetsPeriodRule(st, effectiveTarget)) return false;
             if (!latestConfirmation || latestConfirmation.signature !== confirmation.signature)
               return false;
+            if (target.deferredBooks) {
+              target.books = effectiveTarget.books;
+              target.deferredBooks = false;
+              target.booksMaterializedAt = completedAt;
+            }
             const student = st.students?.[target.studentId];
             if (!student) return false;
             const beforeClassIds = periodClassIds(st, student.id, target.periodId);
