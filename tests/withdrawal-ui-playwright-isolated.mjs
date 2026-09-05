@@ -79,7 +79,10 @@ function seedState() {
         books: {
           BMISSING: { bookId: "BMISSING", bookName: "미배부 검수교재", quantity: 1, unitPrice: 14000, refundAmount: 14000, status: "DONE", source: "UNDISTRIBUTED" },
         },
-        returnDecisions: {},
+        returnDecisions: {
+          BHELD: { bookId: "BHELD", bookName: "보유 검수교재", quantity: 1, decision: "RETAINED" },
+          BRETURN: { bookId: "BRETURN", bookName: "회수 검수교재", quantity: 1, decision: "RETURNED" },
+        },
       },
     },
     movements: {
@@ -266,6 +269,8 @@ try {
     await completedCandidate.click();
     await page.getByRole("heading", { name: /퇴반검수/ }).waitFor();
     assert.match(await page.locator("#studentStatusDetail").innerText(), /퇴반완료 내역/);
+    assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: completed withdrawal duplicated the general student table`);
+    assert.equal(await page.locator("#studentStatusDetail .exit-review-card tbody tr").count(), 5, `${viewport.name}: completed withdrawal lost distributed books`);
     await page.locator("#studentStatusSearch").fill("기록검수");
     const archiveCandidate = page.locator("#studentStatusAutoResults button", { hasText: "기록검수" });
     await archiveCandidate.waitFor();
@@ -274,6 +279,9 @@ try {
     await page.getByRole("heading", { name: /기록검수/ }).waitFor();
     assert.match(await page.locator("#studentStatusDetail").innerText(), /보존된 퇴반 기록으로 조회했습니다/);
     assert.match(await page.locator("#studentStatusDetail").innerText(), /14,000원/);
+    assert.equal(await page.locator("#studentStatusDetail .exit-review-card tbody tr").count(), 3, `${viewport.name}: legacy completed record lost distributed/returned books`);
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /배부/);
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /과거 회수/);
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 32000, `${viewport.name}: refund amount mismatch`);
