@@ -184,6 +184,8 @@ try {
     await activeCandidate.waitFor();
     await activeCandidate.click();
     await page.getByRole("heading", { name: /재원검수/ }).waitFor();
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /전체 교재비/);
+    assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 1, `${viewport.name}: active student book table missing`);
     await page.getByRole("button", { name: "퇴반 등록", exact: true }).click();
     await page.locator(".app-dialog .confirm-button").click();
     assert.match(await page.locator("#withdrawalDialogError").innerText(), /퇴반 사유를 입력하세요/, `${viewport.name}: empty reason was not blocked`);
@@ -204,17 +206,22 @@ try {
     assert.equal(await exactTaskRow.getByRole("button", { name: "상세 확인", exact: true }).count(), 1, `${viewport.name}: exact task detail button mismatch`);
     await exactTaskRow.getByRole("button", { name: "상세 확인", exact: true }).click();
     await page.getByRole("heading", { name: "퇴반대기 교재 확인", exact: true }).waitFor();
+    assert.equal(await page.locator("#studentStatusDetail").getByText(/전체 교재비/).count(), 0, `${viewport.name}: duplicate amount summary visible in withdrawal detail`);
+    assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: general book table visible in withdrawal detail`);
     assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
+    assert.equal(await page.locator(".exit-review-card tbody tr").count(), 5, `${viewport.name}: settlement table is not one-row-per-book`);
+    assert.equal(await page.getByText(/이코딩 반영 대기|이코딩에는 아직 재원/).count(), 0, `${viewport.name}: internal ecoding badge is still visible`);
+    assert.equal(await page.getByRole("heading", { name: /보유 교재|미배부 교재/ }).count(), 0, `${viewport.name}: split withdrawal sections still visible`);
     assert.equal(await page.getByRole("button", { name: "보유 유지", exact: true }).count(), 0, `${viewport.name}: per-book retain button should not exist`);
     assert.equal(await page.getByRole("button", { name: "회수", exact: true }).count(), 3, `${viewport.name}: current held-set return buttons missing`);
-    assert.match(await page.locator(".exit-review-card").innerText(), /미회수\(기본\)/);
+    assert.match(await page.locator(".exit-review-card").innerText(), /배부\s+회수\s+환불 제외/);
     await page.locator(".exit-review-card tr", { hasText: "회수 검수교재" }).getByRole("button", { name: "회수", exact: true }).click();
     await page.locator(".app-dialog .confirm-button").click();
     await page.getByText("회수완료", { exact: true }).waitFor();
     const stateAfterReturn = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(stateAfterReturn.students.SEXIT.pendingReturn, true, `${viewport.name}: distribution lock released before withdrawal completion`);
 
-    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByRole("button", { name: "환불 제외", exact: true }).click();
+    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByRole("button", { name: "미배부 삭제", exact: true }).click();
     await page.locator("#appDialogInput").fill("격리 검수 제외");
     await page.locator(".app-dialog .confirm-button").click();
     await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByText("환불 제외", { exact: true }).waitFor();
@@ -224,10 +231,9 @@ try {
 
     await page.getByRole("button", { name: "퇴반완료", exact: true }).click();
     await page.getByRole("heading", { name: /퇴반완료 확인/ }).waitFor();
-    assert.match(await page.locator(".app-dialog").innerText(), /회수완료 1종 1권/);
-    assert.match(await page.locator(".app-dialog").innerText(), /미회수·학생 보유 2종 2권/);
-    assert.match(await page.locator(".app-dialog").innerText(), /미배부 환불 1종 · 14,000원/);
-    assert.match(await page.locator(".app-dialog").innerText(), /환불 제외 1종/);
+    assert.match(await page.locator(".app-dialog").innerText(), /최종 환불 2종 · 32,000원/);
+    assert.match(await page.locator(".app-dialog").innerText(), /미배부 1종 \+ 회수완료 1종/);
+    assert.match(await page.locator(".app-dialog").innerText(), /환불 제외 3종/);
     await page.locator(".app-dialog .confirm-button").click();
     await page.getByText(/퇴반완료했습니다/).waitFor();
     await page.locator(".app-dialog .confirm-button").click();
@@ -258,7 +264,10 @@ try {
     assert.match(await page.locator("#studentStatusDetail").innerText(), /14,000원/);
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
-    assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 14000, `${viewport.name}: refund amount mismatch`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 32000, `${viewport.name}: refund amount mismatch`);
+    assert.equal(persisted.refundTasks.RTASK_EXACT.refundRuleVersion, 2, `${viewport.name}: refund rule version missing`);
+    const completedRefundHistory = Object.values(persisted.refundHistory).find((item) => item.taskId === "RTASK_EXACT");
+    assert.deepEqual(completedRefundHistory.bookAmounts.map((item) => [item.bookId, item.source, item.amount]).sort(), [["BMISSING", "MISSING", 14000], ["BRETURN", "RETURNED", 18000]], `${viewport.name}: final refund exact-set mismatch`);
     assert.equal(persisted.students.SEXIT.retainedBooksOnExit, true, `${viewport.name}: retained flag mismatch`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.returnDecisions.BHELD.decision, "RETAINED", `${viewport.name}: default retained decision missing`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.returnDecisions.BNEWHELD.decision, "RETAINED", `${viewport.name}: newly held book was not retained on completion`);
@@ -267,7 +276,7 @@ try {
     assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
     assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
-    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", selectiveReturn: "PASS", defaultRetain: "PASS", refundDecision: "INCLUDED_1_EXCLUDED_1", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
+    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", selectiveReturn: "PASS", defaultRetain: "PASS", refundDecision: "MISSING_1_RETURNED_1_EXCLUDED_3", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
     await context.close();
   }
   assert.deepEqual(productionFirebaseRequests, [], "production Firebase database was contacted");

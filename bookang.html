@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.30" />
+    <meta name="bookflow-build" content="2026-09-05.31" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.30";
+      const BOOKFLOW_BUILD = "2026-09-05.31";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -281,18 +281,17 @@
         if (!reason) { if (error) error.textContent = "퇴반 사유를 입력하세요."; return; }
         closeAppDialog({ exitDate, reason });
       }
-      function askWithdrawalCompletion(studentName, task, returnRows, includedBooks, excludedBooks, totalAmount) {
+      function askWithdrawalCompletion(studentName, task, settlementRows, totalAmount) {
         const host = document.querySelector("#appDialogHost");
         if (!host) return Promise.resolve(false);
-        const returned = returnRows.filter((row) => row.decision === "RETURNED"),
-          retained = returnRows.filter((row) => row.decision !== "RETURNED"),
-          included = includedBooks,
-          excluded = excludedBooks,
-          sumQuantity = (rows) => rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        const returned = settlementRows.filter((row) => row.source === "RETURNED" && row.refundIncluded),
+          missing = settlementRows.filter((row) => row.source === "MISSING" && row.refundIncluded),
+          excluded = settlementRows.filter((row) => !row.refundIncluded),
+          included = [...returned, ...missing],
           refundTable = included.map((book) => `<tr><td>${esc(book.bookName || S.books?.[book.bookId]?.name || "교재 미확인")}</td><td>${Math.max(1, Number(book.quantity || 1))}권</td><td>${won(Number(book.unitPrice || 0) * Math.max(1, Number(book.quantity || 1)))}</td></tr>`).join("");
         return new Promise((resolve) => {
           window.appDialogResolve = resolve;
-          host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle"><h2 id="appDialogTitle">${esc(studentName)} 퇴반완료 확인</h2><div class="app-dialog-message"><p><b>퇴반일 ${esc(refundTaskExitDate(S, task) || "-")}</b></p><div class="receipt"><b>회수완료 ${returned.length}종 ${sumQuantity(returned)}권</b><br><b>미회수·학생 보유 ${retained.length}종 ${sumQuantity(retained)}권</b><br><b>미배부 환불 ${included.length}종 · ${won(totalAmount)}</b><br><span>환불 제외 ${excluded.length}종</span></div><p>회수하지 않은 ${sumQuantity(retained)}권은 학생 보유로 확정되며 창고재고는 변하지 않습니다.</p>${included.length ? `<details><summary>환불 교재 ${included.length}종 보기</summary><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>환불액</th></tr></thead><tbody>${refundTable}</tbody></table></div></details>` : '<p class="muted">환불 대상 미배부 교재가 없습니다.</p>'}</div><div class="app-dialog-actions"><button onclick="closeAppDialog(false)">취소</button><button class="confirm-button" onclick="closeAppDialog(true)">퇴반완료 확정</button></div></section></div>`;
+          host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle"><h2 id="appDialogTitle">${esc(studentName)} 퇴반완료 확인</h2><div class="app-dialog-message"><p><b>퇴반일 ${esc(refundTaskExitDate(S, task) || "-")}</b></p><div class="receipt"><b>최종 환불 ${included.length}종 · ${won(totalAmount)}</b><br><span>미배부 ${missing.length}종 + 회수완료 ${returned.length}종</span><br><span>환불 제외 ${excluded.length}종</span></div>${included.length ? `<details open><summary>환불 교재 ${included.length}종</summary><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>환불액</th></tr></thead><tbody>${refundTable}</tbody></table></div></details>` : '<p class="muted">환불할 교재가 없습니다.</p>'}</div><div class="app-dialog-actions"><button onclick="closeAppDialog(false)">취소</button><button class="confirm-button" onclick="closeAppDialog(true)">퇴반완료 확정</button></div></section></div>`;
         });
       }
       window.alert = showNotice;
@@ -6298,7 +6297,7 @@
         alert(
           r.committed
             ? S.refundTasks?.[refundId]
-              ? "퇴반대기에 등록했습니다. 퇴반대기 상세에서 보유교재와 미배부 환불예정 금액을 확인한 뒤 퇴반완료하세요."
+              ? "퇴반대기에 등록했습니다. 배부 교재는 회수 여부를, 미배부 교재는 삭제 여부를 확인한 뒤 퇴반완료하세요."
               : "퇴반 처리했습니다. 환불 적용 시작 전 퇴반이므로 퇴반대기는 생성하지 않았습니다."
             : "퇴반 처리 실패",
         );
@@ -8680,7 +8679,7 @@
           missingCount = assignedBooks(sid).filter((b) => !held(sid, b.id)).length,
           latest = recent[0],
           exitedInSelectedPeriod = studentExitedInPeriod(s, selectedPeriodId());
-        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : ""}</section>`;
+        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : ""}</section>`;
       }
       function intake() {
         const all = arr(S.books)
@@ -8960,7 +8959,7 @@
           : null;
         let detail = "";
         if (s && focusedTask) {
-          detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${focusedTask.status === "DONE" ? "ok" : "warn"}">${focusedTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span>${ecodingManualExitPending(s, focusedTask.periodId) ? ' <span class="badge" style="background:#eceff2;color:#66707a">이코딩에는 아직 재원</span>' : ""}</h2><span class="muted">퇴반 교재 확인 화면</span></div></div>${exitReviewPanel(s, focusedTask)}</div>`;
+          detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${focusedTask.status === "DONE" ? "ok" : "warn"}">${focusedTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">퇴반 교재 확인 화면</span></div></div>${exitReviewPanel(s, focusedTask)}</div>`;
         }
         if (s && !focusedTask) {
           const classes = clsOf(s.id);
@@ -9022,7 +9021,7 @@
                 ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${studentAdmissionDate(s) || localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
                 : `${studentWorkspaceActions(s.id, "status")}<button class="danger-btn" onclick="withdrawStudent('${s.id}')">퇴반 등록</button>`;
           detail = `<div id="studentDetail">
-          <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
+          <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
           ${exitReviewPanel(s, refundTask)}
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
   <div class="student-book-toolbar" aria-label="교재 필터">
@@ -9518,9 +9517,12 @@
               st.movements[movementId] = { id: movementId, batchId, operationId: decisionId, periodId: target.periodId, type: 'RETURN', mode: 'EXIT_REVIEW', businessReason: 'NORMAL', bookId: bid, bookName: targetBook.name, studentId: sid, studentIds: { [sid]: sid }, studentNames: { [sid]: targetStudent.name }, studentDeltas: { [sid]: -quantity }, periodStudentDeltas, itemCount: quantity, quantity, stockBefore, stockAfter: targetBook.stock, memo: '퇴반대기 상세 회수', actor, time: decidedAt };
               cancelPendingChargesForReturnedDeltas(st, bid, periodStudentDeltas, batchId);
               st.processedOperations[decisionId] = { id: decisionId, message: '퇴반 교재 회수 완료', time: decidedAt };
-              target.returnDecisions[bid] = { bookId: bid, bookName: targetBook.name, quantity, decision, movementId, decidedAt, decidedBy: actor };
+              const unitPrice = bookPriceValue(targetBook);
+              target.returnDecisions[bid] = { bookId: bid, bookName: targetBook.name, quantity, decision, movementId, unitPrice, refundAmount: unitPrice == null ? null : unitPrice * quantity, decidedAt, decidedBy: actor };
+              target.books = target.books || {};
+              target.books[bid] = { ...(target.books[bid] || {}), bookId: bid, bookName: targetBook.name, quantity, source: 'RETURNED', status: 'PENDING', unitPrice, refundAmount: unitPrice == null ? null : unitPrice * quantity, returnMovementId: movementId, returnedAt: decidedAt };
             } else target.returnDecisions[bid] = { bookId: bid, bookName: targetBook.name, quantity, decision, decidedAt, decidedBy: actor };
-            if (target.books?.[bid]?.status === 'PENDING') {
+            if (decision !== 'RETURNED' && target.books?.[bid]?.status === 'PENDING') {
               target.books[bid].status = 'EXCLUDED';
               target.books[bid].excludeReason = '퇴반대기 중 배부된 교재';
               target.books[bid].decisionAt = decidedAt;
@@ -9566,43 +9568,40 @@
         const completeAction = completeRefund;
         void completeAction;
         if (!task || !studentExitedInPeriod(student, task.periodId)) return '';
-        const returns = exitReturnDecisionRows(S, task), refundBooks = Object.values(task.books || {}).filter((book) => book.source !== 'RETURNED' && (book.status === 'DONE' || book.status === 'EXCLUDED' || refundBookIsIncluded(S, task, book))), done = task.status === 'DONE';
-        const included = refundBooks.filter((book) => book.status === 'DONE' || refundBookIsIncluded(S, task, book)), excluded = refundBooks.filter((book) => book.status === 'EXCLUDED');
-        const total = included.reduce((sum, item) => sum + Number(item.refundAmount ?? (bookPriceValue(S.books?.[item.bookId]) || 0) * Math.max(1, Number(item.quantity || 1))), 0);
-        const returnRows = returns.map((row) => {
-          let decisionUi = '<span class="badge">미결정</span>';
-          if (row.decision === 'RETURNED') decisionUi = '<span class="badge ok">회수완료</span>';
-          else if (row.decision === 'RETAINED') decisionUi = '<span class="badge">미회수·학생 보유</span>';
-          else if (!done) decisionUi = `<span class="badge">미회수(기본)</span> <button class="btn" onclick="setExitReturnDecision('${student.id}','${row.bookId}','RETURNED','${task.id}',this)">회수</button>`;
-          return `<tr><td><b>${esc(row.bookName)}</b></td><td>${row.quantity}권</td><td>${decisionUi}</td></tr>`;
-        }).join('') || '<tr><td colspan="3">보유 교재 없음</td></tr>';
-        const refundRows = refundBooks.map((item) => {
-          const price = item.unitPrice ?? bookPriceValue(S.books?.[item.bookId]), amount = price == null ? null : Number(price) * Math.max(1, Number(item.quantity || 1));
-          let decisionUi = '<span class="badge ok">환불 포함</span>';
-          if (item.status === 'EXCLUDED') decisionUi = `<span class="badge">환불 제외</span>${done ? '' : ` <button onclick="setExitRefundDecision('${student.id}','${item.bookId}','PENDING','${task.id}')">환불 포함으로 변경</button>`}<small>${esc(item.excludeReason || '')}</small>`;
-          else if (!done) decisionUi += ` <button onclick="setExitRefundDecision('${student.id}','${item.bookId}','EXCLUDED','${task.id}')">환불 제외</button>`;
-          return `<tr><td><b>${esc(item.bookName)}</b></td><td>${amount == null ? '<span class="danger">금액 미등록</span>' : won(amount)}</td><td>${decisionUi}</td></tr>`;
-        }).join('') || '<tr><td colspan="3">미배부 교재 없음</td></tr>';
+        const done = task.status === 'DONE', rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum,row)=>sum+Number(row.amount||0),0);
+        const tableRows = rows.map((row) => {
+          let action = '<span class="muted">처리 없음</span>';
+          if (!done && row.state === '배부') action = `<button class="btn" onclick="setExitReturnDecision('${student.id}','${row.bookId}','RETURNED','${task.id}',this)">회수</button>`;
+          else if (!done && row.state === '미배부') action = `<button onclick="setExitRefundDecision('${student.id}','${row.bookId}','EXCLUDED','${task.id}')">미배부 삭제</button>`;
+          else if (!done && row.state === '미배부 삭제') action = `<button onclick="setExitRefundDecision('${student.id}','${row.bookId}','PENDING','${task.id}')">삭제 취소</button>`;
+          return `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? '<span class="danger">금액 미등록</span>' : won(row.unitPrice)}</td><td><span class="badge ${row.state === '회수완료' ? 'ok' : ''}">${esc(row.state)}</span></td><td>${action}</td><td>${row.refundIncluded ? `<b class="success">${done ? '환불완료' : '환불 포함'}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`;
+        }).join('') || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>';
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '실제로 회수할 교재만 선택한 뒤 퇴반완료하세요.';
         const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
-        return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><h4>보유 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>결정</th></tr></thead><tbody>${returnRows}</tbody></table></div><h4>미배부 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>환불 결정</th></tr></thead><tbody>${refundRows}</tbody></table></div><div class="receipt"><b>회수 ${returns.filter((row) => row.decision === 'RETURNED').reduce((n,row)=>n+row.quantity,0)}권 · 미회수 ${returns.filter((row) => row.decision !== 'RETURNED').reduce((n,row)=>n+row.quantity,0)}권 · 환불 포함 ${included.length}종 ${won(done ? Number(task.totalAmount || 0) : total)} · 환불 제외 ${excluded.length}종</b></div>${completionButton}</section>`;
+        return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 삭제는 환불 대상에서만 제외하며 기록은 남습니다.</p><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div>${completionButton}</section>`;
+      }
+      function withdrawalSettlementRows(state, task) {
+        const done = task?.status === 'DONE', legacyDone = done && Number(task?.refundRuleVersion || 1) < 2, rows = new Map();
+        for (const item of Object.values(task?.books || {})) {
+          const quantity = Math.max(1, Number(item.quantity || 1)), unitPrice = item.unitPrice ?? bookPriceValue(state.books?.[item.bookId]), amount = item.refundAmount ?? (unitPrice == null ? null : Number(unitPrice) * quantity);
+          if (item.status === 'EXCLUDED') rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName || state.books?.[item.bookId]?.name || item.bookId, quantity, unitPrice, amount, state:'미배부 삭제', refundIncluded:false, source:'MISSING' });
+          else if (item.status === 'PENDING' || item.status === 'DONE') {
+            const legacyReturned = legacyDone && item.source === 'RETURNED';
+            rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName || state.books?.[item.bookId]?.name || item.bookId, quantity, unitPrice, amount:legacyReturned ? null : amount, state:legacyReturned ? '과거 회수' : '미배부', refundIncluded:!legacyReturned, source:item.source === 'RETURNED' ? 'RETURNED' : 'MISSING', readOnly:legacyReturned });
+          }
+        }
+        if (!legacyDone) for (const item of exitReturnDecisionRows(state, task)) {
+          const unitPrice = item.unitPrice ?? task?.returnDecisions?.[item.bookId]?.unitPrice ?? bookPriceValue(state.books?.[item.bookId]), quantity = Math.max(1, Number(item.quantity || 1)), amount = task?.returnDecisions?.[item.bookId]?.refundAmount ?? (unitPrice == null ? null : Number(unitPrice) * quantity);
+          if (item.decision === 'RETURNED') rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName, quantity, unitPrice, amount, state:'회수완료', refundIncluded:true, source:'RETURNED', returnMovementId:item.movementId || task?.returnDecisions?.[item.bookId]?.movementId || '' });
+          else rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName, quantity, unitPrice, amount:null, state:'배부', refundIncluded:false, source:'HELD' });
+        }
+        return [...rows.values()].sort((a,b)=>a.bookName.localeCompare(b.bookName,'ko'));
       }
       function withdrawalArchivePanel(task) {
         if (!task || (task.status !== "PENDING" && task.status !== "DONE")) return "";
-        const done = task.status === "DONE",
-          returns = Object.values(task.returnDecisions || {}),
-          refundBooks = Object.values(task.books || {}),
-          included = refundBooks.filter((book) => book.status === "DONE" || (book.status === "PENDING" && !done)),
-          excluded = refundBooks.filter((book) => book.status === "EXCLUDED"),
-          refundRows = refundBooks.map((book) => {
-            const quantity = Math.max(1, Number(book.quantity || 1)),
-              unitPrice = book.unitPrice ?? bookPriceValue(S.books?.[book.bookId]),
-              amount = book.refundAmount ?? (unitPrice == null ? null : Number(unitPrice) * quantity),
-              decision = book.status === "EXCLUDED" ? "환불 제외" : book.status === "DONE" ? "환불 확정" : "환불 예정";
-            return `<tr><td><b>${esc(book.bookName || S.books?.[book.bookId]?.name || book.bookId || "교재 미확인")}</b></td><td>${amount == null ? "금액 미확인" : won(amount)}</td><td>${esc(decision)}</td></tr>`;
-          }).join("") || '<tr><td colspan="3">미배부 교재 없음</td></tr>',
-          returnRows = returns.map((row) => `<tr><td><b>${esc(row.bookName || S.books?.[row.bookId]?.name || row.bookId || "교재 미확인")}</b></td><td>${Number(row.quantity || 0)}권</td><td>${row.decision === "RETURNED" ? "회수완료" : row.decision === "RETAINED" ? "학생 보유 유지" : "미결정"}</td></tr>`).join("") || '<tr><td colspan="3">보유 교재 없음</td></tr>';
-        return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><h4>보유 교재 결정</h4><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>결정</th></tr></thead><tbody>${returnRows}</tbody></table></div><h4>미배부 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>환불 결정</th></tr></thead><tbody>${refundRows}</tbody></table></div><div class="receipt"><b>환불 포함 ${included.length}종 ${won(done ? Number(task.totalAmount || 0) : included.reduce((sum, book) => sum + Number(book.refundAmount || 0), 0))} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
+        const done = task.status === "DONE", rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+          tableRows = rows.map((row) => `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? "금액 미확인" : won(row.unitPrice)}</td><td><span class="badge ${row.state === "회수완료" ? "ok" : ""}">${esc(row.state)}</span></td><td>${row.refundIncluded ? `<b class="success">${done ? "환불완료" : "환불 포함"}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`).join("") || '<tr><td colspan="4">처리할 교재가 없습니다.</td></tr>';
+        return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
       }
       function refundBookIsIncluded(state, task, book) {
         return book?.status === 'PENDING' && book.source !== 'RETURNED' && !task?.returnDecisions?.[book.bookId]?.decision && Number(state.students?.[task?.studentId]?.holdings?.[book.bookId] || 0) === 0;
@@ -9711,11 +9710,12 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             .filter(([, quantity]) => Number(quantity) > 0)
             .map(([bookId, quantity]) => [bookId, Number(quantity)])
             .sort((a, b) => a[0].localeCompare(b[0]));
-        const books = Object.values(task.books || {})
-          .filter((book) => refundBookIsIncluded(state, task, book))
+        const settlementRows = withdrawalSettlementRows(state, task),
+          books = settlementRows
+          .filter((row) => row.refundIncluded)
           .map((book) => {
             const quantity = Number(book.quantity == null ? 1 : book.quantity),
-              unitPrice = bookPriceValue(state.books?.[book.bookId]);
+              unitPrice = book.unitPrice;
             if (!Number.isInteger(quantity) || quantity < 1 || unitPrice == null)
               return null;
             return {
@@ -9739,6 +9739,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             reviewVersion: Number(task.reviewVersion || 0),
             returnDecisions: exitReturnDecisionRows(state, task).map((row) => [row.bookId, row.quantity, row.decision]),
             positiveHoldings,
+            settlementRows: settlementRows.map((row) => [row.bookId,row.state,row.quantity,row.unitPrice,row.refundIncluded,row.returnMovementId || '']),
             books,
           }),
         };
@@ -9746,12 +9747,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
       async function completeRefund(sid, taskId = "") {
         const task = taskId ? S.refundTasks?.[taskId] : refundTaskForStudent(sid),
           confirmation = refundConfirmationSnapshot(S, task),
-          pendingBooks = Object.values(task?.books || {}).filter((book) => refundBookIsIncluded(S, task, book)),
-          pricedBooks = pendingBooks.map((item) => ({
-            ...item,
-            unitPrice: bookPriceValue(S.books?.[item.bookId]),
-            quantity: Math.max(1, Number(item.quantity || 1)),
-          })),
+          settlementRows = withdrawalSettlementRows(S, task),
+          pricedBooks = settlementRows.filter((row) => row.refundIncluded),
           missingPrices = pricedBooks.filter((item) => item.unitPrice == null),
           totalAmount = pricedBooks.reduce(
             (sum, item) =>
@@ -9770,15 +9767,14 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
           );
         const returnDecisions = exitReturnDecisionRows(S, task),
           invalidReturns = returnDecisions.filter((row) => !["UNDECIDED", "RETAINED", "RETURNED"].includes(row.decision)),
-          excludedBooks = Object.values(task.books || {}).filter((book) => book.status === "EXCLUDED");
-        void excludedBooks;
+          excludedBooks = settlementRows.filter((row) => !row.refundIncluded);
         if (invalidReturns.length)
           return alert("보유 교재 결정 상태가 올바르지 않습니다. 새로 확인하세요.");
         if (!confirmation)
           return alert("퇴반완료 차단: 교재 수량 또는 금액이 올바르지 않습니다. 다시 확인하세요.");
         if (missingPrices.length)
           return alert(`교재비 미등록으로 퇴반완료할 수 없습니다.\n\n${missingPrices.map((book) => book.bookName).join("\n")}\n\n관리의 반·교재에서 금액을 먼저 입력하세요.`);
-        if (!(await askWithdrawalCompletion(S.students?.[sid]?.name || task.studentName, task, returnDecisions, pricedBooks, excludedBooks, totalAmount)))
+        if (!(await askWithdrawalCompletion(S.students?.[sid]?.name || task.studentName, task, settlementRows, totalAmount)))
           return;
         const completedAt = now(),
           r = await transaction((st) => {
@@ -9832,28 +9828,31 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
               time: completedAt,
             };
             target.withdrawalId = withdrawalId;
-            const names = [],
-              bookAmounts = [];
-            for (const book of Object.values(target.books || {})) {
-              if (!refundBookIsIncluded(st, target, book)) continue;
-              const currentPrice = bookPriceValue(st.books?.[book.bookId]);
-              if (currentPrice == null) return false;
-              const quantity = Math.max(1, Number(book.quantity || 1));
+            const names = [], bookAmounts = [], finalRows = withdrawalSettlementRows(st, target), seenBookIds = new Set();
+            target.books = target.books || {};
+            for (const row of finalRows.filter((item) => item.refundIncluded)) {
+              if (!row.bookId || seenBookIds.has(row.bookId) || row.unitPrice == null) return false;
+              seenBookIds.add(row.bookId);
+              const quantity = Math.max(1, Number(row.quantity || 1)), currentPrice = Number(row.unitPrice), book = (target.books[row.bookId] ||= { bookId:row.bookId, bookName:row.bookName });
               book.status = "DONE";
+              book.source = row.source;
               book.completedAt = completedAt;
               book.completedBy = actor;
               book.unitPrice = currentPrice;
               book.quantity = quantity;
               book.refundAmount = currentPrice * quantity;
-              names.push(book.bookName);
+              if (row.returnMovementId) book.returnMovementId = row.returnMovementId;
+              names.push(row.bookName);
               bookAmounts.push({
-                bookId: book.bookId,
-                bookName: book.bookName,
+                bookId: row.bookId,
+                bookName: row.bookName,
+                source: row.source,
                 unitPrice: currentPrice,
                 quantity,
                 amount: currentPrice * quantity,
               });
             }
+            target.refundRuleVersion = 2;
              target.status = "DONE";
             target.exitCompletedAt = completedAt;
             target.exitCompletedBy = actor;
@@ -9882,13 +9881,13 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
               totalAmount: target.totalAmount,
               actor,
               time: completedAt,
-              memo: `퇴반완료 · 미배부 환불 ${bookAmounts.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}권 · ${won(target.totalAmount)} 확정`,
+              memo: `퇴반완료 · 미배부+회수 환불 ${bookAmounts.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}권 · ${won(target.totalAmount)} 확정`,
             };
           });
         if (!r.committed)
           return alert("이미 처리됐거나 미배부 항목이 변경됐습니다.");
         S = r.snapshot.val();
-        alert("퇴반완료했습니다. 교재 처리내역과 미배부 환불금액을 확정했습니다.");
+        alert("퇴반완료했습니다. 미배부와 회수완료 교재의 최종 환불금액을 확정했습니다.");
         studentStatus();
       }
       function histApply() {

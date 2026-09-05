@@ -71,7 +71,7 @@ const complete = functionSource("completeRefund");
 contains(complete, /returnDecisions/, "퇴반완료가 보유교재 결정 완료 여부를 검사하지 않습니다.");
 contains(complete, /RETAINED|RETURNED/, "퇴반완료가 회수/유지 결정을 검사하지 않습니다.");
 contains(complete, /row\.decision\s*===\s*["']RETURNED["'][\s\S]*student\.holdings/, "회수 후 재배부된 교재의 완료 차단 근거가 없습니다.");
-contains(complete, /EXCLUDED/, "퇴반완료가 환불제외 행을 구분하지 않습니다.");
+contains(complete, /refundIncluded/, "퇴반완료가 환불 포함·제외 행을 구분하지 않습니다.");
 contains(complete, /unitPrice/, "퇴반완료가 확정 단가를 스냅샷하지 않습니다.");
 contains(complete, /refundAmount/, "퇴반완료가 행별 확정 환불금액을 저장하지 않습니다.");
 contains(complete, /refundHistory/, "퇴반완료 이력을 생성하지 않습니다.");
