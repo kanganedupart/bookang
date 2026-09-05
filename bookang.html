@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.18" />
+    <meta name="bookflow-build" content="2026-09-05.20" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.18";
+      const BOOKFLOW_BUILD = "2026-09-05.20";
       let xlsxLoadPromise = null;
       function ensureXlsx() {
         if (window.XLSX) return Promise.resolve(window.XLSX);
@@ -7260,16 +7260,17 @@
       }
       function normalizedEcodingStudent(student,maps,st=null,pid=""){
         const classIds={},activeClassDates={},inactiveClassDates={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";
-        if(ecodingStudentExited(student))return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt,activeClassDates,inactiveClassDates};
         for(const c of student.classes||[]){
           const localClassId=maps[c.id]?.localClassId,localClass=st?.classes?.[localClassId];
           if(!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
-          const changeDate=/^\d{4}-\d{2}-\d{2}/.test(String(c.lastModifiedAt||""))?String(c.lastModifiedAt).slice(0,10):"";
-          if(c.active!==true){if(changeDate)inactiveClassDates[localClassId]=changeDate;continue;}
+          const rawEntryDate=String(c.entryDate||c.lastModifiedAt||""),entryDate=/^\d{4}-\d{2}-\d{2}/.test(rawEntryDate)?rawEntryDate.slice(0,10):"",rawClassExitDate=String(c.exitDate||""),classExitDate=/^\d{4}-\d{2}-\d{2}/.test(rawClassExitDate)?rawClassExitDate.slice(0,10):"";
+          if(c.active!==true){if(classExitDate)inactiveClassDates[localClassId]=classExitDate;continue;}
           classIds[localClassId]=localClassId;
-          if(changeDate)activeClassDates[localClassId]=changeDate;
+          if(entryDate)activeClassDates[localClassId]=entryDate;
         }
-        return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate,admissionDate,lastModifiedAt,activeClassDates,inactiveClassDates};
+        const classEntryDate=Object.values(activeClassDates).filter(Boolean).sort()[0]||admissionDate;
+        const classExitDate=Object.values(inactiveClassDates).filter(Boolean).sort().pop()||exitDate;
+        return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate:Object.keys(classIds).length?"":classExitDate,admissionDate:classEntryDate,lastModifiedAt,activeClassDates,inactiveClassDates};
       }
       function queueEcodingExitRefund(st,pid,eid,prev,transitionId=''){
         const matches=arr(st.students).filter(x=>normalizeExternalId(x.externalId)===normalizeExternalId(eid));
@@ -7734,6 +7735,29 @@
               }
               return true;
             };
+          if (fresh.membershipSchemaVersion === "CLASS_DATES_V1" && snap.membershipSchemaVersion !== "CLASS_DATES_V1") {
+            const baselineResult = await transaction((st) => {
+              st.ecodingSnapshots = st.ecodingSnapshots || {};
+              st.ecodingBaselines = st.ecodingBaselines || {};
+              st.integrationCutovers = st.integrationCutovers || {};
+              if (st.ecodingBaselines?.[pid]?.membershipSchemaVersion === "CLASS_DATES_V1") return false;
+              st.ecodingSnapshots[pid] = { ...fresh, periodId: pid };
+              st.ecodingBaselines[pid] = { ...fresh, periodId: pid };
+              st.integrationCutovers[pid] = {
+                source: "ECODING_ACA_RELAY",
+                schemaVersion: "CLASS_DATES_V1",
+                cutoverAt: now(),
+                sourceSyncedAt: fresh.syncedAt || "",
+                mode: "FORWARD_ONLY",
+              };
+            }, { silentRender: true });
+            if (baselineResult.committed) {
+              S = baselineResult.snapshot.val();
+              resetDerivedState();
+            }
+            if (!silent) alert("반별 입반·퇴반일 기준명단을 저장했습니다. 기존 3학기 교재·배부·재고·환불은 변경하지 않았으며, 다음 확인부터 새로 발생한 변경만 표시합니다.");
+            return { baselineOnly: true, NEW: 0, MOVE: 0, EXIT: 0 };
+          }
           if (!rosterIdsAreUnique(snap.students) || !rosterIdsAreUnique(fresh.students)) {
             const message = "이코딩 자료에 학생 ID 중복 또는 누락이 있어 자동 연동을 차단했습니다. 학생·반·교재·재고는 변경하지 않았습니다.";
             if (!silent) alert(message);
@@ -7881,8 +7905,8 @@
               if (arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
                 event, pid, externalId, type, eventBeforeClassIds, next.classIds,
               ))) continue;
-              const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
-              const key = id("E", `${pid}|${externalId}|${type}|${JSON.stringify(next.classIds)}|${transitionStamp}`);
+              const eventDate = type === "MOVE" ? desired.moveBusinessDate : next.admissionDate;
+              const key = id("E", `${pid}|${externalId}|${type}|${ecodingEventClassSignature(eventBeforeClassIds)}|${ecodingEventClassSignature(next.classIds)}|${eventDate}`);
               if (!st.ecodingEvents[key]) {
                 st.ecodingEvents[key] = {
                   id: key, type, status: "PENDING", periodId: pid,
@@ -7916,8 +7940,7 @@
                 continue;
               }
               delete st.ecodingAbsenceCandidates[pid][externalId];
-              const transitionStamp = `${snap.syncedAt||'BASE'}>${fresh.syncedAt||now()}`;
-              const key = id("E", `${pid}|${externalId}|EXIT|${transitionStamp}`);
+              const key = id("E", `${pid}|${externalId}|EXIT|${ecodingEventClassSignature(prev.classIds)}|${exitDate}`);
               if (!st.ecodingEvents[key]) {
                 const exitResult = queueEcodingExitRefund(st, pid, externalId, {...prev,exitDate}, key);
                 st.ecodingEvents[key] = {
