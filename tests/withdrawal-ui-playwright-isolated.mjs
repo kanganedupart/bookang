@@ -38,13 +38,26 @@ function seedState() {
       BNEWHELD: { id: "BNEWHELD", name: "대기중 추가보유 교재", subject: "국어", teacher: "공통", price: 11000, stock: 5, active: true, periodIds: { [periodId]: periodId } },
       BMISSING: { id: "BMISSING", name: "미배부 검수교재", subject: "국어", teacher: "공통", price: 14000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
       BEXCLUDED: { id: "BEXCLUDED", name: "환불제외 검수교재", subject: "국어", teacher: "공통", price: 9000, stock: 10, active: true, periodIds: { [periodId]: periodId } },
+      BAVAILABLE: { id: "BAVAILABLE", name: "신규 배부가능 교재", subject: "영어", teacher: "검수강사", price: 12000, stock: 1, active: true, periodIds: { [periodId]: periodId } },
+      BZERO: { id: "BZERO", name: "신규 재고부족 교재", subject: "영어", teacher: "검수강사", price: 13000, stock: 0, active: true, periodIds: { [periodId]: periodId } },
+      BNEWINACTIVE: { id: "BNEWINACTIVE", name: "신규 비활성 제외 교재", subject: "영어", teacher: "검수강사", price: 13000, stock: 9, active: false, periodIds: { [periodId]: periodId } },
+      BNEWUNPRICED: { id: "BNEWUNPRICED", name: "신규 가격미입력 제외 교재", subject: "영어", teacher: "검수강사", stock: 9, active: true, periodIds: { [periodId]: periodId } },
+      BNEWCLOSED: { id: "BNEWCLOSED", name: "신규 배부종료 제외 교재", subject: "영어", teacher: "검수강사", price: 13000, stock: 9, active: true, distributionStatus: "CLOSED", periodIds: { [periodId]: periodId } },
+      BNEWEXCLUDED: { id: "BNEWEXCLUDED", name: "신규 학생별 제외 교재", subject: "영어", teacher: "검수강사", price: 13000, stock: 9, active: true, periodIds: { [periodId]: periodId } },
+      BBUNDLEGOOD: { id: "BBUNDLEGOOD", name: "묶음 충분 교재", subject: "수학", teacher: "검수강사", price: 15000, stock: 2, active: true, periodIds: { [periodId]: periodId } },
+      BBUNDLESHORT: { id: "BBUNDLESHORT", name: "묶음 부족 교재", subject: "수학", teacher: "검수강사", price: 16000, stock: 1, active: true, periodIds: { [periodId]: periodId } },
     },
     classes: {
       C1: { id: "C1", name: "정규 검수반", subject: "국어", teacher: "검수강사", active: true, periodId, books: { BMISSING: "BMISSING" } },
+      CNEW: { id: "CNEW", name: "신규 검수반", subject: "영어", teacher: "검수강사", active: true, periodId, books: { BAVAILABLE: "BAVAILABLE", BZERO: "BZERO", BNEWINACTIVE: "BNEWINACTIVE", BNEWUNPRICED: "BNEWUNPRICED", BNEWCLOSED: "BNEWCLOSED", BNEWEXCLUDED: "BNEWEXCLUDED" } },
+      CBUNDLE: { id: "CBUNDLE", name: "묶음 검수반", subject: "수학", teacher: "검수강사", active: true, periodId, books: { BBUNDLEGOOD: "BBUNDLEGOOD", BBUNDLESHORT: "BBUNDLESHORT" } },
     },
     students: {
       SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
       SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BRETURN: 1, BNEWHELD: 1, BMISSING: 0 }, withdrawals: {} },
+      SNEW: { id: "SNEW", name: "신규부분검수", active: true, onboarding: false, admissionDate: "2026-09-06", createdAt: "2026-09-06T08:00:00+09:00", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CNEW: "CNEW" } }, classes: { CNEW: "CNEW" }, bookExclusions: { [periodId]: { BNEWEXCLUDED: { reason: "격리 검수" } } }, holdings: {} },
+      SBUNDLE1: { id: "SBUNDLE1", name: "묶음검수일", active: true, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
+      SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
     },
     refundTasks: {
       RTASK_EXACT: {
@@ -206,6 +219,41 @@ try {
     await page.getByRole("button", { name: "로그인", exact: true }).click();
     await page.locator('[data-main-tab="학생"]').waitFor({ timeout: 15000 });
     assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
+
+    await page.locator('[data-main-tab="일괄처리"]').click();
+    await page.getByRole("button", { name: "학생 묶음", exact: true }).click();
+    await page.locator("#bundleNames").fill("묶음검수일\n묶음검수이");
+    await page.getByRole("button", { name: "명단 확인", exact: true }).click();
+    await page.getByRole("button", { name: /2명 2권 재고 있는 교재 배부 확정/ }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    const bundleDistribution = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(bundleDistribution.students.SBUNDLE1.holdings.BBUNDLEGOOD, 1, `${viewport.name}: bundle sufficient book missing for first student`);
+    assert.equal(bundleDistribution.students.SBUNDLE2.holdings.BBUNDLEGOOD, 1, `${viewport.name}: bundle sufficient book missing for second student`);
+    assert.equal(Number(bundleDistribution.students.SBUNDLE1.holdings.BBUNDLESHORT || 0), 0, `${viewport.name}: shortage book partially allocated to first student`);
+    assert.equal(Number(bundleDistribution.students.SBUNDLE2.holdings.BBUNDLESHORT || 0), 0, `${viewport.name}: shortage book partially allocated to second student`);
+    assert.equal(bundleDistribution.books.BBUNDLESHORT.stock, 1, `${viewport.name}: shortage stock changed during bundle distribution`);
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.locator('[data-main-tab="학생"]').click();
+
+    await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
+    const newStudentRow = page.locator("tbody tr", { hasText: "신규부분검수" });
+    await newStudentRow.getByRole("button", { name: "확인", exact: true }).click();
+    await newStudentRow.locator("summary", { hasText: "반명 보기" }).click();
+    assert.match(await newStudentRow.innerText(), /신규 검수반/, `${viewport.name}: new-student class name missing`);
+    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2[\s\S]*처리 후 미배부\s*1/, `${viewport.name}: available-only preview mismatch`);
+    assert.doesNotMatch(await page.locator(".stock-side").innerText(), /신규 (비활성|가격미입력|배부종료|학생별) 제외 교재/, `${viewport.name}: ineligible book leaked into new-student preview`);
+    assert.match(await page.locator(".stock-side tr", { hasText: "신규 재고부족 교재" }).innerText(), /0\s+미배부 유지\s+0/, `${viewport.name}: shortage preview did not preserve zero stock`);
+    await page.locator(".stock-side").getByRole("button", { name: "전체 배부", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText(/신규부분검수 · 1종 배부 완료 · 부족 1종 미배부/).waitFor();
+    const newStudentDistribution = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(newStudentDistribution.students.SNEW.holdings.BAVAILABLE, 1, `${viewport.name}: available book was not distributed`);
+    assert.equal(Number(newStudentDistribution.students.SNEW.holdings.BZERO || 0), 0, `${viewport.name}: zero-stock book was partially distributed`);
+    assert.equal(newStudentDistribution.books.BAVAILABLE.stock, 0, `${viewport.name}: available stock mismatch`);
+    assert.equal(newStudentDistribution.books.BZERO.stock, 0, `${viewport.name}: shortage stock changed`);
+    for (const bid of ["BNEWINACTIVE", "BNEWUNPRICED", "BNEWCLOSED", "BNEWEXCLUDED"])
+      assert.equal(Number(newStudentDistribution.students.SNEW.holdings[bid] || 0), 0, `${viewport.name}: ineligible book ${bid} was distributed`);
+    await page.getByRole("button", { name: "학생 조회·처리", exact: true }).click();
 
     await page.locator('[data-main-tab="학생"]').click();
     await page.locator("#studentStatusSearch").fill("재원검수");

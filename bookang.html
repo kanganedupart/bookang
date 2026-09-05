@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.39" />
+    <meta name="bookflow-build" content="2026-09-06.40" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-05.39", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.40", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -185,7 +185,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.39";
+      const BOOKFLOW_BUILD = "2026-09-06.40";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -2782,10 +2782,8 @@
             !activePeriodClassIds(st, sid).length
           )
             continue;
-          for (const bid of assignedBooksIn(st, sid)) {
+          for (const bid of distributableAssignedBookIds(st, sid)) {
             const book = st.books?.[bid];
-            if (!book || book.active === false || bookPriceValue(book) == null || bookDistributionIsClosed(book))
-              continue;
             if (Number(s.holdings?.[bid] || 0) > 0) continue;
             (byBook[bid] ||= []).push(sid);
           }
@@ -2813,6 +2811,21 @@
         ))
           for (const bid of arr(st.classes?.[cid]?.books)) ids.add(bid);
         return [...ids].filter((bid) => !studentBookIsExcluded(st, sid, bid));
+      }
+      function distributableAssignedBookIds(st, sid, classIds = activePeriodClassIds(st, sid)) {
+        const ids = new Set();
+        for (const cid of classIds)
+          for (const bid of arr(st.classes?.[cid]?.books)) ids.add(bid);
+        return [...ids].filter((bid) => {
+          const book = st.books?.[bid];
+          return (
+            book &&
+            book.active !== false &&
+            bookPriceValue(book) != null &&
+            !bookDistributionIsClosed(book) &&
+            !studentBookIsExcluded(st, sid, bid)
+          );
+        });
       }
       function bundleReturnPlan(st, studentIds) {
         const byBook = {};
@@ -5821,7 +5834,7 @@
         studentAdmin();
       }
       function studentDistributionSummary(sid) {
-        const books = assignedBooks(sid),
+        const books = distributableAssignedBookIds(S, sid).map((bid) => S.books[bid]),
           distributed = books.filter((b) => held(sid, b.id) > 0).length,
           missing = books.filter((b) => held(sid, b.id) === 0),
           shortage = missing.filter((b) => Number(b.stock || 0) < 1).length,
@@ -5872,7 +5885,9 @@
       }
       function newStudentRow(s) {
         const summary = studentDistributionSummary(s.id);
-        const classCount = activePeriodClassIds(S, s.id).length;
+        const classIds = activePeriodClassIds(S, s.id),
+          classCount = classIds.length,
+          classNames = classIds.map((classId) => S.classes?.[classId]?.name).filter(Boolean);
         let status = "";
         let action = "";
         if (s.active === false) {
@@ -5890,13 +5905,13 @@
           status = "배부 완료";
           action = `<button class="done-btn" onclick="openStudentProcess('${s.id}')">이력·상세</button>`;
         } else if (summary.shortage > 0) {
-          status = `재고부족 ${summary.shortage}종`;
-          action = `<button class="shortage-btn" onclick="newStudentId='${s.id}';receipt=null;studentAdmin()">재고부족 확인</button>`;
+          status = `미배부 ${summary.missing}종 · 부족 ${summary.shortage}종`;
+          action = `<button onclick="newStudentId='${s.id}';receipt=null;studentAdmin()">확인</button>`;
         } else {
           status = `배부 전 · ${summary.missing}종`;
-          action = `<button class="stage-assign" onclick="newStudentId='${s.id}';receipt=null;studentAdmin()">배부 전 확인</button>`;
+          action = `<button onclick="newStudentId='${s.id}';receipt=null;studentAdmin()">확인</button>`;
         }
-        return `<tr class="${window.newStudentId === s.id ? "selected-row" : ""}"><td><b>${esc(s.name)}</b></td><td>${classCount}개</td><td>대상 ${summary.total}종<small>배부 ${summary.distributed} · 미배부 ${summary.missing}</small></td><td><b>${status}</b></td><td>${action}</td></tr>`;
+        return `<tr class="${window.newStudentId === s.id ? "selected-row" : ""}"><td><b>${esc(s.name)}</b></td><td>${classCount}개${classNames.length ? `<details class="compact-details"><summary>반명 보기</summary><div class="class-chip-list">${classNames.map((name) => `<span>${esc(name)}</span>`).join("")}</div></details>` : ""}</td><td>대상 ${summary.total}종<small>배부 ${summary.distributed} · 미배부 ${summary.missing}</small></td><td><b>${status}</b></td><td>${action}</td></tr>`;
       }
       function newStudentStockPanel(s) {
         if (!s)
@@ -5904,22 +5919,17 @@
         const isAssigning = Boolean(s.onboarding);
         const classIds = isAssigning
           ? window.newAssigned || []
-          : periodClassIds(S, s.id);
-        const previewBooks = [
-          ...new Map(
-            classIds
-              .flatMap((cid) => arr(S.classes[cid]?.books))
-              .map((bid) => S.books[bid])
-              .filter(Boolean)
-              .map((book) => [book.id, book]),
-          ).values(),
-        ].sort(
+          : activePeriodClassIds(S, s.id);
+        const previewBooks = distributableAssignedBookIds(S, s.id, classIds)
+          .map((bid) => S.books[bid])
+          .sort(
           (a, b) =>
             a.subject.localeCompare(b.subject, "ko") ||
             a.name.localeCompare(b.name, "ko"),
         );
         const missing = previewBooks.filter((book) => held(s.id, book.id) === 0);
-        const shortage = missing.filter((book) => Number(book.stock || 0) < 1);
+        const shortage = missing.filter((book) => Number(book.stock || 0) < 1),
+          available = missing.filter((book) => Number(book.stock || 0) >= 1);
         const noMappedBooks = !isAssigning && previewBooks.length === 0;
         const completed =
           !isAssigning && previewBooks.length > 0 && missing.length === 0;
@@ -5927,9 +5937,10 @@
         <div class="scroll stock-plan"><table><thead><tr><th>교재</th><th>현재재고</th><th>처리</th><th>처리 후</th></tr></thead><tbody>${previewBooks
           .map((book) => {
             const alreadyHeld = held(s.id, book.id) > 0;
-            const delta = isAssigning || alreadyHeld ? 0 : -1;
+            const canDistribute = !isAssigning && !alreadyHeld && Number(book.stock || 0) >= 1,
+              delta = canDistribute ? -1 : 0;
             const after = Number(book.stock || 0) + delta;
-            return `<tr><td><b>${esc(book.name)}</b><small>${esc(book.subject || "")}</small></td><td>${book.stock || 0}</td><td>${isAssigning ? "반배정만" : alreadyHeld ? "배부됨" : "-1권"}</td><td class="${after < 0 ? "danger" : ""}"><b>${after}</b></td></tr>`;
+            return `<tr><td><b>${esc(book.name)}</b><small>${esc(book.subject || "")}</small></td><td>${book.stock || 0}</td><td>${isAssigning ? "반배정만" : alreadyHeld ? "배부됨" : canDistribute ? "-1권" : "미배부 유지"}</td><td><b>${after}</b></td></tr>`;
           })
           .join("") || '<tr><td colspan="4">선택한 반의 매칭 교재가 없습니다.</td></tr>'}</tbody></table></div>
         ${
@@ -5939,7 +5950,7 @@
               ? `<div class="flow"><div>대상교재<br><b class="danger">0</b></div><div class="arrow">→</div><div>처리상태<br><b class="danger">중단</b></div></div><p class="error">배정된 반에 매칭된 교재가 없습니다. 반·교재 매칭을 확인하세요.</p><button class="shortage-btn" onclick="openStudentMove('${s.id}')">반·매칭 확인</button>`
             : completed
               ? `<div class="flow"><div>대상교재<br><b>${previewBooks.length}</b></div><div class="arrow">→</div><div>미배부<br><b>0</b></div></div><button class="done-btn" onclick="openStudentProcess('${s.id}')">배부 완료·상세</button>`
-              : `<div class="flow"><div>미배부<br><b>${missing.length}</b></div><div class="arrow">전체배부 →</div><div>처리 후 미배부<br><b class="${shortage.length ? "danger" : ""}">${shortage.length ? missing.length : 0}</b></div></div>${shortage.length ? `<p class="error">재고가 부족한 교재가 있어 전체배부를 중단합니다.</p><button class="shortage-btn" onclick="openStudentProcess('${s.id}')">재고부족 확인</button>` : `<button class="btn stage-distribute" onclick="distributeNewStudent('${s.id}',this)">미배부 교재 전체배부</button>`}`
+              : `<div class="flow"><div>미배부<br><b>${missing.length}</b></div><div class="arrow">${available.length}종 배부 →</div><div>처리 후 미배부<br><b class="${shortage.length ? "danger" : ""}">${shortage.length}</b></div></div>${shortage.length ? `<p class="muted">부족 ${shortage.length}종은 미배부로 남습니다.</p>` : ""}<div class="action-row"><button class="btn stage-distribute" ${available.length ? "" : "disabled"} onclick="distributeNewStudent('${s.id}',this)">전체 배부</button><button onclick="openStudentProcess('${s.id}')">상세</button></div>`
         }
         ${receipt && window.receiptStudentId === s.id ? `<div class="receipt transaction-result"><b>처리 완료</b><br>${esc(receipt)}<br>원장과 실제 재고를 같은 거래에서 저장했습니다.</div>` : ""}</section>`;
       }
@@ -6011,24 +6022,58 @@
       }
       async function distributeNewStudent(sid, button) {
         const s = S.students[sid],
-          d = studentDistributionSummary(sid);
+          fullPlan = bundleDistributionPlan(S, [sid]),
+          availablePlan = fullPlan.filter((item) => item.after >= 0),
+          shortagePlan = fullPlan.filter((item) => item.after < 0),
+          signature = bulkSignature(fullPlan.map((item) => ({ ...item, need: item.quantity })));
         if (!s || s.active === false || s.onboarding)
           return alert("반배정이 완료된 신규생만 배부할 수 있습니다.");
-        if (!d.missing) return alert("미배부 교재가 없습니다.");
-        if (d.shortage)
-          return alert(
-            `재고 부족 ${d.shortage}종으로 전체배부를 중단했습니다. 상세확인에서 부족 교재를 확인하세요.`,
-          );
+        if (!fullPlan.length) return alert("미배부 교재가 없습니다.");
+        if (!availablePlan.length) return alert("현재 배부 가능한 교재가 없습니다. 부족 교재는 미배부로 남습니다.");
         if (
           !(await askConfirm(
-            `${s.name} 학생의 미배부 매칭교재 ${d.missing}종을 전체배부할까요?`,
+            `${s.name} 학생에게 재고가 충분한 교재 ${availablePlan.length}종을 배부할까요?${shortagePlan.length ? `\n부족 ${shortagePlan.length}종은 미배부로 남습니다.` : ""}`,
           ))
         )
           return;
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
+        operationBusy = true;
         window.newStudentId = sid;
         window.receiptStudentId = sid;
         receipt = null;
-        allForStudent(sid, "DISTRIBUTE", button);
+        const opId = operationId(button), batchId = "B" + crypto.randomUUID();
+        let message = "";
+        try {
+          const result = await transaction((st) => {
+            st.processedOperations = st.processedOperations || {};
+            if (st.processedOperations[opId]) { message = st.processedOperations[opId].message; return false; }
+            if (!periodAllows(st, "DISTRIBUTE")) { message = "현재 운영기간에서는 배부할 수 없습니다."; return false; }
+            const currentFullPlan = bundleDistributionPlan(st, [sid]),
+              currentSignature = bulkSignature(currentFullPlan.map((item) => ({ ...item, need: item.quantity })));
+            if (currentSignature !== signature) { message = "확인 후 재고 또는 반 정보가 변경되었습니다. 새 화면에서 다시 확인하세요."; return false; }
+            const currentAvailable = currentFullPlan.filter((item) => item.after >= 0);
+            if (!currentAvailable.length) { message = "현재 배부 가능한 교재가 없습니다."; return false; }
+            st.movements = st.movements || {};
+            for (const item of currentAvailable) {
+              const book = st.books[item.bid], student = st.students[sid], stockBefore = Number(book.stock || 0);
+              if (!student || item.studentIds.length !== 1 || item.studentIds[0] !== sid || stockBefore < 1) return false;
+              book.stock = stockBefore - 1;
+              book.updatedAt = now();
+              student.holdings = student.holdings || {};
+              student.holdings[item.bid] = 1;
+              const movementId = "M" + crypto.randomUUID();
+              st.movements[movementId] = { id:movementId, batchId, operationId:opId, periodId:selectedPeriodId() || st.currentPeriodId, type:"DISTRIBUTE", mode:"NEW_STUDENT_AVAILABLE", businessReason:"NORMAL", bookId:item.bid, bookName:book.name, studentId:sid, studentIds:{ [sid]:sid }, studentNames:{ [sid]:student.name }, classNames:{ [sid]:activePeriodClassIds(st, sid).map((cid) => st.classes?.[cid]?.name).filter(Boolean).join(" · ") }, studentDeltas:{ [sid]:1 }, itemCount:1, quantity:-1, stockBefore, stockAfter:book.stock, memo:"신규생 재고 가능 교재 전체 배부", actor, time:now() };
+            }
+            message = `${s.name} · ${currentAvailable.length}종 배부 완료 · 부족 ${currentFullPlan.length - currentAvailable.length}종 미배부`;
+            st.processedOperations[opId] = { id:opId, message, time:now() };
+          });
+          if (!result.committed) return alert(message || "배부하지 못했습니다. 새 화면에서 다시 확인하세요.");
+          S = result.snapshot.val();
+          receipt = message;
+          studentAdmin();
+        } finally {
+          operationBusy = false;
+        }
       }
       async function saveNewStudentNames() {
         const names = [
