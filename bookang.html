@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.38" />
+    <meta name="bookflow-build" content="2026-09-05.39" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-05.38", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-05.39", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -185,7 +185,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.38";
+      const BOOKFLOW_BUILD = "2026-09-05.39";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1626,7 +1626,7 @@
           }
         };
         let optimisticState = null;
-        try {
+        if (!options.skipOptimistic) try {
           optimisticState = typeof structuredClone === "function"
             ? structuredClone(S)
             : JSON.parse(JSON.stringify(S));
@@ -9860,6 +9860,9 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
           return;
         operationBusy = true;
         showOperationProgress("퇴반완료와 최종 환불금액을 저장하고 있습니다. 잠시만 기다려 주세요.");
+        // Let the browser paint the blocking progress state before Firebase runs
+        // the synchronous first transaction attempt over the large root payload.
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
         const completedAt = now(),
           r = await transaction((st) => {
             st.refundTasks = st.refundTasks || {};
@@ -9967,7 +9970,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
               time: completedAt,
               memo: `퇴반완료 · 미배부+회수 환불 ${bookAmounts.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}권 · ${won(target.totalAmount)} 확정`,
             };
-          }).catch(() => null);
+          }, { skipOptimistic: true, silentRender: true }).catch(() => null);
         operationBusy = false;
         closeAppDialog(false);
         if (!r?.committed)
