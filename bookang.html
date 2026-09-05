@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.23" />
+    <meta name="bookflow-build" content="2026-09-05.24" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.23";
+      const BOOKFLOW_BUILD = "2026-09-05.24";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -355,8 +355,17 @@
       function studentResultButtons(rows, selectFn) {
         return rows
           .map(
-            (s) =>
-              `<button onclick="${selectFn}('${s.id}')" title="${esc(s.name)}"><b>${esc(s.name)}</b></button>`,
+            (s) => {
+              const task = refundTaskForStudent(s.id),
+                state = task?.status === "PENDING"
+                  ? "퇴반대기"
+                  : task?.status === "DONE" || s.active === false
+                    ? "퇴반완료"
+                    : s.onboarding
+                      ? "반배정 전"
+                      : "재원";
+              return `<button onclick="${selectFn}('${s.id}')" title="${esc(s.name)}"><b>${esc(s.name)}</b><small> · ${state}</small></button>`;
+            },
           )
           .join("");
       }
@@ -489,7 +498,7 @@
         );
         if (!remainingClassIds.length) {
           alert(
-            "마지막 남은 반입니다. 학생 화면 위쪽의 ‘전체퇴반·회수’ 또는 ‘회수 없이 전체퇴반’을 선택하세요.",
+            "마지막 남은 반입니다. 반변경으로 처리할 수 없습니다. 학생 현황에서 ‘퇴반 등록’을 이용하세요.",
           );
           return;
         }
@@ -2132,14 +2141,6 @@
         const s = S.students?.[sid];
         if (!s) return "";
         return `<div class="student-workspace-actions"><button class="${active === "status" ? "btn" : ""}" onclick="openStudentStatus('${sid}')">현황</button><button class="${active === "process" ? "btn" : ""}" onclick="openStudentProcess('${sid}')">교재 처리</button><button class="${active === "move" ? "btn" : ""}" onclick="openStudentMove('${sid}')" ${s.active === false ? "disabled" : ""}>반 관리</button></div>`;
-      }
-      function studentExitPanel(sid) {
-        const s = S.students?.[sid],
-          heldBooks = arr(S.books)
-            .filter((b) => held(sid, b.id) > 0)
-            .sort((a, b) => a.name.localeCompare(b.name, "ko"));
-        if (!s || s.active === false) return "";
-        return `<details class="compact-details"><summary>전체퇴반</summary><div class="receipt"><b>현재 보유교재 ${heldBooks.reduce((n, b) => n + held(sid, b.id), 0)}권</b><br>회수 필요를 선택하면 퇴반 후 같은 학생의 전체회수 화면으로 이어집니다. 회수 없음을 선택하면 재고는 변하지 않습니다.</div><div class="scroll"><table><thead><tr><th>교재</th><th>학생 보유</th><th>회수 시 재고 전→후</th><th>미회수 시</th></tr></thead><tbody>${heldBooks.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td>${held(sid, b.id)}권</td><td>${b.stock || 0}권 → <b>${(b.stock || 0) + held(sid, b.id)}권</b></td><td>재고 ${b.stock || 0}권 유지</td></tr>`).join("") || '<tr><td colspan="4">보유교재가 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="danger-btn" onclick="withdrawStudent('${sid}')">회수 필요로 전체퇴반</button><button class="cancel-btn" onclick="withdrawStudentKeepBooks('${sid}')">회수 없이 전체퇴반</button></div></details>`;
       }
       function selectStudentProcessBook(bookId, suggestedAction = "") {
         bid = bookId;
@@ -5891,7 +5892,7 @@
             (b) => held(editId, b.id) > 0 && !afterBookIds.has(b.id),
           );
         const newPanel = `<section class="panel"><h2>신규생 등록·반배정</h2><p class="muted">이름은 여러 명을 한 번에 저장할 수 있지만 반배정과 교재 처리는 학생별로 진행합니다.</p><label>신규생 이름</label><textarea id="newNames" rows="4" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div><hr><div class="three"><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><span></span><span></span></div><div class="list">${registered.map((s) => { const d = studentDistributionSummary(s.id); return `<button style="width:100%;text-align:left;margin:3px 0" onclick="${s.active === false ? (s.pendingReturn ? `openStudentProcess('${s.id}')` : `statusStudentId='${s.id}';studentHubView='status';render()`) : s.onboarding ? `selectNewStudent('${s.id}')` : `openStudentProcess('${s.id}')`}">${esc(s.name)} · ${s.active === false ? (s.pendingReturn ? "퇴반·회수대기" : "퇴반") : s.onboarding ? "반배정 전" : `반 ${activePeriodClassIds(S, s.id).length}개 · 대상 ${d.total}종 / 배부 ${d.distributed}종 / 미배부 ${d.missing}종${d.shortage ? ` / 재고부족 ${d.shortage}종` : ""}`}</button>`; }).join("") || '<p class="muted">선택한 입학일에 등록한 학생이 없습니다.</p>'}</div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<hr><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장 후 교재 처리</button></div>` : newStudent ? '<p class="muted">반배정이 끝난 학생은 해당 행을 누르면 교재 처리로 이동합니다.</p>' : '<p class="muted">위 명단에서 반배정할 학생을 선택하세요.</p>'}</section>`;
-        const movePanel = current ? `<section class="panel"><div class="student-head"><div><h2>${esc(current.name)}</h2><span>재원 · 현재 반 ${periodClassIds(S, editId).length}개 · 보유 ${arr(S.books).reduce((n,b)=>n+held(editId,b.id),0)}권</span></div>${studentWorkspaceActions(editId, "move")}</div></section><div class="workspace-split"><section class="panel"><h2>반변경</h2><div class="move-summary"><span>현재 반 <b>${periodClassIds(S, editId).length}개</b></span><span>변경 후 <b>${(window.editAssigned || []).length}개</b></span></div><details class="compact-details"><summary>현재 반 펼쳐보기</summary><div class="class-chip-list">${clsOf(editId).map((c) => `<span>${esc(c.subject)} · ${esc(c.teacher || "미지정")} · ${esc(c.name)}</span>`).join("")}</div></details>${classPicker("edit", window.editAssigned)}<label>변경 메모<input id="classMemo" value="${esc(window.classMemoDraft || "")}" oninput="classMemoDraft=this.value" placeholder="예: 수학 Q반 → T반 / 추가결제 필요"></label>${studentExitPanel(editId)}</section><section class="panel workspace-side"><h2>반변경 후 교재 차이</h2>${newBookCandidates.length ? `<div class="receipt"><b>새로 배부할 교재 ${newBookCandidates.length}권</b><br>${newBookCandidates.map((b) => `${esc(b.name)} · ${b.stock || 0} → -1 → ${(b.stock || 0) - 1}`).join("<br>")}</div>` : ""}${returnCandidates.length ? `<div class="receipt" style="border-left-color:#8b4a43"><b>회수 검토 교재 ${returnCandidates.length}권</b><br>${returnCandidates.map((b) => `${esc(b.name)} · ${(b.stock || 0)} → +${held(editId, b.id)} → ${(b.stock || 0) + held(editId, b.id)}`).join("<br>")}</div>` : ""}${!newBookCandidates.length && !returnCandidates.length ? '<div class="flow-placeholder">반을 변경하면 배부·회수 검토가 필요한<br>교재의 재고 전·후가 표시됩니다.</div>' : ""}<div class="flow"><div>현재 창고재고<br><b>변화 없음</b></div><div class="arrow">반정보 저장 →</div><div>저장 후 재고<br><b>동일</b></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="moveStudent('${editId}')">반변경 저장</button></section></div>` : '<section class="panel"><p class="error">학생을 다시 선택하세요.</p></section>';
+        const movePanel = current ? `<section class="panel"><div class="student-head"><div><h2>${esc(current.name)}</h2><span>재원 · 현재 반 ${periodClassIds(S, editId).length}개 · 보유 ${arr(S.books).reduce((n,b)=>n+held(editId,b.id),0)}권</span></div>${studentWorkspaceActions(editId, "move")}</div></section><div class="workspace-split"><section class="panel"><h2>반변경</h2><div class="move-summary"><span>현재 반 <b>${periodClassIds(S, editId).length}개</b></span><span>변경 후 <b>${(window.editAssigned || []).length}개</b></span></div><details class="compact-details"><summary>현재 반 펼쳐보기</summary><div class="class-chip-list">${clsOf(editId).map((c) => `<span>${esc(c.subject)} · ${esc(c.teacher || "미지정")} · ${esc(c.name)}</span>`).join("")}</div></details>${classPicker("edit", window.editAssigned)}<label>변경 메모<input id="classMemo" value="${esc(window.classMemoDraft || "")}" oninput="classMemoDraft=this.value" placeholder="예: 수학 Q반 → T반 / 추가결제 필요"></label></section><section class="panel workspace-side"><h2>반변경 후 교재 차이</h2>${newBookCandidates.length ? `<div class="receipt"><b>새로 배부할 교재 ${newBookCandidates.length}권</b><br>${newBookCandidates.map((b) => `${esc(b.name)} · ${b.stock || 0} → -1 → ${(b.stock || 0) - 1}`).join("<br>")}</div>` : ""}${returnCandidates.length ? `<div class="receipt" style="border-left-color:#8b4a43"><b>회수 검토 교재 ${returnCandidates.length}권</b><br>${returnCandidates.map((b) => `${esc(b.name)} · ${(b.stock || 0)} → +${held(editId, b.id)} → ${(b.stock || 0) + held(editId, b.id)}`).join("<br>")}</div>` : ""}${!newBookCandidates.length && !returnCandidates.length ? '<div class="flow-placeholder">반을 변경하면 배부·회수 검토가 필요한<br>교재의 재고 전·후가 표시됩니다.</div>' : ""}<div class="flow"><div>현재 창고재고<br><b>변화 없음</b></div><div class="arrow">반정보 저장 →</div><div>저장 후 재고<br><b>동일</b></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="moveStudent('${editId}')">반변경 저장</button></section></div>` : '<section class="panel"><p class="error">학생을 다시 선택하세요.</p></section>';
         if (mode === "move")
           document.querySelector("#screen").innerHTML = movePanel;
         else renderNewStudentQueue(registrationDate, registered, newStudent);
@@ -8953,7 +8954,7 @@
               ? `${heldBooks.length ? `<button class="done-btn" onclick="openStudentProcess('${s.id}')">보유 교재 회수</button>` : ""}${refundPending ? `<button onclick="completeRefund('${s.id}')">퇴반완료</button>` : ""}`
               : s.onboarding
                 ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${studentAdmissionDate(s) || localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
-                : `${studentWorkspaceActions(s.id, "status")}${refundPending ? `<button class="danger-btn" onclick="completeRefund('${s.id}')">퇴반완료</button>` : ""}`;
+                : `${studentWorkspaceActions(s.id, "status")}<button class="danger-btn" onclick="withdrawStudent('${s.id}')">퇴반 등록</button>`;
           detail = `<div id="studentDetail">
           <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${ecodingManualExitPending(s, selectedPeriodId()) ? '<span class="badge" style="background:#eceff2;color:#66707a">이코딩 반영 대기</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
