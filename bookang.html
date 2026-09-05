@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.27" />
+    <meta name="bookflow-build" content="2026-09-05.28" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.27";
+      const BOOKFLOW_BUILD = "2026-09-05.28";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -263,6 +263,23 @@
             input?.select();
           });
         });
+      }
+      function askWithdrawalDetails(studentName) {
+        const host = document.querySelector("#appDialogHost");
+        if (!host) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          window.appDialogResolve = resolve;
+          host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle"><h2 id="appDialogTitle">${esc(studentName)} 퇴반 등록</h2><div class="app-dialog-message"><label>퇴반일<input id="withdrawalDateInput" type="date" value="${localDateKey()}"></label><label>퇴반 사유<textarea id="withdrawalReasonInput" rows="3" placeholder="퇴반 사유를 입력하세요"></textarea></label><p id="withdrawalDialogError" class="error"></p></div><div class="app-dialog-actions"><button onclick="closeAppDialog(null)">취소</button><button class="confirm-button" onclick="submitWithdrawalDetails()">퇴반대기 등록</button></div></section></div>`;
+          requestAnimationFrame(() => host.querySelector("#withdrawalReasonInput")?.focus());
+        });
+      }
+      function submitWithdrawalDetails() {
+        const exitDate = String(document.querySelector("#withdrawalDateInput")?.value || "").slice(0, 10),
+          reason = String(document.querySelector("#withdrawalReasonInput")?.value || "").trim();
+        const error = document.querySelector("#withdrawalDialogError");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)) { if (error) error.textContent = "퇴반일을 입력하세요."; return; }
+        if (!reason) { if (error) error.textContent = "퇴반 사유를 입력하세요."; return; }
+        closeAppDialog({ exitDate, reason });
       }
       window.alert = showNotice;
       let searchTimer = null;
@@ -6128,11 +6145,10 @@
       async function withdrawStudent(sid) {
         const s = S.students?.[sid];
         if (!s || s.active === false) return alert("이미 퇴반 처리된 학생입니다.");
-        const exitDate = String(await askPrompt("퇴반일을 입력하세요. 퇴반일부터 배부 대상에서 제외됩니다.", localDateKey(), "date") || "").slice(0, 10);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(exitDate)) return;
+        const details = await askWithdrawalDetails(s.name);
+        if (!details) return;
+        const exitDate = details.exitDate, reason = details.reason;
         if (exitDate > localDateKey()) return alert("미래 퇴반일 예약은 아직 저장할 수 없습니다. 퇴반 당일에 등록해 주세요.");
-        const reason = await askPrompt("퇴반 사유를 입력하세요.");
-        if (!String(reason || "").trim()) return;
         if (
           !(await askConfirm(
             `${s.name} 학생을 모든 반에서 제외할까요? 보유교재는 삭제되지 않고 회수대기로 남습니다.`,

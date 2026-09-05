@@ -159,12 +159,25 @@ try {
     await activeCandidate.waitFor();
     await activeCandidate.click();
     await page.getByRole("heading", { name: /재원검수/ }).waitFor();
+    await page.getByRole("button", { name: "퇴반 등록", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    assert.match(await page.locator("#withdrawalDialogError").innerText(), /퇴반 사유를 입력하세요/, `${viewport.name}: empty reason was not blocked`);
+    await page.locator("#withdrawalReasonInput").fill("사유 입력 검수");
+    assert.equal(await page.locator("#withdrawalReasonInput").inputValue(), "사유 입력 검수", `${viewport.name}: withdrawal reason typing failed`);
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText(/모든 반에서 제외할까요/).waitFor();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByText(/퇴반대기에 등록했습니다/).waitFor();
+    await page.locator(".app-dialog .confirm-button").click();
+    const activeAfterWithdrawal = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).students.SACTIVE, FAKE_STATE_KEY);
+    assert.equal(Object.values(activeAfterWithdrawal.withdrawals)[0].reason, "사유 입력 검수", `${viewport.name}: withdrawal reason was not persisted`);
 
     await page.locator('[data-main-tab="퇴반대기"]').click();
     await page.getByRole("heading", { name: /퇴반대기/ }).waitFor();
     assert.match(await page.locator("#screen").innerText(), /퇴반검수/);
-    assert.equal(await page.locator("#refundRows button", { hasText: "상세 확인" }).count(), 1, `${viewport.name}: exact task detail button mismatch`);
-    await page.locator("#refundRows button", { hasText: "상세 확인" }).click();
+    const exactTaskRow = page.locator("#refundRows tr", { hasText: "퇴반검수" });
+    assert.equal(await exactTaskRow.getByRole("button", { name: "상세 확인", exact: true }).count(), 1, `${viewport.name}: exact task detail button mismatch`);
+    await exactTaskRow.getByRole("button", { name: "상세 확인", exact: true }).click();
     await page.getByRole("heading", { name: "퇴반대기 교재 확인", exact: true }).waitFor();
     assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
 
@@ -190,12 +203,20 @@ try {
     await statusSelect.selectOption("DONE");
     await page.locator("#refundRows", { hasText: "퇴반검수" }).waitFor();
     assert.match(await page.locator("#refundRows").innerText(), /퇴반완료/);
+    await page.locator('[data-main-tab="학생"]').click();
+    await page.locator("#studentStatusSearch").fill("퇴반검수");
+    const completedCandidate = page.locator("#studentStatusAutoResults button", { hasText: "퇴반검수" });
+    await completedCandidate.waitFor();
+    assert.match(await completedCandidate.innerText(), /퇴반완료/, `${viewport.name}: completed student missing from search`);
+    await completedCandidate.click();
+    await page.getByRole("heading", { name: /퇴반검수/ }).waitFor();
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /퇴반완료 내역/);
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 14000, `${viewport.name}: refund amount mismatch`);
     assert.equal(persisted.students.SEXIT.retainedBooksOnExit, false, `${viewport.name}: retained flag mismatch`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
-    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
+    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
     await context.close();
   }
   assert.deepEqual(productionFirebaseRequests, [], "production Firebase database was contacted");
