@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.24" />
+    <meta name="bookflow-build" content="2026-09-05.25" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.24";
+      const BOOKFLOW_BUILD = "2026-09-05.25";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -6229,20 +6229,11 @@
           S = r.snapshot.val();
           window.statusStudentId = sid;
           window.studentQuery = S.students[sid]?.name || "";
-          if (S.students[sid]?.pendingReturn) {
-            window.sid = sid;
-            window.processStudentQuery = window.studentQuery;
-            window.studentHubView = "process";
-            window.studentProcessScope = "ALL";
-            window.action = "RETURN";
-            view = "student";
-          }
+          window.studentHubView = "status";
         }
         alert(
           r.committed
-            ? S.students[sid]?.pendingReturn
-              ? "퇴반대기에 등록했습니다. 보유교재 회수 화면으로 이동합니다. 미배부 확인 후 퇴반완료하세요."
-              : "퇴반대기에 등록했습니다. 미배부와 환불예정 금액을 확인한 뒤 퇴반완료하세요."
+            ? "퇴반대기에 등록했습니다. 퇴반대기 상세에서 보유교재와 미배부 환불예정 금액을 확인한 뒤 퇴반완료하세요."
             : "퇴반 처리 실패",
         );
         render();
