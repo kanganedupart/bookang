@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.32" />
+    <meta name="bookflow-build" content="2026-09-05.33" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -86,6 +86,7 @@
       th{background:#eef2f7;color:var(--ink2);font-weight:600;font-size:12.5px;position:sticky;top:0;z-index:1;white-space:nowrap}tbody tr:hover{background:#f7fafd}
       td b{font-weight:600;font-variant-numeric:tabular-nums}td input,td select{height:30px;padding:3px 8px;font-size:12.5px}td button{padding:4px 10px;font-size:12px}
       .scroll{max-height:620px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px}.table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}.history-table,.inventory-table{min-width:720px}.student-table{min-width:640px}.table-wrap>table{min-width:640px}
+      .withdrawal-table-expanded{border:1px solid var(--line);border-radius:8px;margin-bottom:16px;overflow:visible}.withdrawal-table-expanded table{width:100%;min-width:0}
       .history-table th:nth-child(1),.history-table td:nth-child(1){width:12%}.history-table th:nth-child(2),.history-table td:nth-child(2){width:11%}.history-table th:nth-child(3),.history-table td:nth-child(3){width:18%}.history-table th:nth-child(4),.history-table td:nth-child(4){width:16%}.history-table th:nth-child(5),.history-table td:nth-child(5){width:11%}.history-table th:nth-child(6),.history-table td:nth-child(6){width:10%}.history-table th:nth-child(7),.history-table td:nth-child(7){width:22%}
       .history-table td:nth-child(3),.history-table td:nth-child(4),.history-table td:nth-child(7){text-align:left}.student-table th:nth-child(1),.student-table td:nth-child(1){width:12%}.student-table th:nth-child(2),.student-table td:nth-child(2){width:28%}.student-table th:nth-child(3),.student-table td:nth-child(3){width:36%}.student-table th:nth-child(4),.student-table td:nth-child(4){width:14%}.student-table th:nth-child(5),.student-table td:nth-child(5){width:10%}
       .inventory-table{min-width:1240px;table-layout:fixed}.inventory-table th,.inventory-table td{vertical-align:middle}.inventory-table th:nth-child(1),.inventory-table td:nth-child(1),.inventory-table th:nth-child(2),.inventory-table td:nth-child(2){width:8%}.inventory-table th:nth-child(3),.inventory-table td:nth-child(3){width:18%;text-align:left}.inventory-table th:nth-child(4),.inventory-table td:nth-child(4),.inventory-table th:nth-child(5),.inventory-table td:nth-child(5){width:7%}.inventory-table th:nth-child(6),.inventory-table td:nth-child(6),.inventory-table th:nth-child(7),.inventory-table td:nth-child(7){width:7%}.inventory-table th:nth-child(8),.inventory-table td:nth-child(8){width:18%;text-align:left}.inventory-table th:nth-child(9),.inventory-table td:nth-child(9){width:21%}.inventory-table td:nth-child(6) input{width:100%;max-width:none;text-align:center;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(7){font-weight:650;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(8) input{width:100%;max-width:none}.inventory-table td:nth-child(8) small{display:block;margin-top:5px;line-height:1.35}.inventory-table td:nth-child(9) .row-actions{display:flex;flex-wrap:nowrap;justify-content:center;align-items:center;gap:8px}.inventory-table td:nth-child(9) .row-actions button{flex:0 0 auto;width:auto;min-width:58px;padding:6px 9px;white-space:nowrap}
@@ -150,7 +151,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.32";
+      const BOOKFLOW_BUILD = "2026-09-05.33";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9569,8 +9570,9 @@
         const completeAction = completeRefund;
         void completeAction;
         if (!task || !studentExitedInPeriod(student, task.periodId)) return '';
-        const done = task.status === 'DONE', rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum,row)=>sum+Number(row.amount||0),0);
-        const tableRows = rows.map((row) => {
+        if (window.withdrawalBookFilterTaskId !== task.id) { window.withdrawalBookFilterTaskId = task.id; window.withdrawalBookFilter = '전체'; }
+        const done = task.status === 'DONE', rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum,row)=>sum+Number(row.amount||0),0), filter = window.withdrawalBookFilter || '전체', visibleRows = rows.filter((row) => filter === '전체' || (filter === '배부' ? row.source === 'HELD' || row.source === 'RETURNED' : row.source === 'MISSING'));
+        const tableRows = visibleRows.map((row) => {
           let action = '<span class="muted">처리 없음</span>';
           if (!done && row.state === '배부') action = `<button class="btn" onclick="setExitReturnDecision('${student.id}','${row.bookId}','RETURNED','${task.id}',this)">회수</button>`;
           else if (!done && row.state === '미배부') action = `<button onclick="setExitRefundDecision('${student.id}','${row.bookId}','EXCLUDED','${task.id}')">미배부 삭제</button>`;
@@ -9579,7 +9581,7 @@
         }).join('') || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>';
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '실제로 회수할 교재만 선택한 뒤 퇴반완료하세요.';
         const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
-        return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 삭제는 환불 대상에서만 제외하며 기록은 남습니다.</p><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div>${completionButton}</section>`;
+        return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === '전체' ? 'selected' : ''}>전체</option><option ${filter === '배부' ? 'selected' : ''}>배부</option><option ${filter === '미배부' ? 'selected' : ''}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 삭제는 환불 대상에서만 제외하며 기록은 남습니다.</p><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div>${completionButton}</section>`;
       }
       function withdrawalSettlementRows(state, task) {
         const done = task?.status === 'DONE', legacyDone = done && Number(task?.refundRuleVersion || 1) < 2, rows = new Map();
@@ -9600,9 +9602,10 @@
       }
       function withdrawalArchivePanel(task) {
         if (!task || (task.status !== "PENDING" && task.status !== "DONE")) return "";
-        const done = task.status === "DONE", rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum, row) => sum + Number(row.amount || 0), 0),
-          tableRows = rows.map((row) => `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? "금액 미확인" : won(row.unitPrice)}</td><td><span class="badge ${row.state === "회수완료" ? "ok" : ""}">${esc(row.state)}</span></td><td>${row.refundIncluded ? `<b class="success">${done ? "환불완료" : "환불 포함"}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`).join("") || '<tr><td colspan="4">처리할 교재가 없습니다.</td></tr>';
-        return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
+        if (window.withdrawalBookFilterTaskId !== task.id) { window.withdrawalBookFilterTaskId = task.id; window.withdrawalBookFilter = "전체"; }
+        const done = task.status === "DONE", rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum, row) => sum + Number(row.amount || 0), 0), filter = window.withdrawalBookFilter || "전체", visibleRows = rows.filter((row) => filter === "전체" || (filter === "배부" ? row.source === "HELD" || row.source === "RETURNED" : row.source === "MISSING")),
+          tableRows = visibleRows.map((row) => `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? "금액 미확인" : won(row.unitPrice)}</td><td><span class="badge ${row.state === "회수완료" ? "ok" : ""}">${esc(row.state)}</span></td><td>${row.refundIncluded ? `<b class="success">${done ? "환불완료" : "환불 포함"}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`).join("") || '<tr><td colspan="4">조건에 맞는 교재가 없습니다.</td></tr>';
+        return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === "전체" ? "selected" : ""}>전체</option><option ${filter === "배부" ? "selected" : ""}>배부</option><option ${filter === "미배부" ? "selected" : ""}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
       }
       function refundBookIsIncluded(state, task, book) {
         return book?.status === 'PENDING' && book.source !== 'RETURNED' && !task?.returnDecisions?.[book.bookId]?.decision && Number(state.students?.[task?.studentId]?.holdings?.[book.bookId] || 0) === 0;

@@ -210,6 +210,14 @@ try {
     assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: general book table visible in withdrawal detail`);
     assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
     assert.equal(await page.locator(".exit-review-card tbody tr").count(), 5, `${viewport.name}: settlement table is not one-row-per-book`);
+    assert.equal(await page.locator(".exit-review-card .scroll").count(), 0, `${viewport.name}: withdrawal table still uses an internal scroll box`);
+    const withdrawalFilter = page.getByLabel("퇴반 교재 상태");
+    await withdrawalFilter.selectOption("배부");
+    assert.equal(await page.locator(".exit-review-card tbody tr").count(), 3, `${viewport.name}: distributed filter mismatch`);
+    await withdrawalFilter.selectOption("미배부");
+    assert.equal(await page.locator(".exit-review-card tbody tr").count(), 2, `${viewport.name}: missing filter mismatch`);
+    await withdrawalFilter.selectOption("전체");
+    assert.equal(await page.locator(".exit-review-card tbody tr").count(), 5, `${viewport.name}: all filter did not restore every book`);
     assert.equal(await page.getByText(/이코딩 반영 대기|이코딩에는 아직 재원/).count(), 0, `${viewport.name}: internal ecoding badge is still visible`);
     assert.equal(await page.getByRole("heading", { name: /보유 교재|미배부 교재/ }).count(), 0, `${viewport.name}: split withdrawal sections still visible`);
     assert.equal(await page.getByRole("button", { name: "보유 유지", exact: true }).count(), 0, `${viewport.name}: per-book retain button should not exist`);
