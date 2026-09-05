@@ -210,6 +210,10 @@ try {
     assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: general book table visible in withdrawal detail`);
     assert.match(await page.locator(".exit-review-card").innerText(), /미배부 검수교재/);
     assert.equal(await page.locator(".exit-review-card tbody tr").count(), 5, `${viewport.name}: settlement table is not one-row-per-book`);
+    assert.match(await page.locator(".exit-review-card tbody tr").first().innerText(), /미배부/, `${viewport.name}: missing books are not listed first`);
+    assert.equal(await page.locator(".exit-review-card tr", { hasText: "미배부 검수교재" }).locator(".danger").count(), 1, `${viewport.name}: missing status is not red`);
+    assert.equal(await page.locator(".exit-review-card tr", { hasText: "회수 검수교재" }).locator(".success").filter({ hasText: "배부" }).count(), 1, `${viewport.name}: distributed status is not green`);
+    assert.equal(await page.getByRole("button", { name: "회수", exact: true }).first().evaluate((button) => button.classList.contains("btn")), false, `${viewport.name}: unprocessed return button looks completed`);
     assert.equal(await page.locator(".exit-review-card .scroll").count(), 0, `${viewport.name}: withdrawal table still uses an internal scroll box`);
     const withdrawalFilter = page.getByLabel("퇴반 교재 상태");
     await withdrawalFilter.selectOption("배부");

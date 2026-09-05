@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.33" />
+    <meta name="bookflow-build" content="2026-09-05.34" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -151,7 +151,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.33";
+      const BOOKFLOW_BUILD = "2026-09-05.34";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9574,10 +9574,11 @@
         const done = task.status === 'DONE', rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum,row)=>sum+Number(row.amount||0),0), filter = window.withdrawalBookFilter || '전체', visibleRows = rows.filter((row) => filter === '전체' || (filter === '배부' ? row.source === 'HELD' || row.source === 'RETURNED' : row.source === 'MISSING'));
         const tableRows = visibleRows.map((row) => {
           let action = '<span class="muted">처리 없음</span>';
-          if (!done && row.state === '배부') action = `<button class="btn" onclick="setExitReturnDecision('${student.id}','${row.bookId}','RETURNED','${task.id}',this)">회수</button>`;
+          if (!done && row.state === '배부') action = `<button onclick="setExitReturnDecision('${student.id}','${row.bookId}','RETURNED','${task.id}',this)">회수</button>`;
           else if (!done && row.state === '미배부') action = `<button onclick="setExitRefundDecision('${student.id}','${row.bookId}','EXCLUDED','${task.id}')">미배부 삭제</button>`;
           else if (!done && row.state === '미배부 삭제') action = `<button onclick="setExitRefundDecision('${student.id}','${row.bookId}','PENDING','${task.id}')">삭제 취소</button>`;
-          return `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? '<span class="danger">금액 미등록</span>' : won(row.unitPrice)}</td><td><span class="badge ${row.state === '회수완료' ? 'ok' : ''}">${esc(row.state)}</span></td><td>${action}</td><td>${row.refundIncluded ? `<b class="success">${done ? '환불완료' : '환불 포함'}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`;
+          const stateUi = row.state === '미배부' ? '<b class="danger">미배부</b>' : row.state === '배부' || row.state === '회수완료' ? `<b class="success">${esc(row.state)}</b>` : `<span class="muted">${esc(row.state)}</span>`;
+          return `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? '<span class="danger">금액 미등록</span>' : won(row.unitPrice)}</td><td>${stateUi}</td><td>${action}</td><td>${row.refundIncluded ? `<b class="success">${done ? '환불완료' : '환불 포함'}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`;
         }).join('') || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>';
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '실제로 회수할 교재만 선택한 뒤 퇴반완료하세요.';
         const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
@@ -9598,13 +9599,14 @@
           if (item.decision === 'RETURNED') rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName, quantity, unitPrice, amount, state:'회수완료', refundIncluded:true, source:'RETURNED', returnMovementId:item.movementId || task?.returnDecisions?.[item.bookId]?.movementId || '' });
           else rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName, quantity, unitPrice, amount:null, state:'배부', refundIncluded:false, source:'HELD' });
         }
-        return [...rows.values()].sort((a,b)=>a.bookName.localeCompare(b.bookName,'ko'));
+        const order = { MISSING:0, HELD:1, RETURNED:2 };
+        return [...rows.values()].sort((a,b)=>(order[a.source] ?? 9) - (order[b.source] ?? 9) || a.bookName.localeCompare(b.bookName,'ko'));
       }
       function withdrawalArchivePanel(task) {
         if (!task || (task.status !== "PENDING" && task.status !== "DONE")) return "";
         if (window.withdrawalBookFilterTaskId !== task.id) { window.withdrawalBookFilterTaskId = task.id; window.withdrawalBookFilter = "전체"; }
         const done = task.status === "DONE", rows = withdrawalSettlementRows(S, task), included = rows.filter((row) => row.refundIncluded), excluded = rows.filter((row) => !row.refundIncluded), total = done ? Number(task.totalAmount || 0) : included.reduce((sum, row) => sum + Number(row.amount || 0), 0), filter = window.withdrawalBookFilter || "전체", visibleRows = rows.filter((row) => filter === "전체" || (filter === "배부" ? row.source === "HELD" || row.source === "RETURNED" : row.source === "MISSING")),
-          tableRows = visibleRows.map((row) => `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? "금액 미확인" : won(row.unitPrice)}</td><td><span class="badge ${row.state === "회수완료" ? "ok" : ""}">${esc(row.state)}</span></td><td>${row.refundIncluded ? `<b class="success">${done ? "환불완료" : "환불 포함"}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`).join("") || '<tr><td colspan="4">조건에 맞는 교재가 없습니다.</td></tr>';
+          tableRows = visibleRows.map((row) => { const stateUi = row.state === "미배부" ? '<b class="danger">미배부</b>' : row.state === "배부" || row.state === "회수완료" ? `<b class="success">${esc(row.state)}</b>` : `<span class="muted">${esc(row.state)}</span>`; return `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? "금액 미확인" : won(row.unitPrice)}</td><td>${stateUi}</td><td>${row.refundIncluded ? `<b class="success">${done ? "환불완료" : "환불 포함"}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`; }).join("") || '<tr><td colspan="4">조건에 맞는 교재가 없습니다.</td></tr>';
         return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === "전체" ? "selected" : ""}>전체</option><option ${filter === "배부" ? "selected" : ""}>배부</option><option ${filter === "미배부" ? "selected" : ""}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><div class="receipt"><b>환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
       }
       function refundBookIsIncluded(state, task, book) {
