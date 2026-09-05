@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.28" />
+    <meta name="bookflow-build" content="2026-09-05.29" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.28";
+      const BOOKFLOW_BUILD = "2026-09-05.29";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -360,10 +360,25 @@
           );
         }
         if (includeInactive) {
-          const pid = selectedPeriodId(), taskStudentIds = new Set(arr(S.refundTasks).filter((task) => task.periodId === pid && (task.status === "PENDING" || task.status === "DONE")).map((task) => task.studentId));
-          for (const student of arr(S.students).filter((item) => taskStudentIds.has(item.id) && studentSearchKey(item.name).includes(q))) {
-            const key = studentIdentityKey(student), existing = uniqueStudents.get(key);
-            uniqueStudents.set(key, existing ? preferredStudentRecord(existing, student) : student);
+          const pid = selectedPeriodId();
+          // 퇴반대기/완료 기록은 현재 학생 원본과 별개의 보존 기록이다.
+          // 학생 ID가 바뀌거나 원본이 없어도 task snapshot의 이름으로 반드시 조회한다.
+          for (const task of arr(S.refundTasks).filter(
+            (item) =>
+              (!pid || item.periodId === pid) &&
+              (item.status === "PENDING" || item.status === "DONE") &&
+              studentSearchKey(item.studentName || S.students?.[item.studentId]?.name || "").includes(q),
+          )) {
+            const student = S.students?.[task.studentId] ||
+              arr(S.students).find((item) => item.id === task.studentId) || null;
+            if (student) uniqueStudents.delete(studentIdentityKey(student));
+            uniqueStudents.set(`withdrawal:${task.periodId || ""}:${task.id}`, {
+              ...(student || { id: task.studentId || `ARCHIVE_${task.id}`, active: false }),
+              name: task.studentName || student?.name || "이름 미확인",
+              __withdrawalTaskId: task.id,
+              __withdrawalPeriodId: task.periodId || "",
+              __withdrawalArchiveOnly: !student,
+            });
           }
         }
         return [...uniqueStudents.values()]
@@ -380,7 +395,7 @@
         return rows
           .map(
             (s) => {
-              const task = refundTaskForStudent(s.id),
+              const task = s.__withdrawalTaskId ? S.refundTasks?.[s.__withdrawalTaskId] : refundTaskForStudent(s.id),
                 state = task?.status === "PENDING"
                   ? "퇴반대기"
                   : task?.status === "DONE" || s.active === false
@@ -388,7 +403,10 @@
                     : s.onboarding
                       ? "반배정 전"
                       : "재원";
-              return `<button onclick="${selectFn}('${s.id}')" title="${esc(s.name)}"><b>${esc(s.name)}</b><small> · ${state}</small></button>`;
+              const action = s.__withdrawalTaskId
+                ? `selectStatusWithdrawalTask('${s.__withdrawalTaskId}')`
+                : `${selectFn}('${s.id}')`;
+              return `<button onclick="${action}" title="${esc(s.name)}"><b>${esc(s.name)}</b><small> · ${state}</small></button>`;
             },
           )
           .join("");
@@ -462,6 +480,22 @@
         window.withdrawalTaskId = "";
         window.statusStudentId = id;
         window.studentQuery = S.students[id]?.name || "";
+        window.studentBookSubject = "";
+        window.studentBookTeacher = "";
+        window.studentBookClass = "";
+        window.studentBookState = "";
+        window.studentBookQuery = "";
+        studentStatus();
+        requestAnimationFrame(activateAutomaticStudentSearches);
+      }
+      function selectStatusWithdrawalTask(taskId) {
+        const task = S.refundTasks?.[taskId];
+        if (!task) return alert("퇴반 기록을 찾을 수 없습니다.");
+        const student = S.students?.[task.studentId] || arr(S.students).find((item) => item.id === task.studentId);
+        window.withdrawalTaskId = task.id;
+        window.periodChoiceId = task.periodId || window.periodChoiceId;
+        window.statusStudentId = student?.id || "";
+        window.studentQuery = task.studentName || student?.name || "";
         window.studentBookSubject = "";
         window.studentBookTeacher = "";
         window.studentBookClass = "";
@@ -8905,6 +8939,9 @@
         const q = (window.studentQuery || "").trim();
         const matches = matchingStudents(q, true);
         const s = S.students[window.statusStudentId || ""];
+        const archiveTask = !s && window.withdrawalTaskId
+          ? S.refundTasks?.[window.withdrawalTaskId]
+          : null;
         let detail = "";
         if (s) {
           const classes = clsOf(s.id);
@@ -8991,6 +9028,7 @@
   <details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details>
 </div>`;
         }
+        if (!s && archiveTask) detail = withdrawalArchivePanel(archiveTask);
         document.querySelector("#screen").innerHTML =
           `<section class="panel student-status-panel"><div class="student-search-line"><strong>학생 조회</strong><input id="studentStatusSearch" value="${esc(q)}" placeholder="이름 두 글자 이상" autocomplete="off" oninput="handleStudentStatusSearch(this)" oncompositionend="handleStudentStatusSearch(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();confirmStudentSearch(this,'studentStatusAutoResults','status')}"></div><div id="studentStatusAutoResults" class="picker-results student-search-results">${studentSearchKey(q).length >= 2 && !s ? studentResultButtons(matches, "selectStatusStudent") : ""}</div><div id="studentStatusDetail">${detail}</div></section>`;
         requestAnimationFrame(() => {
@@ -9526,6 +9564,23 @@
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '교재별 처리를 결정한 뒤 퇴반완료하세요.';
         const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')" ${undecided.length ? 'disabled' : ''}>${undecided.length ? `보유 교재 ${undecided.length}종 결정 필요` : '퇴반완료'}</button>`;
         return `<section class="exit-review-card"><h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><h4>보유 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>결정</th></tr></thead><tbody>${returnRows}</tbody></table></div><h4>미배부 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>환불 결정</th></tr></thead><tbody>${refundRows}</tbody></table></div><div class="receipt"><b>회수 ${returns.filter((row) => row.decision === 'RETURNED').reduce((n,row)=>n+row.quantity,0)}권 · 보유 유지 ${returns.filter((row) => row.decision === 'RETAINED').reduce((n,row)=>n+row.quantity,0)}권 · 환불 포함 ${included.length}종 ${won(done ? Number(task.totalAmount || 0) : total)} · 환불 제외 ${excluded.length}종</b></div>${completionButton}</section>`;
+      }
+      function withdrawalArchivePanel(task) {
+        if (!task || (task.status !== "PENDING" && task.status !== "DONE")) return "";
+        const done = task.status === "DONE",
+          returns = Object.values(task.returnDecisions || {}),
+          refundBooks = Object.values(task.books || {}),
+          included = refundBooks.filter((book) => book.status === "DONE" || (book.status === "PENDING" && !done)),
+          excluded = refundBooks.filter((book) => book.status === "EXCLUDED"),
+          refundRows = refundBooks.map((book) => {
+            const quantity = Math.max(1, Number(book.quantity || 1)),
+              unitPrice = book.unitPrice ?? bookPriceValue(S.books?.[book.bookId]),
+              amount = book.refundAmount ?? (unitPrice == null ? null : Number(unitPrice) * quantity),
+              decision = book.status === "EXCLUDED" ? "환불 제외" : book.status === "DONE" ? "환불 확정" : "환불 예정";
+            return `<tr><td><b>${esc(book.bookName || S.books?.[book.bookId]?.name || book.bookId || "교재 미확인")}</b></td><td>${amount == null ? "금액 미확인" : won(amount)}</td><td>${esc(decision)}</td></tr>`;
+          }).join("") || '<tr><td colspan="3">미배부 교재 없음</td></tr>',
+          returnRows = returns.map((row) => `<tr><td><b>${esc(row.bookName || S.books?.[row.bookId]?.name || row.bookId || "교재 미확인")}</b></td><td>${Number(row.quantity || 0)}권</td><td>${row.decision === "RETURNED" ? "회수완료" : row.decision === "RETAINED" ? "학생 보유 유지" : "미결정"}</td></tr>`).join("") || '<tr><td colspan="3">보유 교재 없음</td></tr>';
+        return `<div id="studentDetail"><div class="student-head"><div><h2>${esc(task.studentName || "이름 미확인")} <span class="badge ${done ? "ok" : "warn"}">${done ? "퇴반완료" : "퇴반대기"}</span></h2><span class="muted">보존된 퇴반 기록으로 조회했습니다.</span></div></div><section class="exit-review-card"><h3>${done ? "퇴반완료 내역" : "퇴반대기 기록"}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || "-")} · ${done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || "")}` : "현재 학생 원본과 연결을 확인해야 합니다."}</p><h4>보유 교재 결정</h4><div class="scroll"><table><thead><tr><th>교재</th><th>수량</th><th>결정</th></tr></thead><tbody>${returnRows}</tbody></table></div><h4>미배부 교재</h4><div class="scroll"><table><thead><tr><th>교재</th><th>교재비</th><th>환불 결정</th></tr></thead><tbody>${refundRows}</tbody></table></div><div class="receipt"><b>환불 포함 ${included.length}종 ${won(done ? Number(task.totalAmount || 0) : included.reduce((sum, book) => sum + Number(book.refundAmount || 0), 0))} · 환불 제외 ${excluded.length}종</b></div></section></div>`;
       }
       function refundBookIsIncluded(state, task, book) {
         return book?.status === 'PENDING' && book.source !== 'RETURNED' && !task?.returnDecisions?.[book.bookId]?.decision && Number(state.students?.[task?.studentId]?.holdings?.[book.bookId] || 0) === 0;

@@ -58,6 +58,22 @@ function seedState() {
         },
         returnDecisions: {},
       },
+      RTASK_ORPHAN: {
+        id: "RTASK_ORPHAN",
+        periodId,
+        studentId: "S_REMOVED_AFTER_EXIT",
+        studentName: "기록검수",
+        status: "DONE",
+        source: "MANUAL",
+        exitDate: "2026-09-05",
+        completedAt: "2026-09-05T10:00:00+09:00",
+        completedBy: "검수자",
+        totalAmount: 14000,
+        books: {
+          BMISSING: { bookId: "BMISSING", bookName: "미배부 검수교재", quantity: 1, unitPrice: 14000, refundAmount: 14000, status: "DONE", source: "UNDISTRIBUTED" },
+        },
+        returnDecisions: {},
+      },
     },
     movements: {}, processedOperations: {}, chargeTasks: {}, refundHistory: {}, refundTaskEvents: {}, ecodingEvents: {},
   };
@@ -211,12 +227,20 @@ try {
     await completedCandidate.click();
     await page.getByRole("heading", { name: /퇴반검수/ }).waitFor();
     assert.match(await page.locator("#studentStatusDetail").innerText(), /퇴반완료 내역/);
+    await page.locator("#studentStatusSearch").fill("기록검수");
+    const archiveCandidate = page.locator("#studentStatusAutoResults button", { hasText: "기록검수" });
+    await archiveCandidate.waitFor();
+    assert.match(await archiveCandidate.innerText(), /퇴반완료/, `${viewport.name}: orphan completed record missing from search`);
+    await archiveCandidate.click();
+    await page.getByRole("heading", { name: /기록검수/ }).waitFor();
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /보존된 퇴반 기록으로 조회했습니다/);
+    assert.match(await page.locator("#studentStatusDetail").innerText(), /14,000원/);
     const persisted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(persisted.refundTasks.RTASK_EXACT.status, "DONE", `${viewport.name}: completion lost after reload`);
     assert.equal(persisted.refundTasks.RTASK_EXACT.totalAmount, 14000, `${viewport.name}: refund amount mismatch`);
     assert.equal(persisted.students.SEXIT.retainedBooksOnExit, false, `${viewport.name}: retained flag mismatch`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
-    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
+    results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", decision: "EXCLUDED_TO_INCLUDED", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
     await context.close();
   }
   assert.deepEqual(productionFirebaseRequests, [], "production Firebase database was contacted");
