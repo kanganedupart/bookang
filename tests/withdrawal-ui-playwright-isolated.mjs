@@ -275,6 +275,8 @@ try {
     assert.equal(persisted.students.SEXIT.holdings.BRETURN, 0, `${viewport.name}: returned holding not cleared`);
     assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
     assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
+    await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
+    assert.equal(await page.locator("#screen").getByText(/퇴반검수|재원검수/).count(), 0, `${viewport.name}: withdrawn student remained in new-student queue`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
     results.push({ viewport: viewport.name, login: "PASS", search: "PASS", withdrawalReasonInput: "PASS", emptyReasonBlocked: "PASS", reasonPersistence: "PASS", completedStudentSearch: "PASS", orphanCompletedRecordSearch: "PASS", exactTaskDetail: "PASS", selectiveReturn: "PASS", defaultRetain: "PASS", refundDecision: "MISSING_1_RETURNED_1_EXCLUDED_3", completion: "DONE", reloadPersistence: "PASS", refundAmount: persisted.refundTasks.RTASK_EXACT.totalAmount });
     await context.close();

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-05.31" />
+    <meta name="bookflow-build" content="2026-09-05.32" />
     <title>교재관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -150,7 +150,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-05.31";
+      const BOOKFLOW_BUILD = "2026-09-05.32";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -5916,12 +5916,13 @@
           registered = students
             .filter(
               (s) =>
+                s.active !== false &&
                 studentAdmissionDate(s) === registrationDate,
             )
             .sort((a, b) =>
               String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
             ),
-          newStudentId = S.students[window.newStudentId]
+          newStudentId = registered.some((student) => student.id === window.newStudentId)
             ? window.newStudentId
             : "",
           newStudent = S.students[newStudentId];
