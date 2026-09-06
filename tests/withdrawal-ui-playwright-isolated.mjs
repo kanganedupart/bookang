@@ -237,16 +237,14 @@ try {
 
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     const newStudentRow = page.locator("tbody tr", { hasText: "신규부분검수" });
-    await newStudentRow.getByRole("button", { name: "확인", exact: true }).click();
-    await newStudentRow.locator("summary", { hasText: "반명 보기" }).click();
-    assert.match(await newStudentRow.innerText(), /신규 검수반/, `${viewport.name}: new-student class name missing`);
-    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2종/, `${viewport.name}: missing count mismatch`);
-    assert.doesNotMatch(await page.locator(".stock-side").innerText(), /배부 가능\s*1종|재고 없음\s*1종/, `${viewport.name}: extra stock wording remained`);
-    assert.doesNotMatch(await page.locator(".stock-side").innerText(), /신규 (비활성|가격미입력|배부종료|학생별) 제외 교재/, `${viewport.name}: ineligible book leaked into new-student preview`);
-    assert.match(await page.locator(".stock-side tr", { hasText: "신규 재고부족 교재" }).innerText(), /0\s+미배부\s+0/, `${viewport.name}: shortage preview did not preserve zero stock`);
-    await page.locator(".stock-side").getByRole("button", { name: "전체 배부", exact: true }).click();
-    await page.locator(".app-dialog .confirm-button").click();
-    await page.getByText(/신규부분검수 · 배부 1종 · 미배부 1종/).waitFor();
+    assert.match(await newStudentRow.innerText(), /배부 0 · 미배부 2/, `${viewport.name}: new-student distribution summary mismatch`);
+    assert.equal(await newStudentRow.getByRole("button", { name: "미완료", exact: true }).count(), 1, `${viewport.name}: completion button missing`);
+    await newStudentRow.click();
+    assert.equal(await page.getByRole("heading", { name: "학생 교재현황", exact: true }).count(), 1, `${viewport.name}: common student book panel missing`);
+    assert.equal(await page.getByRole("heading", { name: "처리 및 재고 흐름", exact: true }).count(), 1, `${viewport.name}: common stock flow panel missing`);
+    await page.getByRole("button", { name: "전체 교재", exact: true }).click();
+    await page.getByRole("button", { name: "전체 배부 확정", exact: true }).click();
+    await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).students.SNEW.holdings.BAVAILABLE === 1, FAKE_STATE_KEY);
     const newStudentDistribution = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(newStudentDistribution.students.SNEW.holdings.BAVAILABLE, 1, `${viewport.name}: available book was not distributed`);
     assert.equal(Number(newStudentDistribution.students.SNEW.holdings.BZERO || 0), 0, `${viewport.name}: zero-stock book was partially distributed`);
@@ -254,9 +252,16 @@ try {
     assert.equal(newStudentDistribution.books.BZERO.stock, 0, `${viewport.name}: shortage stock changed`);
     for (const bid of ["BNEWINACTIVE", "BNEWUNPRICED", "BNEWCLOSED", "BNEWEXCLUDED"])
       assert.equal(Number(newStudentDistribution.students.SNEW.holdings[bid] || 0), 0, `${viewport.name}: ineligible book ${bid} was distributed`);
-    await page.getByRole("button", { name: "학생 조회·처리", exact: true }).click();
+    await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
+    const completionRow = page.locator("tbody tr", { hasText: "신규부분검수" });
+    const stockBeforeComplete = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).books, FAKE_STATE_KEY);
+    await completionRow.getByRole("button", { name: "미완료", exact: true }).click();
+    await completionRow.getByRole("button", { name: "완료", exact: true }).waitFor();
+    const stateAfterComplete = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.deepEqual(stateAfterComplete.books, stockBeforeComplete, `${viewport.name}: completion changed inventory`);
 
     await page.locator('[data-main-tab="학생"]').click();
+    await page.getByRole("button", { name: "학생 조회·처리", exact: true }).click();
     await page.locator("#studentStatusSearch").fill("재원검수");
     const activeCandidate = page.locator("#studentStatusAutoResults button", { hasText: "재원검수" });
     await activeCandidate.waitFor();
