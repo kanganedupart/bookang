@@ -223,7 +223,9 @@ try {
     assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     await page.locator("#newNames").evaluate((field) => { field.value = "신규직접입력검수"; });
+    await page.evaluate(() => { globalThis.__bookflowFakeTransactionDelayMs = 300; });
     await page.getByRole("button", { name: "이름 저장", exact: true }).click();
+    await page.getByRole("status").getByText("신규생 이름을 저장하고 있습니다.", { exact: true }).waitFor();
     await page.locator(".app-dialog", { hasText: "신규직접입력검수 이름 저장 완료" }).waitFor();
     await page.locator(".app-dialog .confirm-button").click();
     const directlySavedStudent = await page.evaluate((key) => Object.values(JSON.parse(localStorage.getItem(key)).students).find((student) => student.name === "신규직접입력검수"), FAKE_STATE_KEY);

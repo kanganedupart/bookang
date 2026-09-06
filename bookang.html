@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.52" />
+    <meta name="bookflow-build" content="2026-09-07.53" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.52", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.53", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -187,7 +187,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.52";
+      const BOOKFLOW_BUILD = "2026-09-07.53";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -305,6 +305,21 @@
         const host = document.querySelector("#appDialogHost");
         if (!host) return;
         host.innerHTML = `<div class="app-dialog-backdrop" role="presentation"><section class="app-dialog" role="status" aria-live="assertive"><h2>처리 중</h2><div class="app-dialog-message">${esc(dialogText(message))}</div><div class="app-dialog-actions"><button disabled>저장 중...</button></div></section></div>`;
+      }
+      async function runBlockingSave(message, work) {
+        if (operationBusy) {
+          alert("앞 작업을 반영 중입니다.");
+          return null;
+        }
+        operationBusy = true;
+        showOperationProgress(message);
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        try {
+          return await work();
+        } finally {
+          operationBusy = false;
+          closeAppDialog(false);
+        }
       }
       function askWithdrawalDetails(studentName) {
         const host = document.querySelector("#appDialogHost");
@@ -1287,6 +1302,7 @@
         return tabRefundBadgeState.count;
       }
       function changeTab(x) {
+        if (operationBusy) return alert("저장을 마친 뒤 이동할 수 있습니다.");
         clearTimeout(remoteRenderTimer);
         remoteRenderTimer = 0;
         cancelAnimationFrame(remoteRenderFrame);
@@ -6222,7 +6238,6 @@
           button.disabled = true;
           button.textContent = "저장 중...";
         }
-        operationBusy = true;
         try {
         const enteredNames = document.querySelector("#newNames")?.value ?? window.newNamesDraft ?? "";
         window.newNamesDraft = enteredNames;
@@ -6250,7 +6265,7 @@
         if (dup)
           return alert(`기존·종료 학생을 포함해 같은 이름이 있습니다: ${dup}`);
         let failure = "";
-        const r = await transaction((st) => {
+        const r = await runBlockingSave("신규생 이름을 저장하고 있습니다.", () => transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) {
             failure = "운영 중인 기간에서만 신규생을 등록할 수 있습니다.";
             return false;
@@ -6279,7 +6294,8 @@
               createdPeriodId: pid,
             };
           }
-        }, { skipOptimistic: true });
+        }, { skipOptimistic: true }));
+        if (!r) return;
         if (r.committed) {
           S = r.snapshot.val();
           window.newNamesDraft = "";
@@ -6297,7 +6313,6 @@
         );
         render();
         } finally {
-          operationBusy = false;
           if (button?.isConnected) {
             button.disabled = false;
             button.textContent = originalButtonText;
@@ -6323,7 +6338,9 @@
           return alert("신규생 등록에서는 기존 반을 뺄 수 없습니다. 반변경에서 처리하세요.");
         if (!wasOnboarding && !addedClassIds.length)
           return alert("추가할 반을 선택하세요.");
-        const r = await transaction((st) => {
+        const r = await runBlockingSave(
+          wasOnboarding ? "신규생 반배정을 저장하고 있습니다." : "추가 반을 저장하고 있습니다.",
+          () => transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students?.[sid];
           if (!s || s.active === false) return false;
@@ -6365,7 +6382,9 @@
               time: now(),
             };
           }
-        });
+          }),
+        );
+        if (!r) return;
         if (r.committed) {
           S = r.snapshot.val();
           window.newStudentId = sid;
@@ -6398,7 +6417,7 @@
             classIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
           );
         let distributeIds = [], returnIds = [];
-        const r = await transaction((st) => {
+        const r = await runBlockingSave("반변경을 저장하고 있습니다.", () => transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students[sid];
           if (!s || s.active === false || s.onboarding) return false;
@@ -6435,7 +6454,8 @@
             actor,
             time: now(),
           };
-        });
+        }));
+        if (!r) return;
         if (r.committed) {
           S = r.snapshot.val();
           const remainingAssignedBookIds = new Set(
