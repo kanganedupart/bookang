@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.47" />
+    <meta name="bookflow-build" content="2026-09-06.48" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.47", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.48", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -187,7 +187,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.47";
+      const BOOKFLOW_BUILD = "2026-09-06.48";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -4332,6 +4332,15 @@
             return alert("추가배부 유형을 선택하세요.");
           if ((isAdditional || businessReason !== "NORMAL") && !memo)
             return alert("예외처리 상세메모를 입력하세요.");
+          const studentNames = selected
+            .map((studentId) => S.students?.[studentId]?.name || studentId)
+            .join(" · ");
+          if (
+            !(await askConfirm(
+              `${studentNames}\n'${S.books?.[bid]?.name || bid}' ${selected.length}권을 ${isReturn ? "회수" : isAdditional ? "추가배부" : "배부"}합니다.\n재고 ${shownStock}권 → ${shownStock + (isReturn ? selected.length : -selected.length)}권\n계속할까요?`,
+            ))
+          )
+            return;
           // The transaction below applies the same mutation to the local snapshot
           // before it waits for Firebase.  Clear only the editor selection first so
           // that the immediate render shows the completed state, not a second
@@ -4559,6 +4568,16 @@
         if (!shownIds.length) return alert("처리할 교재가 없습니다.");
         if (isReturn && !memo)
           return alert("전체 회수 사유를 메모에 입력하세요.");
+        const total = shownRows.reduce(
+          (sum, row) => sum + (isReturn ? Number(row.studentBefore || 0) : 1),
+          0,
+        );
+        if (
+          !(await askConfirm(
+            `${S.students?.[sid]?.name || sid} 학생의 ${shownRows.length}종 ${total}권을 전체 ${isReturn ? "회수" : "배부"}합니다.\n${isReturn ? "회수 후 재고가 증가합니다." : "재고가 있는 교재만 배부하고 재고 0 교재는 미배부로 남습니다."}\n계속할까요?`,
+          ))
+        )
+          return;
         operationBusy = true;
         const batchId = "B" + crypto.randomUUID();
         let msg = "";

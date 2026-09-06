@@ -254,7 +254,13 @@ try {
     assert.equal(await page.getByRole("heading", { name: "학생 교재현황", exact: true }).count(), 1, `${viewport.name}: common student book panel missing`);
     assert.equal(await page.getByRole("heading", { name: "처리 및 재고 흐름", exact: true }).count(), 1, `${viewport.name}: common stock flow panel missing`);
     await page.getByRole("button", { name: "전체 교재", exact: true }).click();
+    const beforeCancelledDistribution = await page.evaluate((key) => localStorage.getItem(key), FAKE_STATE_KEY);
     await page.getByRole("button", { name: "전체 배부 확정", exact: true }).click();
+    assert.match(await page.locator(".app-dialog").innerText(), /신규부분검수 학생의 1종 1권을 전체 배부합니다/, `${viewport.name}: student-all distribution confirmation missing`);
+    await page.locator(".app-dialog").getByRole("button", { name: "취소", exact: true }).click();
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), FAKE_STATE_KEY), beforeCancelledDistribution, `${viewport.name}: cancelling distribution changed state or ledger`);
+    await page.getByRole("button", { name: "전체 배부 확정", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
     await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).students.SNEW.holdings.BAVAILABLE === 1, FAKE_STATE_KEY);
     const newStudentDistribution = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(newStudentDistribution.students.SNEW.holdings.BAVAILABLE, 1, `${viewport.name}: available book was not distributed`);
