@@ -240,12 +240,12 @@ try {
     await newStudentRow.getByRole("button", { name: "확인", exact: true }).click();
     await newStudentRow.locator("summary", { hasText: "반명 보기" }).click();
     assert.match(await newStudentRow.innerText(), /신규 검수반/, `${viewport.name}: new-student class name missing`);
-    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2[\s\S]*처리 후 미배부\s*1/, `${viewport.name}: available-only preview mismatch`);
+    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2종[\s\S]*배부 가능\s*1종[\s\S]*재고 없음\s*1종/, `${viewport.name}: available-only preview mismatch`);
     assert.doesNotMatch(await page.locator(".stock-side").innerText(), /신규 (비활성|가격미입력|배부종료|학생별) 제외 교재/, `${viewport.name}: ineligible book leaked into new-student preview`);
-    assert.match(await page.locator(".stock-side tr", { hasText: "신규 재고부족 교재" }).innerText(), /0\s+미배부 유지\s+0/, `${viewport.name}: shortage preview did not preserve zero stock`);
+    assert.match(await page.locator(".stock-side tr", { hasText: "신규 재고부족 교재" }).innerText(), /0\s+미배부\s+0/, `${viewport.name}: shortage preview did not preserve zero stock`);
     await page.locator(".stock-side").getByRole("button", { name: "전체 배부", exact: true }).click();
     await page.locator(".app-dialog .confirm-button").click();
-    await page.getByText(/신규부분검수 · 1종 배부 완료 · 부족 1종 미배부/).waitFor();
+    await page.getByText(/신규부분검수 · 배부 1종 · 미배부 1종/).waitFor();
     const newStudentDistribution = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(newStudentDistribution.students.SNEW.holdings.BAVAILABLE, 1, `${viewport.name}: available book was not distributed`);
     assert.equal(Number(newStudentDistribution.students.SNEW.holdings.BZERO || 0), 0, `${viewport.name}: zero-stock book was partially distributed`);
