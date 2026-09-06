@@ -281,7 +281,9 @@ try {
 
     await page.locator('[data-main-tab="학생"]').click();
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
-    await page.locator("#newNames").fill("신규부분검수");
+    // Korean IME can leave the visible textarea value newer than the cached
+    // oninput draft. Saving must read the visible field itself.
+    await page.locator("#newNames").evaluate((field) => { field.value = "신규부분검수"; });
     await page.getByRole("button", { name: "이름 저장", exact: true }).click();
     await page.locator(".app-dialog .confirm-button").click();
     await page.getByLabel("① 과목").selectOption({ label: "수학" });
