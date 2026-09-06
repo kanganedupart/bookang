@@ -239,13 +239,14 @@ try {
 
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     assert.equal(await page.getByRole("heading", { name: "신규생 등록", exact: true }).count(), 1, `${viewport.name}: registration panel missing`);
-    await page.getByRole("button", { name: /신규부분검수/ }).click();
+    await page.locator(".registration-table tbody tr", { hasText: "신규부분검수" }).click();
     assert.match(await page.locator("#screen").innerText(), /변경 후 1개 반/, `${viewport.name}: saved class verification missing`);
     assert.equal(await page.locator("#screen").getByText(/배부 0 · 미배부 2/).count(), 0, `${viewport.name}: book processing leaked into registration screen`);
     await page.locator('[data-main-tab="신규"]').click();
     assert.equal(await page.locator("tbody tr", { hasText: "반배정전검수" }).count(), 0, `${viewport.name}: unassigned name incorrectly entered new-work queue`);
     const newStudentRow = page.locator("tbody tr", { hasText: "신규부분검수" });
     assert.match(await newStudentRow.innerText(), /배부 0 · 미배부 2/, `${viewport.name}: new-work distribution summary mismatch`);
+    assert.equal(await newStudentRow.getByRole("button", { name: "미완료", exact: true }).isDisabled(), true, `${viewport.name}: zero-distribution student could be completed`);
     await newStudentRow.click();
     await page.getByRole("button", { name: "교재처리", exact: true }).click();
     assert.equal(await page.getByRole("heading", { name: "학생 교재현황", exact: true }).count(), 1, `${viewport.name}: common student book panel missing`);
