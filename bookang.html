@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.49" />
+    <meta name="bookflow-build" content="2026-09-06.50" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.49", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.50", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -187,7 +187,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.49";
+      const BOOKFLOW_BUILD = "2026-09-06.50";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -6205,7 +6205,16 @@
           operationBusy = false;
         }
       }
-      async function saveNewStudentNames() {
+      async function saveNewStudentNames(button) {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
+        button = button || (document.activeElement?.tagName === "BUTTON" ? document.activeElement : null);
+        const originalButtonText = button?.textContent || "이름 저장";
+        if (button) {
+          button.disabled = true;
+          button.textContent = "저장 중...";
+        }
+        operationBusy = true;
+        try {
         const enteredNames = document.querySelector("#newNames")?.value ?? window.newNamesDraft ?? "";
         window.newNamesDraft = enteredNames;
         const names = [
@@ -6278,6 +6287,13 @@
             : failure || "등록 실패",
         );
         render();
+        } finally {
+          operationBusy = false;
+          if (button?.isConnected) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+          }
+        }
       }
       function selectNewStudent(sid) {
         window.newStudentId = sid;
