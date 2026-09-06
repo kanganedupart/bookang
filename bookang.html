@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.43" />
+    <meta name="bookflow-build" content="2026-09-06.44" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.43", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.44", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -186,7 +186,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.43";
+      const BOOKFLOW_BUILD = "2026-09-06.44";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -666,6 +666,7 @@
         return arr(st.students).filter(
           (student) =>
             student.active !== false &&
+            !student.onboarding &&
             student.createdPeriodId === pid,
         );
       }
@@ -1281,6 +1282,20 @@
         cancelAnimationFrame(remoteRenderFrame);
         remoteRenderFrame = 0;
         if (x !== tab && (x === "신규" || x === "반이동")) window.ecodingEventId = "";
+        if (x === "신규") {
+          window.newWorkView = "PENDING";
+          window.newWorkSelectedIds = [];
+          window.ecodingEventId = "";
+          window.ecodingPreviewEventId = "";
+        }
+        if (x === "일괄처리") {
+          view = "academy";
+          window.newStudentForwarded = false;
+          window.bundleSelected = [];
+          window.bundleSelectedBookIds = [];
+          window.bundleNamesDraft = "";
+          window.bundleMode = "DISTRIBUTE";
+        }
         tab = x;
         selected = [];
         receipt = null;
@@ -2501,8 +2516,7 @@
           view === "student" &&
           sid &&
           tab === "학생" &&
-          (window.studentHubView === "process" ||
-            (window.studentHubView === "new" && window.newStudentWorkMode === "student"));
+          window.studentHubView === "process";
         if (
           view === "student" &&
           studentExitedInPeriod(S.students[sid], selectedPeriodId())
@@ -2978,9 +2992,9 @@
         return `<div class="tabs bundle-operation-tabs"><button class="${mode==="DISTRIBUTE"?"on":""}" onclick="setBundleMode('DISTRIBUTE')">전체 미배부 배부</button><button class="${mode==="SPECIFIC_DISTRIBUTE"?"on":""}" onclick="setBundleMode('SPECIFIC_DISTRIBUTE')">선택 교재 배부</button><button class="${mode==="SPECIFIC_RETURN"?"on":""}" onclick="setBundleMode('SPECIFIC_RETURN')">선택 교재 회수</button><button class="${mode==="RETURN"?"on":""}" onclick="setBundleMode('RETURN')">보유 교재 전체 회수</button></div>
  ${specific ? `<div class="receipt"><b>${isReturn ? "회수할 교재 1종" : "배부할 교재 1~3종"} 선택</b><div class="filter-row"><label>과목·강사·교재명 검색<input id="bundleBookQueryInput" value="${esc(window.bundleBookQuery || "")}" placeholder="검색어 입력 후 검색"></label><button onclick="window.bundleBookQuery=document.querySelector('#bundleBookQueryInput').value;render()">검색</button><button onclick="window.bundleBookQuery='';render()">전체 보기</button></div><div class="scroll bundle-book-picker"><table><thead><tr><th>선택</th><th>과목</th><th>강사</th><th>교재명</th><th>현재 재고</th></tr></thead><tbody>${bookOptions.map((book) => `<tr><td><input class="check" type="checkbox" ${selectedBookIds.includes(book.id)?"checked":""} onchange="setBundleSpecificBook('${esc(book.id)}',this.checked)"></td><td>${esc(book.subject || "미지정")}</td><td>${esc(book.teacher || "미지정")}</td><td><b>${esc(book.name)}</b></td><td>${Number(book.stock || 0)}권</td></tr>`).join("") || '<tr><td colspan="5">선택 가능한 교재가 없습니다.</td></tr>'}</tbody></table></div><small>${isReturn ? "선택 학생이 실제 보유한 교재만 표시합니다. 다른 보유 교재는 회수하지 않습니다." : "선택 학생의 반에 매칭된 교재만 표시합니다. 다른 미배부 교재는 배부하지 않습니다."}</small></div>` : ""}
  <div class="summary-row"><div class="summary-item"><span>입력 학생</span><b>${ids.length}명</b></div><div class="summary-item"><span>처리 교재</span><b>${plan.length}종</b></div><div class="summary-item"><span>${isReturn?"회수":"배부"}</span><b>${total}권</b></div></div>
- <div class="scroll"><table><thead><tr><th>교재</th><th>처리 학생</th>${specific?"<th>제외</th>":""}<th>재고 전</th><th>재고 후</th></tr></thead><tbody>${plan.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명 · ${x.quantity}권</td>${specific?`<td>${x.excluded.length}건</td>`:""}<td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`).join("") || `<tr><td colspan="${specific?5:4}">${specific && !selectedBookIds.length ? "위에서 교재를 선택하세요." : "처리할 교재가 없습니다."}</td></tr>`}</tbody></table></div>
+ <div class="scroll"><table><thead><tr><th>교재</th><th>처리 학생</th>${specific?"<th>제외</th>":""}<th>재고 전</th><th>재고 후</th></tr></thead><tbody>${plan.map((x)=>{const people=x.studentIds?.length||x.quantity;return `<tr><td><b>${esc(x.name)}</b></td><td>${people}명${people===x.quantity?"":` · ${x.quantity}권`}</td>${specific?`<td>${x.excluded.length}건</td>`:""}<td>${x.stock}권</td><td><b class="${x.after<0?"danger":""}">${x.after}권</b></td></tr>`;}).join("") || `<tr><td colspan="${specific?5:4}">${specific && !selectedBookIds.length ? "위에서 교재를 선택하세요." : "처리할 교재가 없습니다."}</td></tr>`}</tbody></table></div>
  ${specific && excluded.length ? `<details class="compact-details"><summary>제외 ${excluded.length}건 확인</summary><div class="scroll"><table><thead><tr><th>학생</th><th>교재</th><th>제외 사유</th></tr></thead><tbody>${excluded.map((item)=>`<tr><td>${esc(S.students?.[item.sid]?.name || item.sid)}</td><td>${esc(item.bookName)}</td><td>${esc(item.reason)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
- ${!specific && mode==="DISTRIBUTE" && short.length ? `<h3>재고 부족 교재 — 자동 제외·미배부 유지</h3><div class="scroll shortage-table" style="max-height:240px"><table><thead><tr><th>교재</th><th>미배부 인원</th><th>현재 재고</th><th>필요 수량</th><th>부족 수량</th><th>처리</th></tr></thead><tbody>${short.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명</td><td>${x.stock}권</td><td>${x.quantity}권</td><td><b class="danger">${Math.abs(x.after)}권</b></td><td><span class="error">자동 제외</span></td></tr>`).join("")}</tbody></table></div><p class="muted">위 부족 교재는 배부하지 않고 학생 미배부에 그대로 남깁니다.</p>` : ""}
+ ${!specific && mode==="DISTRIBUTE" && short.length ? `<details class="compact-details"><summary>재고 부족 ${short.length}종</summary><div class="scroll shortage-table"><table><thead><tr><th>교재</th><th>미배부 인원</th><th>현재 재고</th><th>필요 수량</th><th>부족 수량</th><th>처리</th></tr></thead><tbody>${short.map((x)=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.studentIds?.length || x.quantity}명</td><td>${x.stock}권</td><td>${x.quantity}권</td><td><b class="danger">${Math.abs(x.after)}권</b></td><td><span class="error">자동 제외</span></td></tr>`).join("")}</tbody></table></div><p class="muted">위 부족 교재는 배부하지 않고 학생 미배부에 그대로 남깁니다.</p></details>` : ""}
  ${specificShort.length ? `<p class="error">재고 부족으로 선택 교재 배부 전체 중단: ${specificShort.map((x) => `${esc(x.name)} ${Math.abs(x.after)}권`).join(" · ")}</p>` : ""}
  <label>메모</label><input id="bundleMemo" placeholder="${isReturn?"예: 결석생 선택 교재 회수":"예: 결석생 다음날 선택 교재 배부"}">
  ${isReturn ? '<label>회수 유형</label><select id="bundleReturnReason"><option value="NORMAL">일반</option><option value="MISDISTRIBUTION">실수</option><option value="OTHER">기타</option></select>' : ""}
@@ -5961,7 +5975,12 @@
       async function toggleNewStudentComplete(sid, button, event) {
         event?.stopPropagation();
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
-        const pid = selectedPeriodId(), operationIdValue = operationId(button);
+        const pid = selectedPeriodId(), operationIdValue = operationId(button), student = S.students?.[sid], wasComplete = Boolean(newStudentWorkRecord(student,pid)), summary = studentDistributionSummary(sid), availableMissing = assignedBooks(sid).filter((book) => eligibleIn(S,sid,book.id) && !held(sid,book.id) && Number(book.stock||0) > 0).length;
+        if (!student) return;
+        const message = wasComplete
+          ? `${student.name} 학생을 미완료로 되돌릴까요?`
+          : `${student.name} · 배부 ${summary.distributed} · 미배부 ${summary.missing}\n신규 업무를 완료할까요?${availableMissing ? `\n\n현재 배부 가능한 미배부 교재 ${availableMissing}종이 남아 있습니다.` : ""}`;
+        if (!(await askConfirm(message))) return;
         operationBusy = true;
         try {
           const result = await transaction((st) => {
@@ -6087,23 +6106,16 @@
           `<section class="panel"><h2>신규생 등록·반배정·배부</h2><div class="grid"><div><label>신규생 이름</label><textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea><div class="action-row"><button onclick="saveNewStudentNames()">이름 저장</button></div></div><div><label>입학일</label><input style="max-width:180px" type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></div></div><div class="section-title" style="margin-top:24px">신규생 업무목록</div><div class="scroll"><table><thead><tr><th>학생명</th><th>반배정</th><th>교재현황</th><th>상태</th><th>처리</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="5">등록된 신규생 없음</td></tr>'}</tbody></table></div>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="receipt"><h3 style="margin-top:0">${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button><button onclick="newStudentId='';newAssigned=[];studentAdmin()">취소</button></div></div>` : ""}</section>`;
       }
       function renderNewStudentQueue(registrationDate, registered, newStudent) {
-        const eligibleIds = registered.filter((s) => !s.onboarding).map((s) => s.id),
-          selectedIds = (window.newStudentSelectedIds || []).filter((sid) => eligibleIds.includes(sid));
-        window.newStudentSelectedIds = selectedIds;
-        const list = `<section class="panel new-work-list"><h2>신규생 등록·반배정</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newStudentSelectedIds=[];newStudentWorkMode='';newAssigned=[];receipt=null;studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">신규생 업무목록</div><div class="new-work-actions"><span>${selectedIds.length}명 선택</span><button class="btn" ${selectedIds.length ? "" : "disabled"} onclick="openNewStudentBundle('DISTRIBUTE')">전체 배부</button><button ${selectedIds.length ? "" : "disabled"} onclick="openNewStudentBundle('RETURN')">전체 회수</button></div><table><thead><tr><th><input class="check" type="checkbox" ${eligibleIds.length && eligibleIds.every((sid) => selectedIds.includes(sid)) ? "checked" : ""} onchange="setAllNewStudents(this.checked)"></th><th>학생명</th><th>입학일</th><th>반</th><th>교재현황</th><th>완료</th></tr></thead><tbody>${registered.map(newStudentRow).join("") || '<tr><td colspan="6">등록된 신규생 없음</td></tr>'}</tbody></table>${newStudent && newStudent.active !== false && newStudent.onboarding ? `<div class="assignment-box"><h3>${esc(newStudent.name)} 반배정</h3>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button></div></div>` : ""}</section>`;
-        const studentMode = window.newStudentWorkMode === "student" && newStudent && !newStudent.onboarding,
-          bundleMode = window.newStudentWorkMode === "bundle" && selectedIds.length;
-        document.querySelector("#screen").classList.add("new-student-active");
-        if (studentMode || bundleMode) {
-          window.newStudentListPrefix = list;
-          view = studentMode ? "student" : "bundle";
-          if (studentMode) window.sid = newStudent.id;
-          else window.bundleSelected = [...selectedIds];
-          processScreen();
-          window.newStudentListPrefix = "";
-          return;
-        }
-        document.querySelector("#screen").innerHTML = list;
+        document.querySelector("#screen").classList.remove("new-student-active");
+        const rows = registered.map((student) => {
+          const classes = activePeriodClassIds(S, student.id).map((cid) => S.classes?.[cid]?.name).filter(Boolean),
+            selected = student.id === window.newStudentId;
+          return `<button class="${selected ? "btn" : ""}" style="width:100%;text-align:left;margin:3px 0" onclick="selectNewStudent('${student.id}')"><b>${esc(student.name)}</b><small>${esc(studentAdmissionDate(student) || "-")} · ${student.onboarding ? "반배정 전" : `반 ${classes.length}개`}</small></button>`;
+        }).join("");
+        const assignment = newStudent
+          ? `<h2>${esc(newStudent.name)} 반배정</h2>${newStudent.onboarding ? `${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" ${window.newAssigned?.length ? "" : "disabled"} onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button></div>` : `<div class="receipt"><b>저장된 반 ${activePeriodClassIds(S,newStudent.id).length}개</b><br>${activePeriodClassIds(S,newStudent.id).map((cid)=>esc(S.classes?.[cid]?.name||cid)).join("<br>")}</div>`}`
+          : '<h2>반배정</h2><div class="empty-stock-state">왼쪽에서 학생을 선택하세요.</div>';
+        document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><h2>신규생 등록</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">등록 명단 ${registered.length}명</div><div class="list">${rows || '<p class="muted">선택한 입학일에 등록한 학생이 없습니다.</p>'}</div></section><section class="panel">${assignment}</section></div>`;
       }
       async function distributeNewStudent(sid, button) {
         const s = S.students[sid],
@@ -6267,7 +6279,7 @@
         }
         alert(
           r.committed
-            ? "반배정 완료 — 오른쪽 재고 전·후를 확인한 뒤 전체배부하세요."
+            ? "반배정 저장 완료"
             : "반배정 실패",
         );
         render();
@@ -7701,7 +7713,66 @@
         window.ecodingApplyBusy=true;
         try{await applyEcodingEvent(eventId);}finally{window.ecodingApplyBusy=false;}
       }
-      function ecodingNewScreen(){ecodingQueueScreen('NEW','신규');}
+      function toggleNewWorkStudent(sid, checked) {
+        const ids = new Set(window.newWorkSelectedIds || []);
+        checked ? ids.add(sid) : ids.delete(sid);
+        window.newWorkSelectedIds = [...ids];
+        window.ecodingEventId = "";
+        render();
+      }
+      function openNewWorkStudent(sid) {
+        window.newWorkSelectedIds = [sid];
+        window.ecodingEventId = "";
+        render();
+      }
+      function openNewWorkProcess() {
+        const ids = (window.newWorkSelectedIds || []).filter((sid) => S.students?.[sid] && !newStudentWorkRecord(S.students[sid]));
+        if (!ids.length) return alert("신규생을 선택하세요.");
+        if (ids.length === 1) {
+          const sid = ids[0];
+          tab = "학생";
+          window.studentHubView = "process";
+          window.sid = sid;
+          window.processStudentQuery = S.students[sid]?.name || "";
+          window.action = "DISTRIBUTE";
+          window.studentProcessScope = "SINGLE";
+          window.bid = "";
+          selected = [];
+          receipt = null;
+          render();
+          return;
+        }
+        tab = "일괄처리";
+        view = "bundle";
+        window.newStudentForwarded = true;
+        window.bundleSelected = [...ids];
+        window.bundleNamesDraft = ids.map((sid) => S.students[sid]?.name || "").filter(Boolean).join("\n");
+        window.bundleSelectedBookIds = [];
+        window.bundleMode = "DISTRIBUTE";
+        selected = [...ids];
+        receipt = null;
+        render();
+      }
+      function newWorkQueueScreen() {
+        const pid = selectedPeriodId(), showDone = window.newWorkView === "DONE",
+          allManual = manualNewStudents(S, pid),
+          manualRows = allManual.filter((student) => Boolean(newStudentWorkRecord(student,pid)) === showDone),
+          events = showDone ? [] : ecodingEvents("NEW"),
+          visibleIds = new Set(manualRows.map((student) => student.id)),
+          selectedIds = (window.newWorkSelectedIds || []).filter((sid) => visibleIds.has(sid));
+        window.newWorkSelectedIds = selectedIds;
+        const actionLabel = selectedIds.length === 1 ? "교재처리" : selectedIds.length > 1 ? "일괄처리" : "교재처리";
+        const studentRows = manualRows.map((student) => {
+          const summary = studentDistributionSummary(student.id), checked = selectedIds.includes(student.id), record = newStudentWorkRecord(student,pid);
+          return `<tr class="${checked ? "selected-row" : ""}" onclick="openNewWorkStudent('${student.id}')"><td><input class="check" type="checkbox" ${checked ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleNewWorkStudent('${student.id}',this.checked)"></td><td><b>${esc(student.name)}</b></td><td>${esc(studentAdmissionDate(student)||"-")}</td><td>${activePeriodClassIds(S,student.id).length}개 반</td><td>배부 ${summary.distributed} · 미배부 ${summary.missing}</td><td><button class="new-work-complete ${record ? "done" : ""}" onclick="event.stopPropagation();toggleNewStudentComplete('${student.id}',this,event)">${record ? "완료" : "미완료"}</button></td></tr>`;
+        }).join("");
+        const eventRows = events.map((event) => `<tr class="${window.ecodingEventId===event.id ? "selected-row" : ""}" onclick="newWorkSelectedIds=[];ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td></td><td><b>${esc(event.studentName)}</b></td><td>${esc(ecodingEventBusinessDate(event,ecodingEventSourceStudent(event)))}</td><td colspan="2">반영 전</td><td>확인</td></tr>`).join("");
+        const selectedEvent = events.find((event) => event.id === window.ecodingEventId),
+          right = selectedEvent ? ecodingEventDetail(selectedEvent) : `<h2>${selectedIds.length ? `${selectedIds.length}명 선택` : "신규생을 선택하세요."}</h2><p class="muted">${selectedIds.length === 1 ? "교재처리를 누르면 학생조회 교재처리로 이동합니다." : selectedIds.length > 1 ? "일괄처리를 누르면 선택한 학생이 학생 묶음에 전달됩니다." : "왼쪽 명단에서 학생을 선택하세요."}</p><button class="btn" ${selectedIds.length ? "" : "disabled"} onclick="openNewWorkProcess()">${actionLabel}</button>`;
+        document.querySelector("#screen").classList.remove("new-student-active");
+        document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><div><h2>신규 ${showDone ? manualRows.length : manualRows.length + events.length}명</h2></div><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="newWorkView='PENDING';newWorkSelectedIds=[];ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="newWorkView='DONE';newWorkSelectedIds=[];ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th></th><th>학생명</th><th>입학일</th><th>반</th><th>교재현황</th><th>완료</th></tr></thead><tbody>${eventRows}${studentRows || (!eventRows ? '<tr><td colspan="6">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${right}</section></div>`;
+      }
+      function ecodingNewScreen(){newWorkQueueScreen();}
       function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반변경');}
       function ecodingBookIdsForClassSet(st, pid, classIds) {
         const ids = new Set(), actualClassIds = Object.keys(classIds || {}).filter((classId) => {
@@ -7733,6 +7804,7 @@
       }
       async function applyEcodingEvent(eventId){
         const event=S.ecodingEvents?.[eventId];if(!event)return;
+        const newAdmissionDate = event.type === 'NEW' ? ecodingEventBusinessDate(event, ecodingEventSourceStudent(event)) : '';
         const expectedFingerprint=[event.type,event.periodId,normalizeExternalId(event.externalStudentId),ecodingEventClassSignature(event.beforeClassIds),ecodingEventClassSignature(event.afterClassIds)].join('::');
         let localSid=arr(S.students).find(s=>normalizeExternalId(s.externalId)===normalizeExternalId(event.externalStudentId))?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
         const beforeBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.beforeClassIds),afterBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.afterClassIds);
@@ -7759,7 +7831,7 @@
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
         });
         if(r.committed){
           S=r.snapshot.val();
@@ -7767,7 +7839,8 @@
           const remainingAssignedBookIds=ecodingAllAssignedBookIds(S,S.students?.[localSid]);
           distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
           returnIds=[...beforeBookIds].filter(bid=>!remainingAssignedBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
-          window.studentTransition={sid:localSid,kind:event.type,beforeBookIds:[...beforeBookIds],afterBookIds:[...afterBookIds],distributeIds,returnIds,memo:event.type==='NEW'?'이코딩 신규':'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
+          if(event.type==='NEW'){window.ecodingEventId='';window.ecodingPreviewEventId='';window.newWorkSelectedIds=[localSid];tab='신규';selected=[];receipt=null;alert('신규 명단에 반영했습니다. 교재 처리는 신규 명단에서 진행하세요.');render();return;}
+          window.studentTransition={sid:localSid,kind:event.type,beforeBookIds:[...beforeBookIds],afterBookIds:[...afterBookIds],distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
         } else alert(outcome==='STALE_CURRENT'?'교재 프로그램의 현재 반이 미리보기와 달라져 반영하지 않았습니다. 반이동 목록을 다시 확인하세요.':'반정보가 변경되어 처리하지 않았습니다. 다시 확인하세요.');
       }
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
