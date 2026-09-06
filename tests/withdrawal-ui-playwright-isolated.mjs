@@ -310,6 +310,14 @@ try {
     assert.equal(stateAfterClassAdd.students.SNEW.periodClasses.P2026T3.CADD, "CADD", `${viewport.name}: added class was not saved`);
     assert.ok(Object.values(stateAfterClassAdd.students.SNEW.classChanges || {}).some((change) => change.afterClassIds?.CADD === "CADD"), `${viewport.name}: class-add history missing`);
     assert.deepEqual(stateAfterClassAdd.books, stockBeforeComplete, `${viewport.name}: class add changed inventory`);
+    await page.getByRole("button", { name: "학생 조회·처리", exact: true }).click();
+    await page.locator("#studentStatusSearch").fill("신규부분검수");
+    await page.locator("#studentStatusAutoResults button", { hasText: "신규부분검수" }).click();
+    await page.getByRole("button", { name: "반 관리", exact: true }).click();
+    const recentClassResult = page.locator(".recent-class-result");
+    assert.match(await recentClassResult.innerText(), /최근 반변경 결과[\s\S]*이전 반[\s\S]*신규 검수반[\s\S]*변경 후 반[\s\S]*추가 검수반/, `${viewport.name}: recent class result was not restored after navigation`);
+    assert.match(await recentClassResult.innerText(), /확인용 기록입니다/, `${viewport.name}: recent class result is not marked read-only`);
+    assert.equal(await recentClassResult.locator("button").count(), 0, `${viewport.name}: recent class result exposes a repeat-action button`);
     await page.locator('[data-main-tab="신규"]').click();
     assert.equal(await page.locator("tbody tr", { hasText: "신규부분검수" }).count(), 0, `${viewport.name}: completed student returned to new-work queue after class add`);
 
