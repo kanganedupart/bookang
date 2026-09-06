@@ -228,6 +228,11 @@ try {
     await page.locator(".app-dialog .confirm-button").click();
     const directlySavedStudent = await page.evaluate((key) => Object.values(JSON.parse(localStorage.getItem(key)).students).find((student) => student.name === "신규직접입력검수"), FAKE_STATE_KEY);
     assert.equal(directlySavedStudent?.onboarding, true, `${viewport.name}: visible new-name field did not create an onboarding student`);
+    await page.getByRole("button", { name: "학생 조회·처리", exact: true }).click();
+    await page.locator("#studentStatusSearch").fill("직접입력");
+    await page.locator("#studentStatusAutoResults").getByText("신규직접입력검수", { exact: false }).waitFor();
+    await page.locator("#studentStatusSearch").fill("입력검수");
+    await page.locator("#studentStatusAutoResults").getByText("신규직접입력검수", { exact: false }).waitFor();
 
     await page.locator('[data-main-tab="일괄처리"]').click();
     await page.getByRole("button", { name: "학생 묶음", exact: true }).click();
