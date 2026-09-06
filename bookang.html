@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.50" />
+    <meta name="bookflow-build" content="2026-09-06.51" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.50", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.51", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -187,7 +187,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.50";
+      const BOOKFLOW_BUILD = "2026-09-06.51";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -6230,7 +6230,7 @@
         const exactExisting = names.length === 1
           ? arr(S.students).find((student) => student.name === names[0])
           : null;
-        if (exactExisting?.active !== false) {
+        if (exactExisting && exactExisting.active !== false) {
           window.newNamesDraft = "";
           window.registrationDate = studentAdmissionDate(exactExisting) || window.registrationDate || localDateKey();
           selectNewStudent(exactExisting.id);
@@ -6270,7 +6270,7 @@
               createdPeriodId: pid,
             };
           }
-        });
+        }, { skipOptimistic: true });
         if (r.committed) {
           S = r.snapshot.val();
           window.newNamesDraft = "";

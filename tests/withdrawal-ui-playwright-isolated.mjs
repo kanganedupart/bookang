@@ -221,6 +221,13 @@ try {
     await page.getByRole("button", { name: "로그인", exact: true }).click();
     await page.locator('[data-main-tab="학생"]').waitFor({ timeout: 15000 });
     assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
+    await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
+    await page.locator("#newNames").evaluate((field) => { field.value = "신규직접입력검수"; });
+    await page.getByRole("button", { name: "이름 저장", exact: true }).click();
+    await page.locator(".app-dialog", { hasText: "신규직접입력검수 이름 저장 완료" }).waitFor();
+    await page.locator(".app-dialog .confirm-button").click();
+    const directlySavedStudent = await page.evaluate((key) => Object.values(JSON.parse(localStorage.getItem(key)).students).find((student) => student.name === "신규직접입력검수"), FAKE_STATE_KEY);
+    assert.equal(directlySavedStudent?.onboarding, true, `${viewport.name}: visible new-name field did not create an onboarding student`);
 
     await page.locator('[data-main-tab="일괄처리"]').click();
     await page.getByRole("button", { name: "학생 묶음", exact: true }).click();
