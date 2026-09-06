@@ -51,6 +51,7 @@ function seedState() {
       C1: { id: "C1", name: "정규 검수반", subject: "국어", teacher: "검수강사", active: true, periodId, books: { BMISSING: "BMISSING" } },
       CNEW: { id: "CNEW", name: "신규 검수반", subject: "영어", teacher: "검수강사", active: true, periodId, books: { BAVAILABLE: "BAVAILABLE", BZERO: "BZERO", BNEWINACTIVE: "BNEWINACTIVE", BNEWUNPRICED: "BNEWUNPRICED", BNEWCLOSED: "BNEWCLOSED", BNEWEXCLUDED: "BNEWEXCLUDED" } },
       CBUNDLE: { id: "CBUNDLE", name: "묶음 검수반", subject: "수학", teacher: "검수강사", active: true, periodId, books: { BBUNDLEGOOD: "BBUNDLEGOOD", BBUNDLESHORT: "BBUNDLESHORT" } },
+      CADD: { id: "CADD", name: "추가 검수반", subject: "수학", teacher: "검수강사", active: true, periodId, books: {} },
     },
     students: {
       SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
@@ -58,6 +59,7 @@ function seedState() {
       SNEW: { id: "SNEW", name: "신규부분검수", active: true, onboarding: false, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:00:00+09:00", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CNEW: "CNEW" } }, classes: { CNEW: "CNEW" }, bookExclusions: { [periodId]: { BNEWEXCLUDED: { reason: "격리 검수" } } }, holdings: {} },
       SBUNDLE1: { id: "SBUNDLE1", name: "묶음검수일", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
+      SONBOARD: { id: "SONBOARD", name: "반배정전검수", active: true, onboarding: true, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:10:00+09:00", periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
     },
     refundTasks: {
       RTASK_EXACT: {
@@ -238,9 +240,10 @@ try {
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     assert.equal(await page.getByRole("heading", { name: "신규생 등록", exact: true }).count(), 1, `${viewport.name}: registration panel missing`);
     await page.getByRole("button", { name: /신규부분검수/ }).click();
-    assert.match(await page.locator("#screen").innerText(), /저장된 반 1개/, `${viewport.name}: saved class verification missing`);
+    assert.match(await page.locator("#screen").innerText(), /변경 후 1개 반/, `${viewport.name}: saved class verification missing`);
     assert.equal(await page.locator("#screen").getByText(/배부 0 · 미배부 2/).count(), 0, `${viewport.name}: book processing leaked into registration screen`);
     await page.locator('[data-main-tab="신규"]').click();
+    assert.equal(await page.locator("tbody tr", { hasText: "반배정전검수" }).count(), 0, `${viewport.name}: unassigned name incorrectly entered new-work queue`);
     const newStudentRow = page.locator("tbody tr", { hasText: "신규부분검수" });
     assert.match(await newStudentRow.innerText(), /배부 0 · 미배부 2/, `${viewport.name}: new-work distribution summary mismatch`);
     await newStudentRow.click();
@@ -267,7 +270,24 @@ try {
     const stateAfterComplete = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.deepEqual(stateAfterComplete.books, stockBeforeComplete, `${viewport.name}: completion changed inventory`);
 
-    await page.getByRole("button", { name: "미완료", exact: true }).click();
+    await page.locator('[data-main-tab="학생"]').click();
+    await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
+    await page.locator("#newNames").fill("신규부분검수");
+    await page.getByRole("button", { name: "이름 저장", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.getByLabel("① 과목").selectOption({ label: "수학" });
+    await page.getByLabel("③ 반").selectOption("CADD");
+    await page.getByRole("button", { name: "선택한 반 추가", exact: true }).click();
+    await page.getByRole("button", { name: "반 추가 저장", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    const stateAfterClassAdd = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(stateAfterClassAdd.students.SNEW.periodClasses.P2026T3.CNEW, "CNEW", `${viewport.name}: existing class was removed during registration class add`);
+    assert.equal(stateAfterClassAdd.students.SNEW.periodClasses.P2026T3.CADD, "CADD", `${viewport.name}: added class was not saved`);
+    assert.ok(Object.values(stateAfterClassAdd.students.SNEW.classChanges || {}).some((change) => change.afterClassIds?.CADD === "CADD"), `${viewport.name}: class-add history missing`);
+    assert.deepEqual(stateAfterClassAdd.books, stockBeforeComplete, `${viewport.name}: class add changed inventory`);
+    await page.locator('[data-main-tab="신규"]').click();
+    assert.equal(await page.locator("tbody tr", { hasText: "신규부분검수" }).count(), 0, `${viewport.name}: completed student returned to new-work queue after class add`);
+
     await page.locator("tbody tr", { hasText: "묶음검수일" }).locator('input[type="checkbox"]').check();
     await page.locator("tbody tr", { hasText: "묶음검수이" }).locator('input[type="checkbox"]').check();
     await page.locator("#screen").getByRole("button", { name: "일괄처리", exact: true }).click();

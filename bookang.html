@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.44" />
+    <meta name="bookflow-build" content="2026-09-06.45" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.44", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.45", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -186,7 +186,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.44";
+      const BOOKFLOW_BUILD = "2026-09-06.45";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -6113,7 +6113,7 @@
           return `<button class="${selected ? "btn" : ""}" style="width:100%;text-align:left;margin:3px 0" onclick="selectNewStudent('${student.id}')"><b>${esc(student.name)}</b><small>${esc(studentAdmissionDate(student) || "-")} · ${student.onboarding ? "반배정 전" : `반 ${classes.length}개`}</small></button>`;
         }).join("");
         const assignment = newStudent
-          ? `<h2>${esc(newStudent.name)} 반배정</h2>${newStudent.onboarding ? `${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" ${window.newAssigned?.length ? "" : "disabled"} onclick="assignNewStudent('${newStudent.id}')">반배정 저장</button></div>` : `<div class="receipt"><b>저장된 반 ${activePeriodClassIds(S,newStudent.id).length}개</b><br>${activePeriodClassIds(S,newStudent.id).map((cid)=>esc(S.classes?.[cid]?.name||cid)).join("<br>")}</div>`}`
+          ? `<h2>${esc(newStudent.name)} 반배정</h2>${classPicker("new", window.newAssigned)}<div class="action-row"><button class="btn" ${newStudent.onboarding ? (window.newAssigned?.length ? "" : "disabled") : (window.newAssigned || []).some((cid) => !activePeriodClassIds(S,newStudent.id).includes(cid)) ? "" : "disabled"} onclick="assignNewStudent('${newStudent.id}')">${newStudent.onboarding ? "반배정 저장" : "반 추가 저장"}</button></div>`
           : '<h2>반배정</h2><div class="empty-stock-state">왼쪽에서 학생을 선택하세요.</div>';
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><h2>신규생 등록</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="section-title">등록 명단 ${registered.length}명</div><div class="list">${rows || '<p class="muted">선택한 입학일에 등록한 학생이 없습니다.</p>'}</div></section><section class="panel">${assignment}</section></div>`;
       }
@@ -6183,9 +6183,17 @@
           ],
           pid = selectedPeriodId();
         if (!names.length) return alert("학생명을 입력하세요.");
-        const dup = names.find((n) =>
-          arr(S.students).some((s) => s.name === n),
-        );
+        const exactExisting = names.length === 1
+          ? arr(S.students).find((student) => student.name === names[0])
+          : null;
+        if (exactExisting?.active !== false) {
+          window.newNamesDraft = "";
+          window.registrationDate = studentAdmissionDate(exactExisting) || window.registrationDate || localDateKey();
+          selectNewStudent(exactExisting.id);
+          alert(`${exactExisting.name} 학생을 선택했습니다. 오른쪽에서 반을 추가할 수 있습니다.`);
+          return;
+        }
+        const dup = names.find((n) => arr(S.students).some((s) => s.name === n));
         if (dup)
           return alert(`기존·종료 학생을 포함해 같은 이름이 있습니다: ${dup}`);
         let failure = "";
@@ -6247,10 +6255,20 @@
         const classIds = window.newAssigned || [],
           pid = selectedPeriodId();
         if (!sid || !classIds.length) return alert("반을 한 개 이상 선택하세요.");
+        const currentStudent = S.students?.[sid],
+          wasOnboarding = Boolean(currentStudent?.onboarding),
+          beforeClassIds = activePeriodClassIds(S, sid),
+          addedClassIds = classIds.filter((cid) => !beforeClassIds.includes(cid));
+        if (!wasOnboarding && beforeClassIds.some((cid) => !classIds.includes(cid)))
+          return alert("신규생 등록에서는 기존 반을 뺄 수 없습니다. 반변경에서 처리하세요.");
+        if (!wasOnboarding && !addedClassIds.length)
+          return alert("추가할 반을 선택하세요.");
         const r = await transaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students?.[sid];
-          if (!s || !s.onboarding || s.createdPeriodId !== pid) return false;
+          if (!s || s.active === false) return false;
+          const currentIds = activePeriodClassIds(st, sid, pid);
+          if (!s.onboarding && currentIds.some((cid) => !classIds.includes(cid))) return false;
           if (
             classIds.some(
               (cid) =>
@@ -6260,27 +6278,46 @@
             )
           )
             return false;
-          const cs = {};
-          classIds.forEach((x) => (cs[x] = x));
-          s.classes = cs;
+          const cs = Object.fromEntries(classIds.map((x) => [x, x]));
           s.periodClasses = s.periodClasses || {};
           s.periodClasses[pid] = cs;
-          s.onboarding = false;
-          s.assignedAt = now();
-          s.assignedBy = actor;
+          s.periodMembership = s.periodMembership || {};
+          s.periodMembership[pid] = true;
+          rebuildStudentClasses(s);
+          if (s.onboarding) {
+            s.onboarding = false;
+            s.assignedAt = now();
+            s.assignedBy = actor;
+          } else {
+            const addedIds = classIds.filter((cid) => !currentIds.includes(cid));
+            if (!addedIds.length) return false;
+            s.classChanges = s.classChanges || {};
+            const changeId = "C" + crypto.randomUUID();
+            s.classChanges[changeId] = {
+              id: changeId,
+              periodId: pid,
+              before: currentIds.map((cid) => st.classes?.[cid]?.name).filter(Boolean).join(", "),
+              after: classIds.map((cid) => st.classes?.[cid]?.name).filter(Boolean).join(", "),
+              beforeClassIds: Object.fromEntries(currentIds.map((cid) => [cid, cid])),
+              afterClassIds: cs,
+              memo: `반 추가: ${addedIds.map((cid) => st.classes?.[cid]?.name || cid).join(", ")}`,
+              actor,
+              time: now(),
+            };
+          }
         });
         if (r.committed) {
           S = r.snapshot.val();
           window.newStudentId = sid;
-          window.newAssigned = [];
+          window.newAssigned = activePeriodClassIds(S, sid);
           window.receiptStudentId = "";
           receipt = null;
           window.studentHubView = "new";
         }
         alert(
           r.committed
-            ? "반배정 저장 완료"
-            : "반배정 실패",
+            ? wasOnboarding ? "반배정 저장 완료" : "반 추가 저장 완료"
+            : wasOnboarding ? "반배정 실패" : "반 추가 실패",
         );
         render();
       }
