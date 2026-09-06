@@ -56,7 +56,7 @@ function seedState() {
     students: {
       SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
       SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BRETURN: 1, BNEWHELD: 1, BMISSING: 0 }, withdrawals: {} },
-      SNEW: { id: "SNEW", name: "신규부분검수", active: true, onboarding: false, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:00:00+09:00", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CNEW: "CNEW" } }, classes: { CNEW: "CNEW" }, bookExclusions: { [periodId]: { BNEWEXCLUDED: { reason: "격리 검수" } } }, holdings: {} },
+      SNEW: { id: "SNEW", name: "신규부분검수", active: true, onboarding: false, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:00:00+09:00", createdBy: "등록검수자", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CNEW: "CNEW" } }, classes: { CNEW: "CNEW" }, bookExclusions: { [periodId]: { BNEWEXCLUDED: { reason: "격리 검수" } } }, holdings: {} },
       SBUNDLE1: { id: "SBUNDLE1", name: "묶음검수일", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SONBOARD: { id: "SONBOARD", name: "반배정전검수", active: true, onboarding: true, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:10:00+09:00", periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
@@ -241,6 +241,7 @@ try {
     assert.equal(await page.getByRole("heading", { name: "신규생 등록", exact: true }).count(), 1, `${viewport.name}: registration panel missing`);
     await page.locator(".registration-table tbody tr", { hasText: "신규부분검수" }).click();
     assert.match(await page.locator("#screen").innerText(), /변경 후 1개 반/, `${viewport.name}: saved class verification missing`);
+    assert.match(await page.locator(".registration-table tbody tr", { hasText: "신규부분검수" }).innerText(), /등록검수자[\s\S]*2026-09-06/, `${viewport.name}: registration writer/date missing`);
     assert.equal(await page.locator("#screen").getByText(/배부 0 · 미배부 2/).count(), 0, `${viewport.name}: book processing leaked into registration screen`);
     await page.locator('[data-main-tab="신규"]').click();
     assert.equal(await page.locator("tbody tr", { hasText: "반배정전검수" }).count(), 0, `${viewport.name}: unassigned name incorrectly entered new-work queue`);
@@ -248,6 +249,7 @@ try {
     assert.match(await newStudentRow.innerText(), /배부 0 · 미배부 2/, `${viewport.name}: new-work distribution summary mismatch`);
     assert.equal(await newStudentRow.getByRole("button", { name: "미완료", exact: true }).isDisabled(), true, `${viewport.name}: zero-distribution student could be completed`);
     await newStudentRow.click();
+    assert.match(await page.locator("#screen").innerText(), /배정 반 1개[\s\S]*신규 검수반[\s\S]*신규 배부가능 교재/, `${viewport.name}: new-work preflight class/book review missing`);
     await page.getByRole("button", { name: "교재처리", exact: true }).click();
     assert.equal(await page.getByRole("heading", { name: "학생 교재현황", exact: true }).count(), 1, `${viewport.name}: common student book panel missing`);
     assert.equal(await page.getByRole("heading", { name: "처리 및 재고 흐름", exact: true }).count(), 1, `${viewport.name}: common stock flow panel missing`);
@@ -294,6 +296,8 @@ try {
     await page.locator("#screen").getByRole("button", { name: "일괄처리", exact: true }).click();
     assert.match(await page.locator("#bundleNames").inputValue(), /묶음검수일[\s\S]*묶음검수이/, `${viewport.name}: selected new students not forwarded to bundle`);
     assert.equal(await page.locator(".process-target-panel tbody tr").count(), 2, `${viewport.name}: forwarded bundle exact-set mismatch`);
+    await page.locator(".process-target-panel tbody tr", { hasText: "묶음검수일" }).click();
+    assert.match(await page.locator(".process-target-panel").innerText(), /묶음검수일 · 배정 반 1개[\s\S]*묶음 검수반/, `${viewport.name}: bundle student class review missing`);
     await page.locator('[data-main-tab="일괄처리"]').click();
     for (const label of ["전체", "반", "교재", "학생 묶음"])
       assert.equal(await page.getByRole("button", { name: label, exact: true }).count(), 1, `${viewport.name}: bulk subtab ${label} missing after direct tab click`);
