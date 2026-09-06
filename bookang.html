@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.53" />
+    <meta name="bookflow-build" content="2026-09-06.52" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.53", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.52", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -187,7 +187,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.53";
+      const BOOKFLOW_BUILD = "2026-09-06.52";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1118,7 +1118,6 @@
       const TABS = ["학생", "신규", "반이동", "퇴반대기", "일괄처리", "재고", "추가결제", "이력"];
       const ECODING_SYNC_URL = "https://asia-northeast3-refund-book.cloudfunctions.net/ecodingSync";
       const BOOKFLOW_LOGIN_URL = "https://asia-northeast3-refund-book.cloudfunctions.net/bookflowStaffLogin";
-      const BOOKFLOW_COMMIT_URL = "https://asia-northeast3-refund-book.cloudfunctions.net/bookflowCommit";
       function ecodingManualExitRecord(student, periodId) {
         return student?.integrationSync?.ecoding?.[periodId] || null;
       }
@@ -1641,7 +1640,7 @@
           ),
         );
       }
-      function legacyRootTransaction(mutator, options = {}) {
+      function transaction(mutator, options = {}) {
         if (navigator.onLine === false) {
           alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
           return Promise.resolve({
@@ -2863,87 +2862,6 @@
         ))
           for (const bid of arr(st.classes?.[cid]?.books)) ids.add(bid);
         return [...ids].filter((bid) => !studentBookIsExcluded(st, sid, bid));
-      }
-
-      function canonicalJson(value) {
-        if (value === null || typeof value !== "object") return JSON.stringify(value);
-        if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-        return `{${Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) =>
-          `${JSON.stringify(key)}:${canonicalJson(value[key])}`
-        ).join(",")}}`;
-      }
-      async function stateFingerprint(value) {
-        const bytes = new TextEncoder().encode(canonicalJson(value)),
-          digest = await crypto.subtle.digest("SHA-256", bytes);
-        return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-      }
-      function changedLeaves(before, after) {
-        const updates = {};
-        const walk = (left, right, path) => {
-          if (Object.is(left, right)) return;
-          const leftObject = left && typeof left === "object" && !Array.isArray(left),
-            rightObject = right && typeof right === "object" && !Array.isArray(right);
-          if (leftObject && rightObject) {
-            for (const key of new Set([...Object.keys(left), ...Object.keys(right)]))
-              walk(left[key], right[key], path ? `${path}/${key}` : key);
-            return;
-          }
-          if (right === undefined) updates[path] = null;
-          else updates[path] = right;
-        };
-        walk(before, after, "");
-        return updates;
-      }
-      async function transaction(mutator, options = {}) {
-        const remoteEligible = dataset === "bookflowOperational20260904V1" &&
-          !/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && navigator.onLine !== false;
-        if (!remoteEligible) return legacyRootTransaction(mutator, options);
-        const transactionSelected = selected.slice(), before = S,
-          draft = typeof structuredClone === "function" ? structuredClone(before) : JSON.parse(JSON.stringify(before));
-        const liveSelected = selected;
-        selected = transactionSelected.slice();
-        let mutationResult;
-        try { mutationResult = mutator(draft); }
-        finally { selected = liveSelected; }
-        if (mutationResult === false)
-          return { committed:false, snapshot:{ val:()=>S } };
-        const updates = changedLeaves(before, draft);
-        if (!Object.keys(updates).length)
-          return { committed:true, snapshot:{ val:()=>S } };
-        try {
-          const user = firebase.auth().currentUser;
-          if (!user) throw new Error("LOGIN_REQUIRED");
-          const token = await user.getIdToken(), baseFingerprint = await stateFingerprint(before),
-            response = await fetch(BOOKFLOW_COMMIT_URL, {
-              method:"POST",
-              headers:{ "content-type":"application/json", authorization:`Bearer ${token}` },
-              body:JSON.stringify({ baseFingerprint, updates }),
-            });
-          const body = await response.json().catch(() => ({}));
-          if (response.status === 409) {
-            const snapshot = await root.once("value");
-            S = snapshot.val() || { books:{}, classes:{}, students:{}, movements:{} };
-            resetDerivedState(); renderActor(); render();
-            return { committed:false, conflict:true, snapshot };
-          }
-          if (!response.ok || !body.committed) throw new Error(body.message || `REMOTE_COMMIT_${response.status}`);
-          S = draft;
-          resetDerivedState();
-          if (!options.silentRender) { renderActor(); render(); }
-          return { committed:true, snapshot:{ val:()=>draft } };
-        } catch (error) {
-          // The request may have reached the server even when the response was
-          // lost.  Never retry the same mutation through the legacy path here:
-          // doing so could double-apply stock or ledger changes.  Reload the
-          // server authority and let the caller report a safe non-commit.
-          console.error("server-side commit result unavailable", error);
-          const snapshot = await root.once("value").catch(() => null);
-          if (snapshot) {
-            S = snapshot.val() || { books:{}, classes:{}, students:{}, movements:{} };
-            resetDerivedState(); renderActor(); render();
-          }
-          return { committed:false, uncertain:true, snapshot:snapshot || { val:()=>S } };
-        }
       }
       function distributableAssignedBookIds(st, sid, classIds = activePeriodClassIds(st, sid)) {
         const ids = new Set();
