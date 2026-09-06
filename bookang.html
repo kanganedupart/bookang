@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-06.41" />
+    <meta name="bookflow-build" content="2026-09-06.42" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-06.41", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-06.42", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -185,7 +185,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-06.41";
+      const BOOKFLOW_BUILD = "2026-09-06.42";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -5905,7 +5905,7 @@
           status = "배부 완료";
           action = `<button class="done-btn" onclick="openStudentProcess('${s.id}')">이력·상세</button>`;
         } else if (summary.shortage > 0) {
-          status = `미배부 ${summary.missing}종 · 재고 없음 ${summary.shortage}종`;
+          status = `미배부 ${summary.missing}종`;
           action = `<button onclick="newStudentId='${s.id}';receipt=null;studentAdmin()">확인</button>`;
         } else {
           status = `미배부 ${summary.missing}종`;
@@ -5950,7 +5950,7 @@
               ? `<div class="flow"><div>대상교재<br><b class="danger">0</b></div><div class="arrow">→</div><div>처리상태<br><b class="danger">중단</b></div></div><p class="error">배정된 반에 매칭된 교재가 없습니다. 반·교재 매칭을 확인하세요.</p><button class="shortage-btn" onclick="openStudentMove('${s.id}')">반·매칭 확인</button>`
             : completed
               ? `<div class="flow"><div>대상교재<br><b>${previewBooks.length}</b></div><div class="arrow">→</div><div>미배부<br><b>0</b></div></div><button class="done-btn" onclick="openStudentProcess('${s.id}')">배부 완료·상세</button>`
-              : `<div class="flow"><div>미배부<br><b>${missing.length}종</b></div><div>배부 가능<br><b>${available.length}종</b></div><div>재고 없음<br><b>${shortage.length}종</b></div></div><div class="action-row"><button class="btn stage-distribute" ${available.length ? "" : "disabled"} onclick="distributeNewStudent('${s.id}',this)">전체 배부</button><button onclick="openStudentProcess('${s.id}')">상세</button></div>`
+              : `<div class="action-row"><button class="btn stage-distribute" ${available.length ? "" : "disabled"} onclick="distributeNewStudent('${s.id}',this)">전체 배부</button><button onclick="openStudentProcess('${s.id}')">상세</button></div>`
         }
         ${receipt && window.receiptStudentId === s.id ? `<div class="receipt transaction-result"><b>처리 완료</b><br>${esc(receipt)}<br>원장과 실제 재고를 같은 거래에서 저장했습니다.</div>` : ""}</section>`;
       }
@@ -6029,10 +6029,10 @@
         if (!s || s.active === false || s.onboarding)
           return alert("반배정이 완료된 신규생만 배부할 수 있습니다.");
         if (!fullPlan.length) return alert("미배부 교재가 없습니다.");
-        if (!availablePlan.length) return alert("배부 가능한 교재가 없습니다. 재고 없는 교재는 미배부입니다.");
+        if (!availablePlan.length) return alert("모두 미배부입니다.");
         if (
           !(await askConfirm(
-            `${s.name} 학생에게 ${availablePlan.length}종을 배부할까요?${shortagePlan.length ? `\n재고 없음 ${shortagePlan.length}종은 미배부입니다.` : ""}`,
+            `${s.name} 학생에게 ${availablePlan.length}종을 배부할까요?${shortagePlan.length ? `\n나머지 ${shortagePlan.length}종은 미배부입니다.` : ""}`,
           ))
         )
           return;

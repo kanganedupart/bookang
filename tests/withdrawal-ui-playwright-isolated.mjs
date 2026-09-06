@@ -240,7 +240,8 @@ try {
     await newStudentRow.getByRole("button", { name: "확인", exact: true }).click();
     await newStudentRow.locator("summary", { hasText: "반명 보기" }).click();
     assert.match(await newStudentRow.innerText(), /신규 검수반/, `${viewport.name}: new-student class name missing`);
-    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2종[\s\S]*배부 가능\s*1종[\s\S]*재고 없음\s*1종/, `${viewport.name}: available-only preview mismatch`);
+    assert.match(await page.locator(".stock-side").innerText(), /미배부\s*2종/, `${viewport.name}: missing count mismatch`);
+    assert.doesNotMatch(await page.locator(".stock-side").innerText(), /배부 가능\s*1종|재고 없음\s*1종/, `${viewport.name}: extra stock wording remained`);
     assert.doesNotMatch(await page.locator(".stock-side").innerText(), /신규 (비활성|가격미입력|배부종료|학생별) 제외 교재/, `${viewport.name}: ineligible book leaked into new-student preview`);
     assert.match(await page.locator(".stock-side tr", { hasText: "신규 재고부족 교재" }).innerText(), /0\s+미배부\s+0/, `${viewport.name}: shortage preview did not preserve zero stock`);
     await page.locator(".stock-side").getByRole("button", { name: "전체 배부", exact: true }).click();
