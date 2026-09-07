@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.60" />
+    <meta name="bookflow-build" content="2026-09-07.61" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.60", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.61", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.60";
+      const BOOKFLOW_BUILD = "2026-09-07.61";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -411,6 +411,17 @@
       }
       function normalizeExternalId(value) {
         return String(value ?? "").normalize("NFKC").trim();
+      }
+      function ecodingLocalStudentMatches(st, externalId, studentName = "") {
+        const normalizedExternalId = normalizeExternalId(externalId),
+          externalMatches = arr(st.students).filter((student) =>
+            normalizedExternalId && normalizeExternalId(student.externalId) === normalizedExternalId,
+          );
+        if (externalMatches.length) return externalMatches;
+        const nameKey = normalizedStudentFullName(studentName);
+        return nameKey
+          ? arr(st.students).filter((student) => normalizedStudentFullName(student) === nameKey)
+          : [];
       }
       function studentIdentityKey(student) {
         const externalId = normalizeExternalId(student?.externalId);
@@ -722,7 +733,8 @@
           (student) =>
             student.active !== false &&
             !student.onboarding &&
-            student.createdPeriodId === pid,
+            student.createdPeriodId === pid &&
+            !student.initialRosterBaseline?.[pid],
         );
       }
       function pendingManualNewCount(st = S, pid = selectedPeriodId()) {
@@ -7714,8 +7726,8 @@
           }
           for(const source of linkedPeople.values()){
             const sourceKey=studentIdentityKey(source);
-            const candidates=arr(st.students).filter(x=>normalizeExternalId(source.externalId)?normalizeExternalId(x.externalId)===normalizeExternalId(source.externalId):studentIdentityKey(x)===sourceKey);
-            if(normalizeExternalId(source.externalId)&&candidates.length>1)return false;
+            const candidates=ecodingLocalStudentMatches(st,source.externalId,source.name);
+            if(candidates.length>1)return false;
             let student=candidates.reduce((best,item)=>best?preferredStudentRecord(best,item,pid):item,null);
             const startDate=periodOperationalStartDate(st,pid),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(String(source.admissionDate||''))?String(source.admissionDate).slice(0,10):'';
             if(!student&&ecodingPreparationActive(st,pid)&&startDate&&admissionDate>=startDate)continue;
@@ -8092,7 +8104,7 @@
         const event=S.ecodingEvents?.[eventId];if(!event)return;
         const newAdmissionDate = event.type === 'NEW' ? ecodingEventBusinessDate(event, ecodingEventSourceStudent(event)) : '';
         const expectedFingerprint=[event.type,event.periodId,normalizeExternalId(event.externalStudentId),ecodingEventClassSignature(event.beforeClassIds),ecodingEventClassSignature(event.afterClassIds)].join('::');
-        let localSid=arr(S.students).find(s=>normalizeExternalId(s.externalId)===normalizeExternalId(event.externalStudentId))?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
+        let localSid=ecodingLocalStudentMatches(S,event.externalStudentId,event.studentName)[0]?.id||id('S',`ECODING|${event.externalStudentId}`),outcome='';
         const beforeBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.beforeClassIds),afterBookIds=ecodingBookIdsForClassSet(S,event.periodId,event.afterClassIds);
         let distributeIds=[],returnIds=[];
         const r=await transaction(st=>{
@@ -8101,7 +8113,7 @@
           const latestFingerprint=[e.type,e.periodId,normalizeExternalId(e.externalStudentId),ecodingEventClassSignature(e.beforeClassIds),ecodingEventClassSignature(e.afterClassIds)].join('::');
           if(latestFingerprint!==expectedFingerprint)return false;
           st.students=st.students||{};
-          const matches=arr(st.students).filter(s=>normalizeExternalId(s.externalId)===normalizeExternalId(e.externalStudentId));
+          const matches=ecodingLocalStudentMatches(st,e.externalStudentId,e.studentName);
           if(matches.length>1)return false;
           const existing=matches[0];
           if(existing&&ecodingManualExitPending(existing,e.periodId))return false;
@@ -8204,9 +8216,9 @@
           snap?.membershipSchemaVersion !== "CLASS_DATES_V1" &&
           !arr(snap?.students).length;
       }
-      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", moveObservedAt = "", sourceLastModifiedAt = "", activeClassDates = null, inactiveClassDates = null) {
+      function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", moveObservedAt = "", sourceLastModifiedAt = "", activeClassDates = null, inactiveClassDates = null, studentName = "") {
         activeClassDates=activeClassDates||{};inactiveClassDates=inactiveClassDates||{};
-        const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
+        const localMatches = ecodingLocalStudentMatches(st, externalId, studentName);
         if (localMatches.length > 1) return { blocked: true, type: "", beforeClassIds: {} };
         const localStudent = localMatches[0],
           localClassIds = localStudent?.periodMembership?.[pid] === true
@@ -8256,7 +8268,7 @@
       }
       function applyEcodingBaselineStudent(st, pid, next) {
         const externalId = normalizeExternalId(next.externalId),
-          matches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
+          matches = ecodingLocalStudentMatches(st, externalId, next.name);
         if (!externalId || matches.length > 1) return false;
         const sid = matches[0]?.id || id("S", `ECODING|${externalId}`),
           student = matches[0] || { id:sid, externalId, name:next.name, number:next.number||"", classes:{}, periodClasses:{}, periodMembership:{}, holdings:{}, active:true, source:"ECODING" };
@@ -8271,6 +8283,61 @@
         rebuildStudentClasses(student);
         st.students[sid] = student;
         return true;
+      }
+      function alignInitialEcodingRoster(st, pid, normalizedStudents, fresh) {
+        const maps = st.ecodingClassMappings?.[pid] || {}, mappedClassIds = new Set(
+          Object.values(maps).map((mapping) => mapping?.localClassId).filter((classId) => {
+            const cls = st.classes?.[classId];
+            return cls && cls.periodId === pid && cls.active !== false && cls.systemCommon !== true;
+          }),
+        ), assignments = new Map(), claimedStudentIds = new Set();
+        for (const next of normalizedStudents.values()) {
+          if (!Object.keys(next.classIds || {}).length) continue;
+          const matches = ecodingLocalStudentMatches(st, next.externalId, next.name);
+          if (matches.length > 1) return { blocked:true, reason:"AMBIGUOUS_STUDENT", studentName:next.name };
+          const sid = matches[0]?.id || id("S", `ECODING|${next.externalId}`);
+          if (claimedStudentIds.has(sid)) return { blocked:true, reason:"DUPLICATE_SOURCE_STUDENT", studentName:next.name };
+          claimedStudentIds.add(sid);
+          assignments.set(sid, next);
+        }
+        const holdingsBefore = Object.fromEntries(arr(st.students).map((student) => [student.id, JSON.stringify(student.holdings || {})])),
+          inventoryBefore = JSON.stringify(Object.fromEntries(arr(st.books).map((book) => [book.id, Number(book.stock || 0)]))),
+          movementCountBefore = Object.keys(st.movements || {}).length;
+        for (const student of arr(st.students)) {
+          const current = student.periodClasses?.[pid] || {}, retained = Object.fromEntries(
+            Object.keys(current).filter((classId) => !mappedClassIds.has(classId)).map((classId) => [classId,classId]),
+          ), next = assignments.get(student.id);
+          student.periodClasses = student.periodClasses || {};
+          student.periodClasses[pid] = { ...retained, ...(next?.classIds || {}) };
+          student.periodMembership = student.periodMembership || {};
+          student.periodMembership[pid] = Object.keys(student.periodClasses[pid]).length > 0;
+          if (next) {
+            student.externalId = normalizeExternalId(next.externalId) || student.externalId;
+            student.name = next.name || student.name;
+            student.number = next.number || student.number || "";
+            student.active = true;
+            student.onboarding = false;
+            student.initialRosterBaseline = student.initialRosterBaseline || {};
+            student.initialRosterBaseline[pid] = { alignedAt:now(), source:"ECODING" };
+          }
+          rebuildStudentClasses(student);
+        }
+        for (const [sid,next] of assignments) {
+          if (st.students?.[sid]) continue;
+          st.students[sid] = { id:sid, externalId:next.externalId, name:next.name, number:next.number||"", classes:{...(next.classIds||{})}, periodClasses:{[pid]:{...(next.classIds||{})}}, periodMembership:{[pid]:true}, holdings:{}, active:true, onboarding:false, source:"ECODING", initialRosterBaseline:{[pid]:{alignedAt:now(),source:"ECODING"}} };
+        }
+        let cancelled = 0;
+        for (const event of arr(st.ecodingEvents)) {
+          if (event?.periodId !== pid || event.status !== "PENDING") continue;
+          event.status="CANCELLED";event.closedAt=now();event.closedBy="이코딩 초기 명단 맞춤";event.closeReason="INITIAL_ROSTER_ALIGNMENT";cancelled++;
+        }
+        const inventoryAfter = JSON.stringify(Object.fromEntries(arr(st.books).map((book) => [book.id, Number(book.stock || 0)]))),
+          holdingsChanged = Object.entries(holdingsBefore).some(([sid,value]) => JSON.stringify(st.students?.[sid]?.holdings || {}) !== value);
+        if (inventoryBefore !== inventoryAfter || movementCountBefore !== Object.keys(st.movements || {}).length || holdingsChanged)
+          return { blocked:true, reason:"INVENTORY_INVARIANT" };
+        st.integrationCutovers = st.integrationCutovers || {};
+        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
+        return { blocked:false, aligned:assignments.size, cancelled };
       }
       function cancelInvalidPrestartWork(st, pid) {
         const prestart=ecodingPreparationActive(st,pid),period=st.periods?.[pid]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10);
@@ -8417,6 +8484,29 @@
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
           const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
+          if (!S.integrationCutovers?.[pid]?.initialRosterAlignedAt) {
+            let alignment = null;
+            const alignmentResult = await transaction((st) => {
+              alignment = alignInitialEcodingRoster(st, pid, after, fresh);
+              if (alignment.blocked) return false;
+              st.ecodingSnapshots = st.ecodingSnapshots || {};
+              st.ecodingBaselines = st.ecodingBaselines || {};
+              st.ecodingSnapshots[pid] = { ...fresh, periodId:pid };
+              st.ecodingBaselines[pid] = { ...fresh, periodId:pid };
+            }, { silentRender:silent });
+            if (!alignmentResult.committed) {
+              const message = alignment?.reason === "AMBIGUOUS_STUDENT"
+                ? `${alignment.studentName} 학생이 이름+뒤 4자리까지 같은 레코드로 여러 개 있어 초기 명단 맞춤을 중단했습니다.`
+                : "이코딩 초기 명단 맞춤 안전검사에 실패해 아무것도 변경하지 않았습니다.";
+              if (!silent) alert(message); else console.warn(message);
+              return { blocked:true, reason:alignment?.reason || "INITIAL_ALIGNMENT_FAILED" };
+            }
+            S = alignmentResult.snapshot.val();
+            resetDerivedState();
+            if (!silent) alert(`초기 명단 맞춤 완료 — 이코딩 학생 ${alignment.aligned}명 연결 · 잘못된 대기 ${alignment.cancelled}건 종결\n교재 보유·배부·재고·원장은 변경하지 않았습니다.`);
+            render();
+            return { baselineOnly:true, aligned:alignment.aligned, cancelled:alignment.cancelled, NEW:0, MOVE:0, EXIT:0 };
+          }
           const hasRosterChange = [...after].some(([externalId, next]) => {
             const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
             if (!nextIds.length) return false;
@@ -8456,7 +8546,7 @@
           }
           const hasActionableStudentChange = [...after].some(([externalId, next]) => {
             if (!Object.keys(next.classIds || {}).length) return false;
-            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate, S.ecodingAbsenceCandidates?.[pid]?.[externalId]?.firstSeenAt||now(), next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates);
+            const desired = desiredEcodingStudentTransition(S, pid, externalId, next.classIds, next.admissionDate, S.ecodingAbsenceCandidates?.[pid]?.[externalId]?.firstSeenAt||now(), next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates, next.name);
             if (desired.blocked) return true;
             if (desired.type === "BASELINE") return true;
             const pending = arr(S.ecodingEvents).filter((event) =>
@@ -8522,12 +8612,14 @@
               if (!hasClasses) continue;
               const existingAbsenceCandidate=st.ecodingAbsenceCandidates[pid][externalId];
               counts.DUPLICATE += cancelPendingEcodingExitEvents(st, pid, externalId);
-              const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
+              const localMatches = ecodingLocalStudentMatches(st, externalId, next.name);
               if (localMatches.length > 1) return false;
-              if (localMatches.length === 1)
+              if (localMatches.length === 1) {
+                localMatches[0].externalId = localMatches[0].externalId || externalId;
                 closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
+              }
               const moveObservedAt=existingAbsenceCandidate?.firstSeenAt||now(),
-                desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, moveObservedAt, next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates),
+                desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, moveObservedAt, next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates, next.name),
                 type = desired.type,
                 eventBeforeClassIds = desired.beforeClassIds;
               counts.DUPLICATE += supersedeStalePendingEcodingTransitions(
