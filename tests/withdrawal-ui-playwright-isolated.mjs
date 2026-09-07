@@ -60,6 +60,9 @@ function seedState() {
       SBUNDLE1: { id: "SBUNDLE1", name: "묶음검수일", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SONBOARD: { id: "SONBOARD", name: "반배정전검수", active: true, onboarding: true, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:10:00+09:00", periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
+      SHM1: { id: "SHM1", name: "(반1)이현민7480", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
+      SHM2: { id: "SHM2", name: "(반2)이현민1234", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
+      SUT: { id: "SUT", name: "(반5)우태양7206", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
     },
     refundTasks: {
       RTASK_EXACT: {
@@ -246,6 +249,13 @@ try {
       return { sameType:sameDate.type, sameDate:sameDate.moveBusinessDate, differentType:differentDate.type, waiting:differentDate.waitingForMoveDates, addType:addOnly.type, addDate:addOnly.moveBusinessDate, removeType:removeOnly.type, removeDate:removeOnly.moveBusinessDate, newType:newOnly.type, mappedIds:Object.keys(mappedOnly.classIds), endedIds:Object.keys(allEnded.classIds), exitDate:allEnded.exitDate, dateCutoverWithPriorRoster, dateCutoverWithoutPriorRoster };
     });
     assert.deepEqual(ecodingDateRules, { sameType:"MOVE", sameDate:"2026-09-07", differentType:"", waiting:true, addType:"MOVE", addDate:"2026-09-07", removeType:"MOVE", removeDate:"2026-09-07", newType:"NEW", mappedIds:["CNEW"], endedIds:[], exitDate:"2026-09-07", dateCutoverWithPriorRoster:false, dateCutoverWithoutPriorRoster:true }, `${viewport.name}: eCoding entry/exit-date mapping rules failed`);
+    const studentNameSearchRules = await page.evaluate(() => ({
+      suffixExact: matchingStudents("이현민7480", true).map((student) => student.id),
+      duplicateBase: matchingStudents("이현민", true).map((student) => student.id).sort(),
+      newlyRegisteredBase: matchingStudents("우태양", true).map((student) => student.id),
+      newlyRegisteredFull: matchingStudents("(반5)우태양7206", true).map((student) => student.id),
+    }));
+    assert.deepEqual(studentNameSearchRules, { suffixExact:["SHM1"], duplicateBase:["SHM1","SHM2"], newlyRegisteredBase:["SUT"], newlyRegisteredFull:["SUT"] }, `${viewport.name}: duplicate-name suffix search failed`);
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     await page.locator("#newNames").evaluate((field) => { field.value = "신규직접입력검수"; });
     await page.evaluate(() => { globalThis.__bookflowFakeTransactionDelayMs = 300; });

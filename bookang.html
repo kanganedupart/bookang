@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.59" />
+    <meta name="bookflow-build" content="2026-09-07.60" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.59", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.60", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.59";
+      const BOOKFLOW_BUILD = "2026-09-07.60";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -381,6 +381,21 @@
           : withoutLegacyPrefix;
         return nameOnly.toLowerCase();
       }
+      function normalizedStudentFullName(studentOrName) {
+        return String(
+          typeof studentOrName === "object" && studentOrName
+            ? studentOrName.name
+            : studentOrName || "",
+        ).normalize("NFKC").trim().replace(/^\([^)]*\)/, "").replace(/\s+/g, "").toLocaleLowerCase("ko");
+      }
+      function studentMatchesQuery(student, query) {
+        const key = studentSearchKey(query);
+        return !!key && (
+          studentSearchKey(student?.name).includes(key) ||
+          normalizedStudentFullName(student).includes(key) ||
+          normalizedStudentName(student).includes(key)
+        );
+      }
       function studentNameIdentityKey(studentOrName) {
         const normalizedName = normalizedStudentName(studentOrName);
         return normalizedName ? `name:${normalizedName}` : "";
@@ -400,7 +415,7 @@
       function studentIdentityKey(student) {
         const externalId = normalizeExternalId(student?.externalId);
         if (externalId) return `external:${externalId}`;
-        const normalizedName = normalizedStudentName(student);
+        const normalizedName = normalizedStudentFullName(student);
         return normalizedName ? `name:${normalizedName}` : `id:${String(student?.id || "")}`;
       }
       function preferredStudentRecord(a, b, pid = selectedPeriodId()) {
@@ -422,7 +437,7 @@
         // 직접 등록한 신규생은 아직 일반반이 없거나 공통반만 배정돼도
         // 학생조회에서 이름으로 찾아 남은 반배정을 이어갈 수 있어야 한다.
         for (const student of arr(S.students).filter(
-          (item) => item.createdPeriodId === pid,
+          (item) => item.createdPeriodId === pid || Object.prototype.hasOwnProperty.call(item.periodClasses || {}, pid),
         )) {
           const key = studentIdentityKey(student), existing = searchable.get(key);
           searchable.set(key, existing ? preferredStudentRecord(existing, student, pid) : student);
@@ -439,7 +454,7 @@
         // 가져오기 원본에만 있고 현재 실제반이 0개인 학생은 후보가 아니다.
         for (const student of searchableCurrentStudents(includeInactive).filter(
           (s) =>
-            studentSearchKey(s.name).includes(q),
+            studentMatchesQuery(s, q),
         )) {
           const key = studentIdentityKey(student);
           const existing = uniqueStudents.get(key);
@@ -2847,12 +2862,13 @@
                 .filter(Boolean),
             ),
           ],
-          students = arr(S.students),
+          students = searchableCurrentStudents(true),
           ids = [],
           errors = [];
         for (const name of names) {
-          const exact = students.filter((s) => s.name === name),
-            partial = students.filter((s) => s.name.includes(name));
+          const queryKey = studentSearchKey(name),
+            exact = students.filter((s) => studentSearchKey(s.name) === queryKey || normalizedStudentFullName(s) === queryKey),
+            partial = students.filter((s) => studentMatchesQuery(s, name));
           const hit =
             exact.length === 1
               ? exact[0]
