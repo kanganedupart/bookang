@@ -315,9 +315,13 @@ try {
     await page.locator("#studentStatusAutoResults button", { hasText: "신규부분검수" }).click();
     await page.getByRole("button", { name: "반 관리", exact: true }).click();
     const recentClassResult = page.locator(".recent-class-result");
-    assert.match(await recentClassResult.innerText(), /최근 반변경 결과[\s\S]*이전 반[\s\S]*신규 검수반[\s\S]*변경 후 반[\s\S]*추가 검수반/, `${viewport.name}: recent class result was not restored after navigation`);
-    assert.match(await recentClassResult.innerText(), /확인용 기록입니다/, `${viewport.name}: recent class result is not marked read-only`);
+    assert.match(await recentClassResult.innerText(), /최근 반변경[\s\S]*이전 반[\s\S]*신규 검수반[\s\S]*변경 후 반[\s\S]*추가 검수반/, `${viewport.name}: recent class result was not restored after navigation`);
+    assert.match(await recentClassResult.innerText(), /다음 반변경 전까지 유지됩니다/, `${viewport.name}: recent class result retention is unclear`);
     assert.equal(await recentClassResult.locator("button").count(), 0, `${viewport.name}: recent class result exposes a repeat-action button`);
+    await page.getByRole("button", { name: "교재 처리", exact: true }).click();
+    assert.match(await page.locator("#screen").innerText(), /반이동 교재 1:1 확인/, `${viewport.name}: last class transition was not restored for delayed book processing`);
+    assert.deepEqual(await page.evaluate(() => window.studentTransition?.beforeClassIds), ["CNEW"], `${viewport.name}: restored previous-class exact-set mismatch`);
+    assert.deepEqual((await page.evaluate(() => window.studentTransition?.afterClassIds)).sort(), ["CADD", "CNEW"], `${viewport.name}: restored next-class exact-set mismatch`);
     await page.locator('[data-main-tab="신규"]').click();
     assert.equal(await page.locator("tbody tr", { hasText: "신규부분검수" }).count(), 0, `${viewport.name}: completed student returned to new-work queue after class add`);
 
@@ -388,12 +392,15 @@ try {
     const stateAfterReturn = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(stateAfterReturn.students.SEXIT.pendingReturn, true, `${viewport.name}: distribution lock released before withdrawal completion`);
 
-    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByRole("button", { name: "미배부 삭제", exact: true }).click();
+    await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByRole("button", { name: "미배부 제외", exact: true }).click();
     await page.locator("#appDialogInput").fill("격리 검수 제외");
     await page.locator(".app-dialog .confirm-button").click();
     await page.locator(".exit-review-card tr", { hasText: "환불제외 검수교재" }).getByText("환불 제외", { exact: true }).waitFor();
     const taskAfterDecision = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).refundTasks.RTASK_EXACT, FAKE_STATE_KEY);
     assert.equal(taskAfterDecision.books.BEXCLUDED.status, "EXCLUDED", `${viewport.name}: refund exclusion not persisted`);
+    const exclusionHistory = await page.evaluate((key) => Object.values(JSON.parse(localStorage.getItem(key)).movements).filter((movement) => movement.studentId === "SEXIT" && movement.bookId === "BEXCLUDED" && movement.type === "BOOK_EXCLUDE"), FAKE_STATE_KEY);
+    assert.equal(exclusionHistory.length, 1, `${viewport.name}: refund exclusion history was not written exactly once`);
+    assert.equal(exclusionHistory[0].bookName, "환불제외 검수교재", `${viewport.name}: refund exclusion history lost book identity`);
     await page.getByRole("button", { name: "퇴반완료", exact: true }).waitFor();
 
     await page.getByRole("button", { name: "퇴반완료", exact: true }).click();

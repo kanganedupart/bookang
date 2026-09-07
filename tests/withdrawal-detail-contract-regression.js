@@ -59,7 +59,9 @@ assert.doesNotMatch(refundDecision, /\.stock\s*[+\-]?=/,
   "환불유지/제외 함수가 재고를 직접 변경합니다.");
 assert.doesNotMatch(refundDecision, /\.holdings\s*[+\-]?=|holdings\s*\[[^\]]+\]\s*[+\-]?=/,
   "환불유지/제외 함수가 학생 보유수량을 직접 변경합니다.");
-assert.doesNotMatch(refundDecision, /st\.movements\s*\[[^\]]+\]\s*=/,
+contains(refundDecision, /BOOK_EXCLUDE/, "미배부 제외 이력이 없습니다.");
+contains(refundDecision, /BOOK_EXCLUDE_CANCEL/, "미배부 제외 취소 이력이 없습니다.");
+assert.doesNotMatch(refundDecision, /type\s*:\s*["'](?:DISTRIBUTE|RETURN)["']/,
   "환불유지/제외 함수가 배부·회수 원장을 생성합니다.");
 
 const panel = functionSource("exitReviewPanel");
