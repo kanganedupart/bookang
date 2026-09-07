@@ -61,6 +61,7 @@ function seedState() {
       SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SONBOARD: { id: "SONBOARD", name: "반배정전검수", active: true, onboarding: true, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:10:00+09:00", periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
       SHM1: { id: "SHM1", externalId:"E-HM-1", name: "이현민", number:"010-2625-7480", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
+      SHM1LEGACY: { id: "SHM1LEGACY", name: "이현민", number:"010-2625-7480", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
       SHM2: { id: "SHM2", externalId:"E-HM-2", name: "(선명)이현민6622", number:"010-4738-6622", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
       SHM3: { id: "SHM3", externalId:"E-HM-3", name: "이현민", number:"010-5808-1423", active: true, classes: {}, holdings: {} },
       SUT: { id: "SUT", name: "(반5)우태양7206", active: true, periodClasses: { [periodId]: {} }, classes: {}, holdings: {} },
@@ -491,7 +492,7 @@ try {
     assert.match(await page.locator("#refundRows").innerText(), /퇴반완료/);
     await page.locator('[data-main-tab="학생"]').click();
     await page.locator("#studentStatusSearch").fill("퇴반검수");
-    const completedCandidate = page.locator("#studentStatusAutoResults button", { hasText: "퇴반검수" });
+    const completedCandidate = page.locator('#studentStatusAutoResults button[onclick^="selectStatusStudent"]', { hasText: "퇴반검수" });
     await completedCandidate.waitFor();
     assert.match(await completedCandidate.innerText(), /퇴반완료/, `${viewport.name}: completed student missing from search`);
     await completedCandidate.click();

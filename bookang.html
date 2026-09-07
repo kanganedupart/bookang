@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.64" />
+    <meta name="bookflow-build" content="2026-09-07.65" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.64", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.65", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.64";
+      const BOOKFLOW_BUILD = "2026-09-07.65";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -402,6 +402,13 @@
           last4 = String(student?.number || "").replace(/\D/g, "").slice(-4);
         return last4 && !/\d{4}$/.test(compact) ? `${name}${last4}` : name;
       }
+      function studentSearchResultIdentityKey(student) {
+        // 초기 수동 등록본과 이코딩 연동본의 내부 ID가 달라도
+        // 이름과 전화번호 끝 4자리가 같으면 조회 화면에서는 같은 학생이다.
+        // 끝번호가 다른 동명이인은 반드시 별도 결과로 유지한다.
+        const displayKey = studentSearchKey(studentSearchDisplayName(student));
+        return displayKey ? `display:${displayKey}` : studentIdentityKey(student);
+      }
       function studentNameIdentityKey(studentOrName) {
         const normalizedName = normalizedStudentName(studentOrName);
         return normalizedName ? `name:${normalizedName}` : "";
@@ -473,7 +480,7 @@
           (s) =>
             studentMatchesQuery(s, q),
         )) {
-          const key = studentIdentityKey(student);
+          const key = studentSearchResultIdentityKey(student);
           const existing = uniqueStudents.get(key);
           uniqueStudents.set(
             key,
@@ -485,7 +492,7 @@
           // 학생조회는 현재 반 유무와 관계없이 저장된 학생 전체를 찾는다.
           // 동명이인은 이름 뒤 4자리를 포함한 전체 표시명으로 각각 유지한다.
           for (const student of arr(S.students).filter((item) => studentMatchesQuery(item, q))) {
-            const key = studentIdentityKey(student), existing = uniqueStudents.get(key);
+            const key = studentSearchResultIdentityKey(student), existing = uniqueStudents.get(key);
             uniqueStudents.set(key, existing ? preferredStudentRecord(existing, student, pid) : student);
           }
           // 퇴반대기/완료 기록은 현재 학생 원본과 별개의 보존 기록이다.
