@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.63" />
+    <meta name="bookflow-build" content="2026-09-07.64" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.63", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.64", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.63";
+      const BOOKFLOW_BUILD = "2026-09-07.64";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -393,8 +393,14 @@
         return !!key && (
           studentSearchKey(student?.name).includes(key) ||
           normalizedStudentFullName(student).includes(key) ||
-          normalizedStudentName(student).includes(key)
+          normalizedStudentName(student).includes(key) ||
+          studentSearchKey(`${student?.name || ""}${String(student?.number || "").replace(/\D/g, "").slice(-4)}`).includes(key)
         );
+      }
+      function studentSearchDisplayName(student) {
+        const name = String(student?.name || "").trim(), compact = normalizedStudentFullName(name),
+          last4 = String(student?.number || "").replace(/\D/g, "").slice(-4);
+        return last4 && !/\d{4}$/.test(compact) ? `${name}${last4}` : name;
       }
       function studentNameIdentityKey(studentOrName) {
         const normalizedName = normalizedStudentName(studentOrName);
@@ -476,6 +482,12 @@
         }
         if (includeInactive) {
           const pid = selectedPeriodId();
+          // 학생조회는 현재 반 유무와 관계없이 저장된 학생 전체를 찾는다.
+          // 동명이인은 이름 뒤 4자리를 포함한 전체 표시명으로 각각 유지한다.
+          for (const student of arr(S.students).filter((item) => studentMatchesQuery(item, q))) {
+            const key = studentIdentityKey(student), existing = uniqueStudents.get(key);
+            uniqueStudents.set(key, existing ? preferredStudentRecord(existing, student, pid) : student);
+          }
           // 퇴반대기/완료 기록은 현재 학생 원본과 별개의 보존 기록이다.
           // 학생 ID가 바뀌거나 원본이 없어도 task snapshot의 이름으로 반드시 조회한다.
           for (const task of arr(S.refundTasks).filter(
@@ -521,7 +533,8 @@
               const action = s.__withdrawalTaskId
                 ? `selectStatusWithdrawalTask('${s.__withdrawalTaskId}')`
                 : `${selectFn}('${s.id}')`;
-              return `<button onclick="${action}" title="${esc(s.name)}"><b>${esc(s.name)}</b><small> · ${state}</small></button>`;
+              const displayName = studentSearchDisplayName(s);
+              return `<button onclick="${action}" title="${esc(displayName)}"><b>${esc(displayName)}</b><small> · ${state}</small></button>`;
             },
           )
           .join("");
