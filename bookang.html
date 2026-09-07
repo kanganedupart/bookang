@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.58" />
+    <meta name="bookflow-build" content="2026-09-07.59" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.58", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.59", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.58";
+      const BOOKFLOW_BUILD = "2026-09-07.59";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -8183,6 +8183,11 @@
         const startDate = periodOperationalStartDate(st, pid);
         return !!startDate && dateKey < startDate;
       }
+      function shouldInitializeEcodingDateBaseline(fresh, snap) {
+        return fresh?.membershipSchemaVersion === "CLASS_DATES_V1" &&
+          snap?.membershipSchemaVersion !== "CLASS_DATES_V1" &&
+          !arr(snap?.students).length;
+      }
       function desiredEcodingStudentTransition(st, pid, externalId, nextClassIds, admissionDate = "", moveObservedAt = "", sourceLastModifiedAt = "", activeClassDates = null, inactiveClassDates = null) {
         activeClassDates=activeClassDates||{};inactiveClassDates=inactiveClassDates||{};
         const localMatches = arr(st.students).filter((student) => normalizeExternalId(student.externalId) === externalId);
@@ -8363,7 +8368,7 @@
               }
               return true;
             };
-          if (fresh.membershipSchemaVersion === "CLASS_DATES_V1" && snap.membershipSchemaVersion !== "CLASS_DATES_V1") {
+          if (shouldInitializeEcodingDateBaseline(fresh, snap)) {
             const baselineResult = await transaction((st) => {
               st.ecodingSnapshots = st.ecodingSnapshots || {};
               st.ecodingBaselines = st.ecodingBaselines || {};
