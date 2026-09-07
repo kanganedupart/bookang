@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.68" />
+    <meta name="bookflow-build" content="2026-09-07.69" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.68", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.69", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.68";
+      const BOOKFLOW_BUILD = "2026-09-07.69";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -8377,7 +8377,7 @@
         if (inventoryBefore !== inventoryAfter || movementCountBefore !== Object.keys(st.movements || {}).length || holdingsChanged)
           return { blocked:true, reason:"INVENTORY_INVARIANT" };
         st.integrationCutovers = st.integrationCutovers || {};
-        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), initialRosterAlignmentVersion:4, sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
+        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), initialRosterAlignmentVersion:5, sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
         return { blocked:false, aligned:assignments.size, cancelled };
       }
       function cancelInvalidPrestartWork(st, pid) {
@@ -8525,7 +8525,7 @@
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
           const counts = { NEW: 0, MOVE: 0, ADD: 0, REMOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
-          if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 4) {
+          if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 5) {
             let alignment = null;
             const alignmentResult = await transaction((st) => {
               alignment = alignInitialEcodingRoster(st, pid, after, fresh);
