@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.70" />
+    <meta name="bookflow-build" content="2026-09-07.71" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.70", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.71", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.70";
+      const BOOKFLOW_BUILD = "2026-09-07.71";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -505,7 +505,7 @@
           )) {
             const student = S.students?.[task.studentId] ||
               arr(S.students).find((item) => item.id === task.studentId) || null;
-            if (student) uniqueStudents.delete(studentIdentityKey(student));
+            if (student) uniqueStudents.delete(studentSearchResultIdentityKey(student));
             uniqueStudents.set(`withdrawal:${task.periodId || ""}:${task.id}`, {
               ...(student || { id: task.studentId || `ARCHIVE_${task.id}`, active: false }),
               name: task.studentName || student?.name || "이름 미확인",
@@ -764,6 +764,8 @@
       }
       function classMoveWorkGroups(st = S, pid = selectedPeriodId(), done = false) {
         return arr(st.students).map((student) => {
+          if (!done && (student.active === false || studentExitedInPeriod(student, pid)))
+            return { student, changes: [] };
           const changes = arr(student.classChanges)
             .filter((change) => (!change.periodId || change.periodId === pid) && Boolean(change.workCompletedAt) === done)
             .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
