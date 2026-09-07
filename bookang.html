@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.65" />
+    <meta name="bookflow-build" content="2026-09-07.66" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.65", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.66", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.65";
+      const BOOKFLOW_BUILD = "2026-09-07.66";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9629,6 +9629,22 @@
         const count = document.getElementById("studentBookCount");
         if (count) count.textContent = `검색 결과 ${visible}종 / 전체 ${rows.length}종`;
       }
+      function ecodingActiveButLocalExitedStudents() {
+        const pid = selectedPeriodId(), snapshot = S.ecodingSnapshots?.[pid],
+          mappings = S.ecodingClassMappings?.[pid] || {};
+        if (!pid || !snapshot) return [];
+        const rows = [];
+        for (const source of arr(snapshot.students)) {
+          const next = normalizedEcodingStudent(source, mappings, S, pid);
+          if (!Object.keys(next.classIds || {}).length) continue;
+          const matches = ecodingLocalStudentMatches(S, next.externalId, next.name);
+          if (matches.length !== 1) continue;
+          const student = matches[0], localClassIds = activePeriodClassIds(S, student.id);
+          if (student.periodMembership?.[pid] === true && localClassIds.length) continue;
+          rows.push({ student, sourceClassIds:Object.keys(next.classIds) });
+        }
+        return rows.sort((a,b) => a.student.name.localeCompare(b.student.name, "ko"));
+      }
       function studentStatus() {
         const students = arr(S.students).sort((a, b) =>
           a.name.localeCompare(b.name, "ko"),
@@ -9742,8 +9758,11 @@
 </div>`;
         }
         if (!s && archiveTask) detail = withdrawalArchivePanel(archiveTask);
+        const rosterMismatches = ecodingActiveButLocalExitedStudents(), mismatchPanel = rosterMismatches.length
+          ? `<div class="receipt" style="border-left-color:#b3382d"><b class="danger">연동 상태 확인 필요 ${rosterMismatches.length}명</b><small>이코딩 매칭반에는 재원이나 교재 프로그램의 현재 반은 0개입니다. 자동 복구하지 않습니다.</small><div class="class-chip-list">${rosterMismatches.map(({student}) => `<button type="button" onclick="selectStatusStudent('${student.id}')">${esc(studentSearchDisplayName(student))}</button>`).join("")}</div></div>`
+          : "";
         document.querySelector("#screen").innerHTML =
-          `<section class="panel student-status-panel"><div class="student-search-line"><strong>학생 조회</strong><input id="studentStatusSearch" value="${esc(q)}" placeholder="이름 두 글자 이상" autocomplete="off" oninput="handleStudentStatusSearch(this)" oncompositionend="handleStudentStatusSearch(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();confirmStudentSearch(this,'studentStatusAutoResults','status')}"></div><div id="studentStatusAutoResults" class="picker-results student-search-results">${studentSearchKey(q).length >= 2 && !s ? studentResultButtons(matches, "selectStatusStudent") : ""}</div><div id="studentStatusDetail">${detail}</div></section>`;
+          `<section class="panel student-status-panel">${mismatchPanel}<div class="student-search-line"><strong>학생 조회</strong><input id="studentStatusSearch" value="${esc(q)}" placeholder="이름 두 글자 이상" autocomplete="off" oninput="handleStudentStatusSearch(this)" oncompositionend="handleStudentStatusSearch(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();confirmStudentSearch(this,'studentStatusAutoResults','status')}"></div><div id="studentStatusAutoResults" class="picker-results student-search-results">${studentSearchKey(q).length >= 2 && !s ? studentResultButtons(matches, "selectStatusStudent") : ""}</div><div id="studentStatusDetail">${detail}</div></section>`;
         requestAnimationFrame(() => {
           activateAutomaticStudentSearches();
           if (s && !displayedWithdrawalTask) {
