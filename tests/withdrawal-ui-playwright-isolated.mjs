@@ -225,6 +225,12 @@ try {
     await page.getByRole("button", { name: "로그인", exact: true }).click();
     await page.locator('[data-main-tab="학생"]').waitFor({ timeout: 15000 });
     assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
+    await page.locator('button[title="관리"]').click();
+    for (const [label, heading] of [["대상","이코딩 반·교재 최초 연결 설정"],["반·교재","교재 관리"],["운영","운영 반"],["직원","직원관리"]]) {
+      await page.locator("#subtabsHost").getByRole("button", { name:label, exact:true }).click();
+      await page.locator("#screen").getByRole("heading", { name:heading, exact:true }).waitFor();
+    }
+    await page.getByRole("button", { name:"학생", exact:true }).click();
     const ecodingDateRules = await page.evaluate(() => {
       const pid = "P-RULE", st = {
         currentPeriodId: pid,

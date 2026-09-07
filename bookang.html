@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.61" />
+    <meta name="bookflow-build" content="2026-09-07.62" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.61", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.62", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.61";
+      const BOOKFLOW_BUILD = "2026-09-07.62";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -2089,7 +2089,11 @@
         periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span>${p?.bookStartDate ? `<span class="badge">교재 시작 ${esc(p.bookStartDate)}</span>` : ""}</div>`;
       }
       function hubNav(items, current, setter) {
-        return `<div class="subtabs">${items.map(([key, label]) => `<button class="${current === key ? "on" : ""}" onclick="${setter}='${key}';render()">${label}</button>`).join("")}</div>`;
+        return `<div class="subtabs">${items.map(([key, label]) => `<button type="button" class="${current === key ? "on" : ""}" data-hub-key="${esc(key)}" onclick="setHubView('${setter}','${key}')">${label}</button>`).join("")}</div>`;
+      }
+      function setHubView(setter, key) {
+        window[setter] = key;
+        render();
       }
       function prependHub(html) {
         document.querySelector("#subtabsHost").innerHTML = html;
