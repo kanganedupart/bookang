@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.69" />
+    <meta name="bookflow-build" content="2026-09-07.70" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.69", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.70", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,11 +188,11 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.69";
-      const ECODING_OPERATION_LOCKED = false;
+      const BOOKFLOW_BUILD = "2026-09-07.70";
+      const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
-        alert("ACA 원본 명단 연동을 검증하는 동안 이코딩 자동연동 기능을 잠시 잠갔습니다. 학생조회·배부·회수와 수동 신규·반변경·퇴반은 정상적으로 사용할 수 있습니다.");
+        alert("이코딩 자동연동을 중지했습니다. 학생조회·배부·회수와 수동 신규·반변경·퇴반은 정상적으로 사용할 수 있습니다.");
         return true;
       }
       let xlsxLoadPromise = null;
@@ -7614,6 +7614,7 @@
         return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="필수 입력"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 적용 체크를 해제하세요. 교재명과 교재비가 모두 있어야 저장됩니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결됨</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
       }
       async function fetchEcodingSnapshot(){
+        if(ECODING_OPERATION_LOCKED) throw new Error('이코딩 자동연동이 중지되었습니다.');
         const user=firebase.auth().currentUser;
         if(!user) throw new Error('직원 로그인이 필요합니다.');
         const token=await user.getIdToken();
