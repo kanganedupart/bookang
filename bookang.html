@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.56" />
+    <meta name="bookflow-build" content="2026-09-07.57" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.56", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.57", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.56";
+      const BOOKFLOW_BUILD = "2026-09-07.57";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -714,6 +714,20 @@
         return manualNewStudents(st, pid).filter(
           (student) => !newStudentWorkRecord(student, pid),
         ).length;
+      }
+      function classMoveWorkGroups(st = S, pid = selectedPeriodId(), done = false) {
+        return arr(st.students).map((student) => {
+          const changes = arr(student.classChanges)
+            .filter((change) => (!change.periodId || change.periodId === pid) && Boolean(change.workCompletedAt) === done)
+            .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+          return { student, changes };
+        }).filter((group) => group.changes.length);
+      }
+      function pendingClassMoveCount(st = S, pid = selectedPeriodId()) {
+        const keys = new Set(classMoveWorkGroups(st, pid, false).map(({ student }) => `S:${student.id}`));
+        for (const event of arr(st.ecodingEvents).filter((item) => item.type === "MOVE" && item.status === "PENDING" && item.periodId === pid))
+          keys.add(`E:${normalizeExternalId(event.externalStudentId) || event.id}`);
+        return keys.size;
       }
       function debounceScreenSearch(input, stateKey, renderFn) {
         clearTimeout(searchTimer);
@@ -1329,6 +1343,10 @@
           window.ecodingEventId = "";
           window.ecodingPreviewEventId = "";
         }
+        if (x === "반이동") {
+          window.classMoveWorkView = "PENDING";
+          window.classMoveStudentId = "";
+        }
         if (x === "일괄처리") {
           view = "academy";
           window.newStudentForwarded = false;
@@ -1348,7 +1366,7 @@
       }
       function renderTabs() {
         const newCount = ecodingEvents("NEW").length + pendingManualNewCount(),
-          moveCount = ecodingEvents("MOVE").length,
+          moveCount = pendingClassMoveCount(),
           chargeCount = pendingChargeCount(),
           refundCount = fastPendingRefundCount();
         tabs.innerHTML = TABS.map((x) => {
@@ -6408,6 +6426,8 @@
               beforeClassIds: Object.fromEntries(currentIds.map((cid) => [cid, cid])),
               afterClassIds: cs,
               memo: `반 추가: ${addedIds.map((cid) => st.classes?.[cid]?.name || cid).join(", ")}`,
+              workStatus: "PENDING",
+              workSource: "MANUAL",
               actor,
               time: now(),
             };
@@ -6481,6 +6501,8 @@
             beforeClassIds: Object.fromEntries(beforeClassIds.map((id) => [id, id])),
             afterClassIds: Object.fromEntries(classIds.map((id) => [id, id])),
             memo,
+            workStatus: "PENDING",
+            workSource: "MANUAL",
             actor,
             time: now(),
           };
@@ -7933,7 +7955,95 @@
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><div><h2>신규 ${showDone ? manualRows.length : manualRows.length + events.length}명</h2></div><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="newWorkView='PENDING';newWorkSelectedIds=[];ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="newWorkView='DONE';newWorkSelectedIds=[];ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th></th><th>학생명</th><th>입학일</th><th>반</th><th>교재현황</th><th>완료</th></tr></thead><tbody>${eventRows}${studentRows || (!eventRows ? '<tr><td colspan="6">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${right}</section></div>`;
       }
       function ecodingNewScreen(){newWorkQueueScreen();}
-      function ecodingMoveScreen(){ecodingQueueScreen('MOVE','반변경');}
+      function classMoveTransitionForStudent(sid, st = S, pid = selectedPeriodId()) {
+        const student = st.students?.[sid], changes = arr(student?.classChanges)
+          .filter((change) => (!change.periodId || change.periodId === pid) && !change.workCompletedAt)
+          .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+        if (!student || !changes.length) return null;
+        const first = changes[0], last = changes[changes.length - 1],
+          beforeClassIds = Object.keys(first.beforeClassIds || {}), afterClassIds = Object.keys(last.afterClassIds || {}),
+          beforeBookIds = [...ecodingBookIdsForClassSet(st, pid, Object.fromEntries(beforeClassIds.map((id) => [id, id])))],
+          afterBookIds = [...ecodingBookIdsForClassSet(st, pid, Object.fromEntries(afterClassIds.map((id) => [id, id])))];
+        return { sid, kind: "MOVE", changes, beforeClassIds, afterClassIds, beforeBookIds, afterBookIds, memo: last.memo || "", savedAt: last.time || "" };
+      }
+      function classMoveUnresolvedBooks(sid, st = S, pid = selectedPeriodId()) {
+        const transition = classMoveTransitionForStudent(sid, st, pid);
+        if (!transition) return [];
+        const before = new Set(transition.beforeBookIds);
+        return transition.afterBookIds.filter((bookId) => !before.has(bookId) && eligibleIn(st, sid, bookId, pid) && Number(st.students?.[sid]?.holdings?.[bookId] || 0) < 1);
+      }
+      function openClassMoveWork(sid) {
+        const transition = classMoveTransitionForStudent(sid);
+        if (!transition) return alert("미완료 반변경 기록이 없습니다.");
+        window.studentTransition = transition;
+        window.sid = sid;
+        window.processStudentQuery = S.students?.[sid]?.name || "";
+        window.studentHubView = "process";
+        window.action = "DISTRIBUTE";
+        window.bid = "";
+        window.memoDraft = "";
+        window.businessReason = "NORMAL";
+        window.studentProcessScope = "SINGLE";
+        selected = [];
+        receipt = null;
+        tab = "학생";
+        render();
+      }
+      async function completeClassMoveWork(sid) {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
+        const pid = selectedPeriodId(), transition = classMoveTransitionForStudent(sid), unresolved = classMoveUnresolvedBooks(sid);
+        if (!transition) return alert("이미 완료됐거나 반변경 기록이 없습니다.");
+        if (unresolved.length) return alert(`새 반 미배부 교재 ${unresolved.length}종이 남아 있어 완료할 수 없습니다.`);
+        if (!(await askConfirm(`${S.students?.[sid]?.name || "학생"} 학생의 반변경 교재 확인을 완료할까요?\n완료 후 반변경 미완료 명단에서 제외됩니다.`))) return;
+        operationBusy = true;
+        const changeIds = transition.changes.map((change) => change.id), inventoryBefore = JSON.stringify({
+          books: Object.fromEntries(arr(S.books).map((book) => [book.id, Number(book.stock || 0)])),
+          holdings: Object.fromEntries(arr(S.students).map((student) => [student.id, student.holdings || {}])),
+          movementCount: Object.keys(S.movements || {}).length,
+        });
+        try {
+        const result = await transaction((st) => {
+          const student = st.students?.[sid];
+          if (!student) return false;
+          for (const changeId of changeIds) {
+            const change = student.classChanges?.[changeId];
+            if (!change || change.workCompletedAt) return false;
+          }
+          if (classMoveUnresolvedBooks(sid, st, pid).length) return false;
+          const completedAt = now();
+          for (const changeId of changeIds) Object.assign(student.classChanges[changeId], { workStatus: "DONE", workCompletedAt: completedAt, workCompletedBy: actor });
+        });
+        if (!result.committed) return alert("상태가 변경되어 완료하지 않았습니다. 다시 확인하세요.");
+        const next = result.snapshot.val(), inventoryAfter = JSON.stringify({
+          books: Object.fromEntries(arr(next.books).map((book) => [book.id, Number(book.stock || 0)])),
+          holdings: Object.fromEntries(arr(next.students).map((student) => [student.id, student.holdings || {}])),
+          movementCount: Object.keys(next.movements || {}).length,
+        });
+        if (inventoryBefore !== inventoryAfter) return alert("안전검사 실패: 완료 처리 중 재고자료가 달라졌습니다. 관리자에게 알려주세요.");
+        S = next;
+        window.classMoveStudentId = "";
+        window.studentTransition = null;
+        tab = "반이동";
+        alert("반변경 처리를 완료했습니다. 미완료 명단과 숫자에서 제외됩니다.");
+        render();
+        } finally {
+          operationBusy = false;
+        }
+      }
+      function classMoveWorkScreen() {
+        const pid = selectedPeriodId(), showDone = window.classMoveWorkView === "DONE",
+          groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ecodingEvents("MOVE"),
+          selectedGroup = groups.find(({ student }) => student.id === window.classMoveStudentId), selectedEvent = pendingEvents.find((event) => event.id === window.ecodingEventId),
+          classNames = (ids) => Object.keys(ids || {}).map((id) => S.classes?.[id]?.name || id),
+          rows = groups.map(({ student, changes }) => { const latest = changes[changes.length - 1], unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length; return `<tr class="${selectedGroup?.student.id === student.id ? "selected-row" : ""}" onclick="classMoveStudentId='${student.id}';ecodingEventId='';render()"><td><b>${esc(student.name)}</b></td><td>${changes.length}회</td><td>${esc(fmt(latest.time))}</td><td>${showDone ? '<span class="badge ok">완료</span>' : `<span class="badge warn">미완료</span><small>새 반 미배부 ${unresolved}종</small>`}</td></tr>`; }).join(""),
+          eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>연동</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
+          detail = selectedEvent ? ecodingEventDetail(selectedEvent) : selectedGroup ? (() => {
+            const { student, changes } = selectedGroup, unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length;
+            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div><div class="recent-class-flow"><div><b>변경 전 반</b><div class="class-chip-list">${classNames(change.beforeClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div><div><b>변경 후 반</b><div class="class-chip-list">${classNames(change.afterClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div></div>`).join("")}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
+          })() : '<h2>반변경 학생을 선택하세요.</h2><p class="muted">왼쪽 명단에서 학생을 선택하면 변경 전·후 반을 확인할 수 있습니다.</p>';
+        document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반변경 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>변경</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
+      }
+      function ecodingMoveScreen(){classMoveWorkScreen();}
       function ecodingBookIdsForClassSet(st, pid, classIds) {
         const ids = new Set(), actualClassIds = Object.keys(classIds || {}).filter((classId) => {
           const cls = st.classes?.[classId];
@@ -7991,7 +8101,7 @@
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}if(e.type==='MOVE'){student.classChanges=student.classChanges||{};const changeId=`EC-${e.id}`;if(!student.classChanges[changeId])student.classChanges[changeId]={id:changeId,periodId:e.periodId,before:Object.keys(e.beforeClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),after:Object.keys(e.afterClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),beforeClassIds:{...(e.beforeClassIds||{})},afterClassIds:{...(e.afterClassIds||{})},memo:'이코딩 반변경',workStatus:'PENDING',workSource:'ECODING',sourceEventId:e.id,actor,time:now()};}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
         });
         if(r.committed){
           S=r.snapshot.val();
@@ -9102,8 +9212,14 @@
         const heldCount = books.reduce((n, b) => n + held(sid, b.id), 0),
           missingCount = assignedBooks(sid).filter((b) => !held(sid, b.id)).length,
           latest = recent[0],
-          exitedInSelectedPeriod = studentExitedInPeriod(s, selectedPeriodId());
-        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : ""}</section>`;
+          exitedInSelectedPeriod = studentExitedInPeriod(s, selectedPeriodId()),
+          moveTransition = classMoveTransitionForStudent(sid),
+          moveUnresolved = moveTransition ? classMoveUnresolvedBooks(sid).length : 0,
+          classBadges = (ids) => ids.map((cid) => { const cls = S.classes?.[cid]; return `<span>${esc(cls ? `${cls.subject || ""} · ${cls.teacher || "미지정"} · ${cls.name}` : cid)}</span>`; }).join("") || "없음",
+          recentHtml = moveTransition
+            ? `<details class="compact-details recent-class-result" open><summary>반변경 ${moveTransition.changes.length}회 · 최근 ${esc(fmt(moveTransition.savedAt))}</summary><div class="recent-class-flow"><div><b>최초 변경 전 반</b><div class="class-chip-list">${classBadges(moveTransition.beforeClassIds)}</div></div><div><b>현재 반</b><div class="class-chip-list">${classBadges(moveTransition.afterClassIds)}</div></div></div><div class="action-row"><span class="muted">${moveUnresolved ? `새 반 미배부 ${moveUnresolved}종` : "교재 처리 완료 가능"}</span><button ${moveUnresolved ? "disabled" : ""} onclick="completeClassMoveWork('${sid}')">반변경 처리 완료</button></div></details>`
+            : latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : "";
+        return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${recentHtml}</section>`;
       }
       function intake() {
         const all = arr(S.books)

@@ -485,6 +485,31 @@ try {
     assert.equal(persisted.students.SEXIT.holdings.BRETURN, 0, `${viewport.name}: returned holding not cleared`);
     assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
     assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
+    await page.evaluate((key) => {
+      const saved = JSON.parse(localStorage.getItem(key));
+      for (const student of Object.values(saved.students)) for (const change of Object.values(student.classChanges || {})) change.workCompletedAt = change.workCompletedAt || "2026-09-07T08:00:00+09:00";
+      saved.students.SACTIVE.classChanges = {
+        CM1: { id:"CM1", periodId:"P2026T3", beforeClassIds:{ C1:"C1" }, afterClassIds:{ C1:"C1" }, memo:"1차 검수", actor:"검수자", time:"2026-09-07T09:00:00+09:00", workStatus:"PENDING" },
+        CM2: { id:"CM2", periodId:"P2026T3", beforeClassIds:{ C1:"C1" }, afterClassIds:{ C1:"C1" }, memo:"2차 검수", actor:"검수자", time:"2026-09-07T10:00:00+09:00", workStatus:"PENDING" },
+      };
+      localStorage.setItem(key, JSON.stringify(saved));
+    }, FAKE_STATE_KEY);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator('[data-main-tab="반이동"]').waitFor();
+    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반변경 1/, `${viewport.name}: pending class-move count is not per student`);
+    await page.locator('[data-main-tab="반이동"]').click();
+    await page.locator("tbody tr", { hasText: "재원검수" }).click();
+    assert.match(await page.locator("#screen").innerText(), /반변경 2회[\s\S]*1차 변경[\s\S]*2차 변경[\s\S]*변경 전 반[\s\S]*변경 후 반/, `${viewport.name}: class-move timeline is unreadable`);
+    const classMoveInventoryBefore = await page.evaluate((key) => { const state=JSON.parse(localStorage.getItem(key)); return JSON.stringify({books:state.books,holdings:Object.fromEntries(Object.values(state.students).map(student=>[student.id,student.holdings||{}])),movements:state.movements}); }, FAKE_STATE_KEY);
+    await page.getByRole("button", { name: "반변경 처리 완료", exact: true }).click();
+    await page.locator(".app-dialog .confirm-button").click();
+    await page.locator(".app-dialog .confirm-button").click();
+    const classMoveCompleted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.ok(classMoveCompleted.students.SACTIVE.classChanges.CM1.workCompletedAt && classMoveCompleted.students.SACTIVE.classChanges.CM2.workCompletedAt, `${viewport.name}: all pending class changes were not completed together`);
+    const classMoveInventoryAfter = JSON.stringify({books:classMoveCompleted.books,holdings:Object.fromEntries(Object.values(classMoveCompleted.students).map(student=>[student.id,student.holdings||{}])),movements:classMoveCompleted.movements});
+    assert.equal(classMoveInventoryAfter, classMoveInventoryBefore, `${viewport.name}: class-move completion changed inventory or ledger`);
+    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반변경 0/, `${viewport.name}: completed class move remained in pending count`);
+    await page.locator('[data-main-tab="학생"]').click();
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     assert.equal(await page.locator("#screen").getByText(/퇴반검수|재원검수/).count(), 0, `${viewport.name}: withdrawn student remained in new-student queue`);
     assert.equal(errors.length, 0, `${viewport.name}: page errors: ${errors.join(" | ")}`);
