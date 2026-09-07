@@ -261,7 +261,7 @@ try {
       const alignedStudent = alignmentState.students.MANUAL;
       return { sameType:sameDate.type, sameDate:sameDate.moveBusinessDate, differentType:differentDate.type, waiting:differentDate.waitingForMoveDates, addType:addOnly.type, addDate:addOnly.moveBusinessDate, removeType:removeOnly.type, removeDate:removeOnly.moveBusinessDate, newType:newOnly.type, mappedIds:Object.keys(mappedOnly.classIds), endedIds:Object.keys(allEnded.classIds), exitDate:allEnded.exitDate, dateCutoverWithPriorRoster, dateCutoverWithoutPriorRoster, alignment:{blocked:alignment.blocked,aligned:alignment.aligned,cancelled:alignment.cancelled,studentCount:Object.keys(alignmentState.students).length,externalId:alignedStudent.externalId,classIds:Object.keys(alignedStudent.periodClasses[pid]),holding:alignedStudent.holdings.KEEP,stock:alignmentState.books.KEEP.stock,movements:Object.keys(alignmentState.movements).length,eventStatus:alignmentState.ecodingEvents.E1.status,onboarding:alignedStudent.onboarding,baseline:!!alignedStudent.initialRosterBaseline?.[pid],newQueue:manualNewStudents(alignmentState,pid).length} };
     });
-    assert.deepEqual(ecodingDateRules, { sameType:"MOVE", sameDate:"2026-09-07", differentType:"", waiting:true, addType:"MOVE", addDate:"2026-09-07", removeType:"MOVE", removeDate:"2026-09-07", newType:"NEW", mappedIds:["CNEW"], endedIds:[], exitDate:"2026-09-07", dateCutoverWithPriorRoster:false, dateCutoverWithoutPriorRoster:true, alignment:{blocked:false,aligned:1,cancelled:1,studentCount:1,externalId:"EXT-STUDENT",classIds:["CNEW"],holding:1,stock:7,movements:1,eventStatus:"CANCELLED",onboarding:false,baseline:true,newQueue:0} }, `${viewport.name}: eCoding entry/exit-date mapping rules failed`);
+    assert.deepEqual(ecodingDateRules, { sameType:"MOVE", sameDate:"2026-09-07", differentType:"", waiting:true, addType:"ADD", addDate:"2026-09-07", removeType:"REMOVE", removeDate:"2026-09-07", newType:"NEW", mappedIds:["CNEW"], endedIds:[], exitDate:"2026-09-07", dateCutoverWithPriorRoster:false, dateCutoverWithoutPriorRoster:true, alignment:{blocked:false,aligned:1,cancelled:1,studentCount:1,externalId:"EXT-STUDENT",classIds:["CNEW"],holding:1,stock:7,movements:1,eventStatus:"CANCELLED",onboarding:false,baseline:true,newQueue:0} }, `${viewport.name}: eCoding entry/exit-date mapping rules failed`);
     const studentNameSearchRules = await page.evaluate(() => ({
       suffixExact: matchingStudents("이현민7480", true).map((student) => student.id),
       duplicateBase: matchingStudents("이현민", true).map((student) => student.id).sort(),
@@ -544,7 +544,7 @@ try {
     }, FAKE_STATE_KEY);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator('[data-main-tab="반이동"]').waitFor();
-    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반변경 1/, `${viewport.name}: pending class-move count is not per student`);
+    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반관리 1/, `${viewport.name}: pending class-move count is not per student`);
     await page.locator('[data-main-tab="반이동"]').click();
     await page.locator("tbody tr", { hasText: "재원검수" }).click();
     assert.match(await page.locator("#screen").innerText(), /반변경 2회[\s\S]*1차 변경[\s\S]*2차 변경[\s\S]*변경 전 반[\s\S]*변경 후 반/, `${viewport.name}: class-move timeline is unreadable`);
@@ -556,7 +556,7 @@ try {
     assert.ok(classMoveCompleted.students.SACTIVE.classChanges.CM1.workCompletedAt && classMoveCompleted.students.SACTIVE.classChanges.CM2.workCompletedAt, `${viewport.name}: all pending class changes were not completed together`);
     const classMoveInventoryAfter = JSON.stringify({books:classMoveCompleted.books,holdings:Object.fromEntries(Object.values(classMoveCompleted.students).map(student=>[student.id,student.holdings||{}])),movements:classMoveCompleted.movements});
     assert.equal(classMoveInventoryAfter, classMoveInventoryBefore, `${viewport.name}: class-move completion changed inventory or ledger`);
-    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반변경 0/, `${viewport.name}: completed class move remained in pending count`);
+    assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반관리 0/, `${viewport.name}: completed class move remained in pending count`);
     await page.locator('[data-main-tab="학생"]').click();
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     assert.equal(await page.locator("#screen").getByText(/퇴반검수|재원검수/).count(), 0, `${viewport.name}: withdrawn student remained in new-student queue`);

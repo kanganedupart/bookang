@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.62" />
+    <meta name="bookflow-build" content="2026-09-07.63" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.62", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.63", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.62";
+      const BOOKFLOW_BUILD = "2026-09-07.63";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -752,7 +752,7 @@
       }
       function pendingClassMoveCount(st = S, pid = selectedPeriodId()) {
         const keys = new Set(classMoveWorkGroups(st, pid, false).map(({ student }) => `S:${student.id}`));
-        for (const event of arr(st.ecodingEvents).filter((item) => item.type === "MOVE" && item.status === "PENDING" && item.periodId === pid))
+        for (const event of arr(st.ecodingEvents).filter((item) => ["MOVE","ADD","REMOVE"].includes(item.type) && item.status === "PENDING" && item.periodId === pid))
           keys.add(`E:${normalizeExternalId(event.externalStudentId) || event.id}`);
         return keys.size;
       }
@@ -1245,8 +1245,8 @@
           return arr(S.ecodingEvents).filter((event) =>
             event.type === type && event.status === status &&
             (!activeIds.size || activeIds.has(event.periodId)) &&
-            !(type === "MOVE" && periodOperationalStartDate(S,event.periodId) && localDateKey() < periodOperationalStartDate(S,event.periodId)) &&
-            !(type === "MOVE" && periodOperationalStartDate(S,event.periodId) && event.createdAt && localDateKey(event.createdAt) < periodOperationalStartDate(S,event.periodId)),
+            !(["MOVE","ADD","REMOVE"].includes(type) && periodOperationalStartDate(S,event.periodId) && localDateKey() < periodOperationalStartDate(S,event.periodId)) &&
+            !(["MOVE","ADD","REMOVE"].includes(type) && periodOperationalStartDate(S,event.periodId) && event.createdAt && localDateKey(event.createdAt) < periodOperationalStartDate(S,event.periodId)),
           );
         });
       }
@@ -1403,7 +1403,7 @@
               : x === "신규"
               ? `신규 ${newCount}`
               : x === "반이동"
-                ? `반변경 ${moveCount}`
+                ? `반관리 ${moveCount}`
                 : x === "퇴반대기"
                   ? `퇴반대기 ${refundCount}`
                 : x === "추가결제"
@@ -8064,16 +8064,16 @@
       }
       function classMoveWorkScreen() {
         const pid = selectedPeriodId(), showDone = window.classMoveWorkView === "DONE",
-          groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ecodingEvents("MOVE"),
+          groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ["MOVE","ADD","REMOVE"].flatMap((type) => ecodingEvents(type)),
           selectedGroup = groups.find(({ student }) => student.id === window.classMoveStudentId), selectedEvent = pendingEvents.find((event) => event.id === window.ecodingEventId),
           classNames = (ids) => Object.keys(ids || {}).map((id) => S.classes?.[id]?.name || id),
           rows = groups.map(({ student, changes }) => { const latest = changes[changes.length - 1], unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length; return `<tr class="${selectedGroup?.student.id === student.id ? "selected-row" : ""}" onclick="classMoveStudentId='${student.id}';ecodingEventId='';render()"><td><b>${esc(student.name)}</b></td><td>${changes.length}회</td><td>${esc(fmt(latest.time))}</td><td>${showDone ? '<span class="badge ok">완료</span>' : `<span class="badge warn">미완료</span><small>새 반 미배부 ${unresolved}종</small>`}</td></tr>`; }).join(""),
-          eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>연동</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
+          eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>${event.type === "MOVE" ? "반변경" : event.type === "ADD" ? "반추가" : "반제외"}</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
           detail = selectedEvent ? ecodingEventDetail(selectedEvent) : selectedGroup ? (() => {
             const { student, changes } = selectedGroup, unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length;
             return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div><div class="recent-class-flow"><div><b>변경 전 반</b><div class="class-chip-list">${classNames(change.beforeClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div><div><b>변경 후 반</b><div class="class-chip-list">${classNames(change.afterClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div></div>`).join("")}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
           })() : '<h2>반변경 학생을 선택하세요.</h2><p class="muted">왼쪽 명단에서 학생을 선택하면 변경 전·후 반을 확인할 수 있습니다.</p>';
-        document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반변경 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>변경</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
+        document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반관리 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>구분</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
       }
       function ecodingMoveScreen(){classMoveWorkScreen();}
       function ecodingBookIdsForClassSet(st, pid, classIds) {
@@ -8133,7 +8133,7 @@
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}if(e.type==='MOVE'){student.classChanges=student.classChanges||{};const changeId=`EC-${e.id}`;if(!student.classChanges[changeId])student.classChanges[changeId]={id:changeId,periodId:e.periodId,before:Object.keys(e.beforeClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),after:Object.keys(e.afterClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),beforeClassIds:{...(e.beforeClassIds||{})},afterClassIds:{...(e.afterClassIds||{})},memo:'이코딩 반변경',workStatus:'PENDING',workSource:'ECODING',sourceEventId:e.id,actor,time:now()};}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}if(['MOVE','ADD','REMOVE'].includes(e.type)){student.classChanges=student.classChanges||{};const changeId=`EC-${e.id}`,label=e.type==='MOVE'?'반변경':e.type==='ADD'?'반추가':'반제외';if(!student.classChanges[changeId])student.classChanges[changeId]={id:changeId,periodId:e.periodId,before:Object.keys(e.beforeClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),after:Object.keys(e.afterClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),beforeClassIds:{...(e.beforeClassIds||{})},afterClassIds:{...(e.afterClassIds||{})},memo:`이코딩 ${label}`,changeType:e.type,workStatus:'PENDING',workSource:'ECODING',sourceEventId:e.id,actor,time:now()};}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
         });
         if(r.committed){
           S=r.snapshot.val();
@@ -8262,9 +8262,14 @@
           validMoveDate=!classesChanged||((removedClassIds.length>0||addedClassIds.length>0)&&hasCompleteRemovedDates&&hasCompleteAddedDates&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
         if(staleAtOperationalStart||historicalStartRoster)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds,baselineReason:"SOURCE_CHANGE_BEFORE_PERIOD_START" };
+        const transitionType = !classesChanged ? ""
+          : removedClassIds.length && addedClassIds.length ? (validMoveDate ? "MOVE" : "")
+          : addedClassIds.length && !removedClassIds.length ? (validMoveDate ? "ADD" : "")
+          : removedClassIds.length && !addedClassIds.length ? (validMoveDate ? "REMOVE" : "")
+          : "";
         return {
           blocked: false,
-          type: classesChanged&&validMoveDate ? "MOVE" : "",
+          type: transitionType,
           beforeClassIds: localClassIds,
           waitingForMoveDates: classesChanged&&!validMoveDate,
           moveBusinessDate,
@@ -8340,14 +8345,14 @@
         if (inventoryBefore !== inventoryAfter || movementCountBefore !== Object.keys(st.movements || {}).length || holdingsChanged)
           return { blocked:true, reason:"INVENTORY_INVARIANT" };
         st.integrationCutovers = st.integrationCutovers || {};
-        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
+        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), initialRosterAlignmentVersion:2, sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
         return { blocked:false, aligned:assignments.size, cancelled };
       }
       function cancelInvalidPrestartWork(st, pid) {
         const prestart=ecodingPreparationActive(st,pid),period=st.periods?.[pid]||{},startDate=String(period.refundEffectiveStartDate||period.bookStartDate||"").slice(0,10);
         let count = 0;
         for (const event of arr(st.ecodingEvents)) {
-          if (event?.periodId !== pid || event.status !== "PENDING" || !["NEW","MOVE","EXIT"].includes(event.type)) continue;
+          if (event?.periodId !== pid || event.status !== "PENDING" || !["NEW","MOVE","ADD","REMOVE","EXIT"].includes(event.type)) continue;
           const admissionDate = /^\d{4}-\d{2}-\d{2}/.test(String(event.admissionDate || "")) ? String(event.admissionDate).slice(0,10) : "";
           const createdDate=event.createdAt?localDateKey(event.createdAt):"",beforeStartEvent=!!startDate&&!!createdDate&&createdDate<startDate;
           if(!prestart&&!beforeStartEvent)continue;
@@ -8384,7 +8389,7 @@
           targetSignature = ecodingEventClassSignature(afterClassIds), closedAt = now();
         let count = 0;
         for (const event of arr(st.ecodingEvents)) {
-          if (event?.status !== "PENDING" || !["NEW", "MOVE"].includes(event.type) ||
+          if (event?.status !== "PENDING" || !["NEW", "MOVE", "ADD", "REMOVE"].includes(event.type) ||
               event.periodId !== pid || normalizeExternalId(event.externalStudentId) !== externalId ||
               (event.type === type && ecodingEventClassSignature(event.beforeClassIds) === beforeSignature &&
                ecodingEventClassSignature(event.afterClassIds) === targetSignature)) continue;
@@ -8487,8 +8492,8 @@
           const
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
-          const counts = { NEW: 0, MOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
-          if (!S.integrationCutovers?.[pid]?.initialRosterAlignedAt) {
+          const counts = { NEW: 0, MOVE: 0, ADD: 0, REMOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
+          if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 2) {
             let alignment = null;
             const alignmentResult = await transaction((st) => {
               alignment = alignInitialEcodingRoster(st, pid, after, fresh);
@@ -8554,7 +8559,7 @@
             if (desired.blocked) return true;
             if (desired.type === "BASELINE") return true;
             const pending = arr(S.ecodingEvents).filter((event) =>
-              event?.status === "PENDING" && ["NEW", "MOVE"].includes(event.type) &&
+              event?.status === "PENDING" && ["NEW", "MOVE", "ADD", "REMOVE"].includes(event.type) &&
               event.periodId === pid && normalizeExternalId(event.externalStudentId) === externalId
             );
             const exactCount = desired.type ? pending.filter((event) => samePendingEcodingTransition(
@@ -8646,11 +8651,11 @@
               delete st.ecodingAbsenceCandidates[pid][externalId];
               if (!type) continue;
               // 반변경은 서버 transaction 시점에도 동일 날짜 근거가 없으면 저장하지 않는다.
-              if (type === "MOVE" && !/^\d{4}-\d{2}-\d{2}$/.test(String(desired.moveBusinessDate || ""))) continue;
+              if (["MOVE","ADD","REMOVE"].includes(type) && !/^\d{4}-\d{2}-\d{2}$/.test(String(desired.moveBusinessDate || ""))) continue;
               if (arr(st.ecodingEvents).some((event) => samePendingEcodingTransition(
                 event, pid, externalId, type, eventBeforeClassIds, next.classIds,
               ))) continue;
-              const eventDate = type === "MOVE" ? desired.moveBusinessDate : next.admissionDate;
+              const eventDate = ["MOVE","ADD","REMOVE"].includes(type) ? desired.moveBusinessDate : next.admissionDate;
               const key = id("E", `${pid}|${externalId}|${type}|${ecodingEventClassSignature(eventBeforeClassIds)}|${ecodingEventClassSignature(next.classIds)}|${eventDate}`);
               if (!st.ecodingEvents[key]) {
                 st.ecodingEvents[key] = {
@@ -8732,9 +8737,9 @@
             S = r.snapshot.val();
             resetDerivedState();
             if (!silent) {
-              alert(`확인 완료 — 신규 ${counts.NEW}명 · 반이동 ${counts.MOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명 · 중복 종결 ${counts.DUPLICATE}건\n재고는 변하지 않았습니다.`);
+              alert(`확인 완료 — 신규 ${counts.NEW}명 · 반변경 ${counts.MOVE}명 · 반추가 ${counts.ADD}명 · 반제외 ${counts.REMOVE}명 · 퇴반 ${counts.EXIT}명\n교재 선퇴반 대기 ${counts.WAITING}명 · 이코딩 확인 ${counts.CONFIRMED}명 · 중복 종결 ${counts.DUPLICATE}건\n재고는 변하지 않았습니다.`);
               render();
-            } else if (counts.NEW || counts.MOVE || counts.EXIT || counts.WAITING || counts.CONFIRMED) {
+            } else if (counts.NEW || counts.MOVE || counts.ADD || counts.REMOVE || counts.EXIT || counts.WAITING || counts.CONFIRMED) {
               renderTabs();
             }
             return counts;
