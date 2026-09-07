@@ -124,8 +124,16 @@ function installFakeFirebase({ seed, stateKey }) {
   const read = () => JSON.parse(localStorage.getItem(stateKey));
   const snapshot = (value) => ({ val: () => clone(value) });
   const listeners = new Set();
-  const root = {
+  const valueAt = (value, path) => path.reduce((node, key) => node?.[key], value);
+  const setAt = (value, path, next) => {
+    let node = value;
+    for (const key of path.slice(0, -1)) node = (node[key] ||= {});
+    node[path.at(-1)] = next;
+  };
+  const reference = (path = []) => ({
+    child(key) { return reference([...path, key]); },
     on(event, success) {
+      if (path.length) throw new Error("fake child listeners are not implemented");
       if (event !== "value") throw new Error(`unexpected fake Firebase event: ${event}`);
       listeners.add(success);
       setTimeout(() => success(snapshot(read())), 0);
@@ -136,7 +144,7 @@ function installFakeFirebase({ seed, stateKey }) {
     },
     once(event) {
       if (event !== "value") throw new Error(`unexpected fake Firebase once: ${event}`);
-      return Promise.resolve(snapshot(read()));
+      return Promise.resolve(snapshot(valueAt(read(), path)));
     },
     async transaction(update) {
       globalThis.__bookflowFakeTransactionCount = Number(globalThis.__bookflowFakeTransactionCount || 0) + 1;
@@ -147,14 +155,18 @@ function installFakeFirebase({ seed, stateKey }) {
         globalThis.__bookflowFakeTransactionRejectOnce = false;
         throw new Error("forced isolated transaction failure");
       }
-      const current = read();
+      const currentRoot = read(), current = valueAt(currentRoot, path);
       const result = update(clone(current));
       if (result === undefined) return { committed: false, snapshot: snapshot(current) };
-      localStorage.setItem(stateKey, JSON.stringify(result));
-      for (const listener of listeners) queueMicrotask(() => listener(snapshot(result)));
+      if (path.length) setAt(currentRoot, path, result);
+      else Object.assign(currentRoot, result);
+      localStorage.setItem(stateKey, JSON.stringify(path.length ? currentRoot : result));
+      const nextRoot = path.length ? currentRoot : result;
+      for (const listener of listeners) queueMicrotask(() => listener(snapshot(nextRoot)));
       return { committed: true, snapshot: snapshot(result) };
     },
-  };
+  });
+  const root = reference();
   const authListeners = new Set();
   const authObject = {
     currentUser: hadState && localStorage.getItem("bookflowStaffName") ? { uid: "isolated-audit-user" } : null,
@@ -492,7 +504,7 @@ try {
     assert.match(await page.locator("#refundRows").innerText(), /퇴반완료/);
     await page.locator('[data-main-tab="학생"]').click();
     await page.locator("#studentStatusSearch").fill("퇴반검수");
-    const completedCandidate = page.locator('#studentStatusAutoResults button[onclick^="selectStatusStudent"]', { hasText: "퇴반검수" });
+    const completedCandidate = page.locator('#studentStatusAutoResults button', { hasText: "퇴반검수" });
     await completedCandidate.waitFor();
     assert.match(await completedCandidate.innerText(), /퇴반완료/, `${viewport.name}: completed student missing from search`);
     await completedCandidate.click();

@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.71" />
+    <meta name="bookflow-build" content="2026-09-08.72" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.71", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-08.72", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.71";
+      const BOOKFLOW_BUILD = "2026-09-08.72";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1829,6 +1829,57 @@
           },
         );
       }
+      function scopedStudentTransaction(sid, mutator) {
+        if (navigator.onLine === false) {
+          alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
+          return Promise.resolve({ committed:false, offline:true, snapshot:{ val:() => S } });
+        }
+        const pending = root.child("students").child(sid).transaction((student) => {
+          if (!student) return;
+          const state = { ...S, students:{ ...(S.students || {}), [sid]:student } };
+          const out = mutator(state);
+          return out === false ? undefined : state.students[sid];
+        }, null, false);
+        return pending.then((result) => {
+          const remote = pendingRemoteState;
+          pendingRemoteState = null;
+          if (remote) S = remote;
+          else if (result.committed) S = { ...S, students:{ ...(S.students || {}), [sid]:result.snapshot.val() } };
+          resetDerivedState();
+          return { committed:result.committed, snapshot:{ val:() => S } };
+        }, async (error) => {
+          pendingRemoteState = null;
+          const snapshot = await root.once("value");
+          S = snapshot.val() || { books:{}, classes:{}, students:{}, movements:{} };
+          resetDerivedState();
+          throw error;
+        });
+      }
+      function scopedStudentsTransaction(mutator) {
+        if (navigator.onLine === false) {
+          alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
+          return Promise.resolve({ committed:false, offline:true, snapshot:{ val:() => S } });
+        }
+        const pending = root.child("students").transaction((students) => {
+          const state = { ...S, students:students || {} };
+          const out = mutator(state);
+          return out === false ? undefined : state.students;
+        }, null, false);
+        return pending.then((result) => {
+          const remote = pendingRemoteState;
+          pendingRemoteState = null;
+          if (remote) S = remote;
+          else if (result.committed) S = { ...S, students:result.snapshot.val() || {} };
+          resetDerivedState();
+          return { committed:result.committed, snapshot:{ val:() => S } };
+        }, async (error) => {
+          pendingRemoteState = null;
+          const snapshot = await root.once("value");
+          S = snapshot.val() || { books:{}, classes:{}, students:{}, movements:{} };
+          resetDerivedState();
+          throw error;
+        });
+      }
       function periods() {
         return derivedValue("periods", () =>
           arr(S.periods).sort(
@@ -2115,6 +2166,12 @@
       }
       function setHubView(setter, key) {
         window[setter] = key;
+        // 관리 하위 탭은 상단 현황 수치까지 다시 계산할 필요가 없다.
+        // 큰 학생/교재 자료 전체를 재렌더링하던 지연을 피하고 관리 영역만 교체한다.
+        if (setter === "manageView" && tab === "관리") {
+          managementHub();
+          return;
+        }
         render();
       }
       function prependHub(html) {
@@ -6367,7 +6424,7 @@
         if (dup)
           return alert(`기존·종료 학생을 포함해 같은 이름이 있습니다: ${dup}`);
         let failure = "";
-        const r = await runBlockingSave("신규생 이름을 저장하고 있습니다.", () => transaction((st) => {
+        const r = await runBlockingSave("신규생 이름을 저장하고 있습니다.", () => scopedStudentsTransaction((st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) {
             failure = "운영 중인 기간에서만 신규생을 등록할 수 있습니다.";
             return false;
@@ -6396,7 +6453,7 @@
               createdPeriodId: pid,
             };
           }
-        }, { skipOptimistic: true }));
+        }));
         if (!r) return;
         if (r.committed) {
           S = r.snapshot.val();
@@ -6442,7 +6499,7 @@
           return alert("추가할 반을 선택하세요.");
         const r = await runBlockingSave(
           wasOnboarding ? "신규생 반배정을 저장하고 있습니다." : "추가 반을 저장하고 있습니다.",
-          () => transaction((st) => {
+          () => scopedStudentTransaction(sid, (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students?.[sid];
           if (!s || s.active === false) return false;
@@ -6521,7 +6578,7 @@
             classIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
           );
         let distributeIds = [], returnIds = [];
-        const r = await runBlockingSave("반변경을 저장하고 있습니다.", () => transaction((st) => {
+        const r = await runBlockingSave("반변경을 저장하고 있습니다.", () => scopedStudentTransaction(sid, (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students[sid];
           if (!s || s.active === false || s.onboarding) return false;
@@ -9656,6 +9713,10 @@
           if (matches.length !== 1) continue;
           const student = matches[0], localClassIds = activePeriodClassIds(S, student.id);
           if (student.periodMembership?.[pid] === true && localClassIds.length) continue;
+          const completedWithdrawal = arr(S.refundTasks).some((task) =>
+            task.studentId === student.id && task.periodId === pid && task.status === "DONE"
+          );
+          if (completedWithdrawal) continue;
           rows.push({ student, sourceClassIds:Object.keys(next.classIds) });
         }
         return rows.sort((a,b) => a.student.name.localeCompare(b.student.name, "ko"));
