@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.57" />
+    <meta name="bookflow-build" content="2026-09-07.58" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.57", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.58", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,8 +188,8 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.57";
-      const ECODING_OPERATION_LOCKED = true;
+      const BOOKFLOW_BUILD = "2026-09-07.58";
+      const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
         alert("ACA 원본 명단 연동을 검증하는 동안 이코딩 자동연동 기능을 잠시 잠갔습니다. 학생조회·배부·회수와 수동 신규·반변경·퇴반은 정상적으로 사용할 수 있습니다.");
@@ -8220,7 +8220,9 @@
           matchedDates=[...new Set([...removedDates,...addedDates])],
           moveBusinessDate=matchedDates.length===1?matchedDates[0]:"",
           historicalStartRoster=classesChanged&&!!periodStartDate&&localDateKey()===periodStartDate&&removedDates.length===removedClassIds.length&&removedDates.length>0&&removedDates.every((date)=>date<periodStartDate)&&addedDates.length===addedClassIds.length&&addedDates.every((date)=>date>=periodStartDate),
-          validMoveDate=!classesChanged||(removedClassIds.length>0&&addedClassIds.length>0&&removedDates.length===removedClassIds.length&&addedDates.length===addedClassIds.length&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
+          hasCompleteRemovedDates=removedDates.length===removedClassIds.length,
+          hasCompleteAddedDates=addedDates.length===addedClassIds.length,
+          validMoveDate=!classesChanged||((removedClassIds.length>0||addedClassIds.length>0)&&hasCompleteRemovedDates&&hasCompleteAddedDates&&!!moveBusinessDate&&(!periodStartDate||moveBusinessDate>=periodStartDate));
         if(staleAtOperationalStart||historicalStartRoster)
           return { blocked:false,type:"BASELINE",beforeClassIds:localClassIds,baselineReason:"SOURCE_CHANGE_BEFORE_PERIOD_START" };
         return {
@@ -8674,7 +8676,7 @@
         ecodingAutoSyncRunning = true;
         try {
           const periodIds = arr(S.periods)
-            .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status) && period.ecodingAutoSyncEnabled === true)
+            .filter((period) => ["ACTIVE", "CLOSING"].includes(period.status))
             .map((period) => period.id)
             .filter((periodId) => S.ecodingBaselines?.[periodId] && Object.keys(S.ecodingClassMappings?.[periodId] || {}).length);
           for (const periodId of periodIds) await runEcodingDiff(true, periodId);
@@ -8686,9 +8688,10 @@
       }
       function startEcodingAutoSync() {
         clearInterval(ecodingAutoSyncTimer);
-        // 여러 직원 브라우저가 동시에 이코딩 사건을 생성·취소하지 않도록
-        // 운영 동기화는 관리 화면의 명시적 확인 버튼에서만 실행한다.
-        ecodingAutoSyncTimer = -1;
+        // 로그인된 화면이 열려 있을 때 1분마다 명단 차이만 확인한다.
+        // 사건 생성은 transaction·고유 키로 중복 차단하며 교재와 재고는 변경하지 않는다.
+        ecodingAutoSyncTimer = setInterval(() => runEcodingAutoSync(false), ECODING_AUTO_SYNC_INTERVAL);
+        scheduleEcodingForegroundSync();
       }
       let ecodingForegroundSyncTimer = 0;
       function scheduleEcodingForegroundSync() {
@@ -8696,10 +8699,10 @@
         ecodingForegroundSyncTimer = setTimeout(() => runEcodingAutoSync(false), 5000);
       }
       document.addEventListener("visibilitychange", () => {
-        // 화면 복귀만으로 운영 데이터를 변경하지 않는다.
+        if (!document.hidden) scheduleEcodingForegroundSync();
       });
       window.addEventListener("focus", () => {
-        // 포커스 이동만으로 운영 데이터를 변경하지 않는다.
+        scheduleEcodingForegroundSync();
       });
       const applyEcodingEventBeforeManualExitLock = applyEcodingEvent;
       applyEcodingEvent = async function (eventId) {

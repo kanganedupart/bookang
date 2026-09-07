@@ -204,6 +204,7 @@ try {
     await context.route(/gstatic\.com\/firebasejs\//, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
     await context.route(/cdn\.jsdelivr\.net/, (route) => route.abort());
     await context.route("https://asia-northeast3-refund-book.cloudfunctions.net/bookflowStaffLogin", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ firebaseEmail: "isolated@example.invalid", firebasePassword: "isolated", role: "admin" }) }));
+    await context.route("https://asia-northeast3-refund-book.cloudfunctions.net/ecodingSync", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok:false, message:"isolated sync disabled" }) }));
     await context.addInitScript(installFakeFirebase, { seed: seedState(), stateKey: FAKE_STATE_KEY });
     const page = await context.newPage();
     const errors = [];
@@ -221,6 +222,28 @@ try {
     await page.getByRole("button", { name: "로그인", exact: true }).click();
     await page.locator('[data-main-tab="학생"]').waitFor({ timeout: 15000 });
     assert.equal(await page.locator("#actor").getByText("검수자").count(), 1, `${viewport.name}: fake login failed`);
+    const ecodingDateRules = await page.evaluate(() => {
+      const pid = "P-RULE", st = {
+        currentPeriodId: pid,
+        periods: { [pid]: { id:pid, status:"ACTIVE", bookStartDate:"2026-09-04", refundEffectiveStartDate:"2026-09-04" } },
+        classes: {
+          COLD: { id:"COLD", periodId:pid, active:true, name:"이전반" },
+          CNEW: { id:"CNEW", periodId:pid, active:true, name:"새반" },
+        },
+        students: { SRULE: { id:"SRULE", externalId:"ERULE", active:true, periodMembership:{ [pid]:true }, periodClasses:{ [pid]:{ COLD:"COLD" } } } },
+        ecodingEvents: {},
+      };
+      const sameDate = desiredEcodingStudentTransition(st,pid,"ERULE",{CNEW:"CNEW"},"","2026-09-07T09:00:00+09:00","2026-09-07",{CNEW:"2026-09-07"},{COLD:"2026-09-07"});
+      const differentDate = desiredEcodingStudentTransition(st,pid,"ERULE",{CNEW:"CNEW"},"","2026-09-07T09:00:00+09:00","2026-09-08",{CNEW:"2026-09-08"},{COLD:"2026-09-07"});
+      const addOnly = desiredEcodingStudentTransition(st,pid,"ERULE",{COLD:"COLD",CNEW:"CNEW"},"","2026-09-07T09:00:00+09:00","2026-09-07",{CNEW:"2026-09-07"},{});
+      const removeState = structuredClone(st); removeState.students.SRULE.periodClasses[pid] = { COLD:"COLD", CNEW:"CNEW" };
+      const removeOnly = desiredEcodingStudentTransition(removeState,pid,"ERULE",{CNEW:"CNEW"},"","2026-09-07T09:00:00+09:00","2026-09-07",{},{COLD:"2026-09-07"});
+      const newOnly = desiredEcodingStudentTransition({ ...st, students:{} },pid,"NEW-ID",{CNEW:"CNEW"},"2026-09-07","2026-09-07T09:00:00+09:00","2026-09-07",{CNEW:"2026-09-07"},{});
+      const mappedOnly = normalizedEcodingStudent({ id:"ERULE", name:"날짜검수", classes:[{id:"EXT-USED",active:true,entryDate:"2026-09-07"},{id:"EXT-IGNORED",active:true,entryDate:"2026-09-07"}] }, {"EXT-USED":{localClassId:"CNEW"},"EXT-IGNORED":{localClassId:"NOT-IN-PROGRAM"}}, st, pid);
+      const allEnded = normalizedEcodingStudent({ id:"ERULE", name:"날짜검수", classes:[{id:"EXT-OLD",active:false,entryDate:"2026-09-06",exitDate:"2026-09-07"}] }, {"EXT-OLD":{localClassId:"COLD"}}, st, pid);
+      return { sameType:sameDate.type, sameDate:sameDate.moveBusinessDate, differentType:differentDate.type, waiting:differentDate.waitingForMoveDates, addType:addOnly.type, addDate:addOnly.moveBusinessDate, removeType:removeOnly.type, removeDate:removeOnly.moveBusinessDate, newType:newOnly.type, mappedIds:Object.keys(mappedOnly.classIds), endedIds:Object.keys(allEnded.classIds), exitDate:allEnded.exitDate };
+    });
+    assert.deepEqual(ecodingDateRules, { sameType:"MOVE", sameDate:"2026-09-07", differentType:"", waiting:true, addType:"MOVE", addDate:"2026-09-07", removeType:"MOVE", removeDate:"2026-09-07", newType:"NEW", mappedIds:["CNEW"], endedIds:[], exitDate:"2026-09-07" }, `${viewport.name}: eCoding entry/exit-date mapping rules failed`);
     await page.getByRole("button", { name: "신규생 등록", exact: true }).click();
     await page.locator("#newNames").evaluate((field) => { field.value = "신규직접입력검수"; });
     await page.evaluate(() => { globalThis.__bookflowFakeTransactionDelayMs = 300; });
