@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-07.67" />
+    <meta name="bookflow-build" content="2026-09-07.68" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-07.67", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-07.68", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-07.67";
+      const BOOKFLOW_BUILD = "2026-09-07.68";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -7776,7 +7776,14 @@
       function normalizedEcodingStudent(student,maps,st=null,pid=""){
         const classIds={},activeClassDates={},inactiveClassDates={},rawExitDate=String(student?.exitDate||"").trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):"",rawAdmissionDate=String(student?.admissionDate||"").trim(),admissionDate=/^\d{4}-\d{2}-\d{2}/.test(rawAdmissionDate)?rawAdmissionDate.slice(0,10):"",lastModifiedAt=[student?.lastModifiedAt,...(student?.classes||[]).map(item=>item?.lastModifiedAt)].filter(Boolean).sort().pop()||"";
         for(const c of student.classes||[]){
-          const localClassId=maps[c.id]?.localClassId,localClass=st?.classes?.[localClassId];
+          let localClassId=maps[c.id]?.localClassId;
+          if(!localClassId&&st&&pid){
+            const directMatches=arr(st.classes).filter(localClass=>
+              localClass.periodId===pid&&localClass.active!==false&&localClass.systemCommon!==true&&
+              String(localClass.externalClassId||"")===String(c.id||""));
+            if(directMatches.length===1)localClassId=directMatches[0].id;
+          }
+          const localClass=st?.classes?.[localClassId];
           if(!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
           const rawEntryDate=String(c.entryDate||c.lastModifiedAt||""),entryDate=/^\d{4}-\d{2}-\d{2}/.test(rawEntryDate)?rawEntryDate.slice(0,10):"",rawClassExitDate=String(c.exitDate||""),classExitDate=/^\d{4}-\d{2}-\d{2}/.test(rawClassExitDate)?rawClassExitDate.slice(0,10):"";
           if(c.active!==true){if(classExitDate)inactiveClassDates[localClassId]=classExitDate;continue;}
@@ -8320,6 +8327,10 @@
             return cls && cls.periodId === pid && cls.active !== false && cls.systemCommon !== true;
           }),
         ), assignments = new Map(), claimedStudentIds = new Set();
+        for (const localClass of arr(st.classes)) {
+          if (localClass.periodId === pid && localClass.active !== false && localClass.systemCommon !== true && localClass.externalClassId)
+            mappedClassIds.add(localClass.id);
+        }
         for (const next of normalizedStudents.values()) {
           if (!Object.keys(next.classIds || {}).length) continue;
           const matches = ecodingLocalStudentMatches(st, next.externalId, next.name);
@@ -8366,7 +8377,7 @@
         if (inventoryBefore !== inventoryAfter || movementCountBefore !== Object.keys(st.movements || {}).length || holdingsChanged)
           return { blocked:true, reason:"INVENTORY_INVARIANT" };
         st.integrationCutovers = st.integrationCutovers || {};
-        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), initialRosterAlignmentVersion:3, sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
+        st.integrationCutovers[pid] = { ...(st.integrationCutovers[pid] || {}), source:"ECODING_ACA_RELAY", schemaVersion:fresh.membershipSchemaVersion||"", initialRosterAlignedAt:now(), initialRosterAlignmentVersion:4, sourceSyncedAt:fresh.syncedAt||"", mode:"LIVE_AFTER_INITIAL_ALIGNMENT" };
         return { blocked:false, aligned:assignments.size, cancelled };
       }
       function cancelInvalidPrestartWork(st, pid) {
@@ -8514,7 +8525,7 @@
             before = new Map((snap.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)])),
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
           const counts = { NEW: 0, MOVE: 0, ADD: 0, REMOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
-          if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 3) {
+          if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 4) {
             let alignment = null;
             const alignmentResult = await transaction((st) => {
               alignment = alignInitialEcodingRoster(st, pid, after, fresh);
