@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-08.72" />
+    <meta name="bookflow-build" content="2026-09-08.73" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-08.72", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-08.73", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-08.72";
+      const BOOKFLOW_BUILD = "2026-09-08.73";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -5520,7 +5520,20 @@
         const bookRows=Object.keys(c.books||{}).map((bid)=>{const b=S.books?.[bid], distributed=students.filter((s)=>held(s.id,bid)>0).length, missing=students.length-distributed, reason=bookDistributionIsClosed(b)?"배부 종료":Number(b?.stock||0)<missing?`재고 ${missing-Number(b?.stock||0)}권 부족`:missing?"미배부 있음":"배부 완료";return `${b?.name||bid}: 대상 ${students.length}명 · 배부 ${distributed}명 · 미배부 ${missing}명 · ${reason}`;});
         alert(`${c.name}\n고유 대상 ${students.length}명\n${bookRows.join("\n")||"연결 교재 없음"}`);
       }
-      function studentsForClass(cid){const c=S.classes?.[cid];return c?arr(S.students).filter((s)=>s.active!==false&&activePeriodClassIds(S,s.id,c.periodId).includes(cid)):[];}
+      function studentsForClass(cid){
+        const c=S.classes?.[cid];
+        if(!c)return [];
+        const byClass=derivedValue(`studentsForClass:${c.periodId||""}`,()=>{
+          const grouped={};
+          for(const student of arr(S.students)){
+            if(student.active===false)continue;
+            for(const classId of activePeriodClassIds(S,student.id,c.periodId))
+              (grouped[classId] ||= []).push(student);
+          }
+          return grouped;
+        });
+        return byClass[cid]||[];
+      }
       function classManagement() {
         const pid = selectedPeriodId(),
           books = arr(S.books)
