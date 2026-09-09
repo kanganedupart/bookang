@@ -527,6 +527,11 @@ try {
     assert.equal(await page.locator("#studentStatusDetail .exit-review-card tbody tr").count(), 5, `${viewport.name}: completed withdrawal lost distributed books`);
     const cancelButton = page.locator('#studentStatusDetail .student-head h2 .withdrawal-cancel-button');
     assert.equal(await cancelButton.count(), 1, `${viewport.name}: cancel button must be beside the student status`);
+    const badgeSizes = await cancelButton.evaluate((button) => {
+      const values = (node) => { const style=getComputedStyle(node), box=node.getBoundingClientRect(); return [box.width,box.height,style.fontSize,style.fontWeight,style.lineHeight,style.borderRadius]; };
+      return {button:values(button),status:values(button.previousElementSibling)};
+    });
+    assert.deepEqual(badgeSizes.button, badgeSizes.status, `${viewport.name}: badge dimensions or typography differ`);
     assert.equal(await page.locator('#studentStatusDetail .exit-review-card').getByRole('button', { name:'퇴반취소', exact:true }).count(), 0, `${viewport.name}: old bottom button remains`);
     await cancelButton.scrollIntoViewIfNeeded();
     await page.screenshot({ path: decodeURIComponent(new URL(`../backups/cancel-button-${viewport.name}.png`, import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1') });
@@ -561,6 +566,8 @@ try {
     await page.locator('.app-dialog .confirm-button').click();
     await page.locator('.app-dialog .confirm-button').click();
     const afterWithdrawalCancel = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    const cancelHistory = await page.evaluate(() => buildAllHistory().filter(h=>h.studentId === 'SEXIT' && h.type === '퇴반취소'));
+    assert.equal(cancelHistory.length, 1, `${viewport.name}: cancellation history must appear exactly once`);
     assert.equal(afterWithdrawalCancel.refundTasks.RTASK_EXACT.status, "CANCELLED", `${viewport.name}: completed withdrawal was not cancelled`);
     assert.equal(afterWithdrawalCancel.students.SEXIT.active, true, `${viewport.name}: student active status was not restored`);
     assert.equal(afterWithdrawalCancel.students.SEXIT.periodMembership.P2026T3, true, `${viewport.name}: period membership was not restored`);

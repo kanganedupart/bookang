@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-09.75" />
+    <meta name="bookflow-build" content="2026-09-10.76" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-09.75", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.76", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -115,6 +115,7 @@
       .operating-class-list{max-height:none;overflow:visible;display:grid;gap:12px;margin-top:16px}.operating-class-card{display:block;border:1px solid var(--line);border-radius:10px;padding:0;background:#fff;overflow:hidden}.operating-class-card:nth-child(even){background:#fbfcfe}.operating-class-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:11px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}.operating-class-main{text-align:left;white-space:normal;width:100%;border:0;background:transparent;padding:0}.operating-class-main:hover{background:transparent}.operating-class-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end}.operating-class-books{padding:11px 14px}.operating-class-books-title{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--ink2)}.operating-class-books-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.operating-book-cell{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border:1px solid #d9e1ea;border-radius:8px;padding:8px 9px;background:#fff;min-width:0}.operating-book-name{font-weight:700;overflow-wrap:anywhere}.operating-book-cell button{padding:6px 9px;min-height:34px;border-color:#e2a8a8;color:#9c3030;background:#fff7f7;white-space:nowrap}.operating-book-cell button:hover{background:#fdeaea}.operating-no-books{color:var(--muted);padding:4px 0}
       .badge{display:inline-block;padding:3px 9px;border-radius:999px;background:#eef1f4;font-size:12px}.ok{background:var(--blue-soft);color:var(--blue)}.warn{background:var(--warn-soft);color:var(--warn)}.danger{background:var(--bad-soft);color:var(--bad)}
       .panel h2 .badge.warn{background:#eceff2;color:#66707a}
+      button.withdrawal-cancel-button{min-height:0;padding:3px 9px;border:0;border-radius:999px;font-family:inherit;font-size:12px;font-weight:inherit;line-height:inherit;vertical-align:baseline;color:var(--bad);background:#fff}
       #screen td>b+small:has(.badge){display:inline;margin-left:6px}
       .receipt{border-left:4px solid var(--blue);background:#f7f9fc;padding:12px 15px;margin:14px 0 18px;border-radius:0 7px 7px 0}
       table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:center;vertical-align:middle;word-break:keep-all;overflow-wrap:anywhere}
@@ -188,7 +189,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-09.75";
+      const BOOKFLOW_BUILD = "2026-09-10.76";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -7476,7 +7477,7 @@
           });
         for (const h of arr(S.refundHistory))
           extra.push({
-            type: "환불완료",
+            type: h.type === "퇴반취소" ? "퇴반취소" : "환불완료",
             time: h.time,
             studentId: h.studentId,
             taskId: h.taskId,
@@ -7485,9 +7486,9 @@
             actor: h.actor,
             memo: h.memo,
           });
-        for (const h of arr(S.refundTaskEvents))
+        for (const h of arr(S.refundTaskEvents).filter((event) => event.type !== "COMPLETED_WITHDRAWAL_CANCELLED" || !arr(S.refundHistory).some((history) => history.type === "퇴반취소" && history.taskId === event.taskId && history.studentId === event.studentId)))
           extra.push({
-            type: "재등록 종결",
+            type: h.type === "COMPLETED_WITHDRAWAL_CANCELLED" ? "퇴반취소" : "재등록 종결",
             time: h.time,
             studentId: h.studentId,
             taskId: h.taskId,
@@ -9759,7 +9760,7 @@
             missingCount = quantityOf(withdrawalRows.filter((row) => row.source === "MISSING")),
             totalBookCount = quantityOf(withdrawalRows),
             recent = allHistory().filter((movement) => historyBelongsToStudent(movement, s, students)).slice(0, 30);
-detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${displayedWithdrawalTask.status === "DONE" ? "ok" : "warn"}">${displayedWithdrawalTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span>${displayedWithdrawalTask.status === "DONE" ? `<button class="danger-btn withdrawal-cancel-button" style="margin-left:8px;vertical-align:middle;white-space:nowrap" onclick="cancelCompletedWithdrawal('${s.id}','${displayedWithdrawalTask.id}')">퇴반취소</button>` : ""}</h2><span class="muted">퇴반일 ${esc(refundTaskExitDate(S, displayedWithdrawalTask) || "-")} · 교재 ${totalBookCount}권 · 배부 ${distributedCount}권 · 미배부 ${missingCount}권</span></div></div>${exitReviewPanel(s, displayedWithdrawalTask)}<details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details></div>`;
+detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.name)} <span class="badge ${displayedWithdrawalTask.status === "DONE" ? "ok" : "warn"}">${displayedWithdrawalTask.status === "DONE" ? "퇴반완료" : "퇴반대기"}</span>${displayedWithdrawalTask.status === "DONE" ? `<button class="danger-btn withdrawal-cancel-button" style="margin-left:8px" onclick="cancelCompletedWithdrawal('${s.id}','${displayedWithdrawalTask.id}')">퇴반취소</button>` : ""}</h2><span class="muted">퇴반일 ${esc(refundTaskExitDate(S, displayedWithdrawalTask) || "-")} · 교재 ${totalBookCount}권 · 배부 ${distributedCount}권 · 미배부 ${missingCount}권</span></div></div>${exitReviewPanel(s, displayedWithdrawalTask)}<details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details></div>`;
         }
         if (s && !displayedWithdrawalTask) {
           const classes = clsOf(s.id);
@@ -9871,7 +9872,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
             .slice(0, 10);
         document.querySelector("#screen").innerHTML =
           `<section class="panel"><h2>업무이력</h2><p class="muted">누가 언제 무엇을 처리했고 재고가 어떻게 바뀌었는지 확인합니다. 처리번호는 상세 추적용으로 검색에만 사용합니다.</p>
- <div class="filter-row"><label>시작일<input id="histFrom" type="date" value="${esc(window.histFrom || month)}" onchange="histApply()"></label><label>종료일<input id="histTo" type="date" value="${esc(window.histTo || today.toISOString().slice(0, 10))}" onchange="histApply()"></label><label>처리<select id="histType" onchange="histApply()"><option value="">전체 처리</option>${["IN", "DISTRIBUTE", "RETURN", "ADJUST", "신규등록", "반변경", "반종료", "반재운영", "퇴반", "환불완료", "추가결제완료", "추가결제되돌림", "실사", "엑셀등록", "백업복원"].map((x) => `<option value="${x}" ${window.histType === x ? "selected" : ""}>${esc({ IN: "입고", DISTRIBUTE: "배부", RETURN: "회수", ADJUST: "재고조정" }[x] || x)}</option>`).join("")}</select></label><label>업무유형<select id="histReason" onchange="histApply()"><option value="">전체 유형</option>${[["NORMAL","일반"],["FREE","무료"],["EXTRA_PAYMENT","유료"],["CLASS_MOVE","반변경"],["MISDISTRIBUTION","실수"],["OTHER","기타"]].map(([v,l])=>`<option value="${v}" ${window.histReason===v?"selected":""}>${l}</option>`).join("")}</select></label><label>메모<select id="histMemoOnly" onchange="histApply()"><option value="">전체</option><option value="Y" ${window.histMemoOnly==="Y"?"selected":""}>메모 있는 기록만</option></select></label><label>통합검색<input id="histSearch" value="${esc(window.histQuery || "")}" placeholder="학생·반·교재·작성자·메모" oninput="histApply()"></label><button onclick="document.getElementById('histFrom').value='${month}';document.getElementById('histTo').value='${today.toISOString().slice(0, 10)}';document.getElementById('histType').value='';document.getElementById('histReason').value='';document.getElementById('histMemoOnly').value='';document.getElementById('histSearch').value='';histApply()">초기화</button></div><p class="muted" id="histCount"></p>
+ <div class="filter-row"><label>시작일<input id="histFrom" type="date" value="${esc(window.histFrom || month)}" onchange="histApply()"></label><label>종료일<input id="histTo" type="date" value="${esc(window.histTo || today.toISOString().slice(0, 10))}" onchange="histApply()"></label><label>처리<select id="histType" onchange="histApply()"><option value="">전체 처리</option>${["IN", "DISTRIBUTE", "RETURN", "ADJUST", "신규등록", "반변경", "반종료", "반재운영", "퇴반", "퇴반취소", "환불완료", "추가결제완료", "추가결제되돌림", "실사", "엑셀등록", "백업복원"].map((x) => `<option value="${x}" ${window.histType === x ? "selected" : ""}>${esc({ IN: "입고", DISTRIBUTE: "배부", RETURN: "회수", ADJUST: "재고조정" }[x] || x)}</option>`).join("")}</select></label><label>업무유형<select id="histReason" onchange="histApply()"><option value="">전체 유형</option>${[["NORMAL","일반"],["FREE","무료"],["EXTRA_PAYMENT","유료"],["CLASS_MOVE","반변경"],["MISDISTRIBUTION","실수"],["OTHER","기타"]].map(([v,l])=>`<option value="${v}" ${window.histReason===v?"selected":""}>${l}</option>`).join("")}</select></label><label>메모<select id="histMemoOnly" onchange="histApply()"><option value="">전체</option><option value="Y" ${window.histMemoOnly==="Y"?"selected":""}>메모 있는 기록만</option></select></label><label>통합검색<input id="histSearch" value="${esc(window.histQuery || "")}" placeholder="학생·반·교재·작성자·메모" oninput="histApply()"></label><button onclick="document.getElementById('histFrom').value='${month}';document.getElementById('histTo').value='${today.toISOString().slice(0, 10)}';document.getElementById('histType').value='';document.getElementById('histReason').value='';document.getElementById('histMemoOnly').value='';document.getElementById('histSearch').value='';histApply()">초기화</button></div><p class="muted" id="histCount"></p>
  <div class="scroll"><table class="history-table"><thead><tr><th>일시</th><th>처리·유형</th><th>대상</th><th>교재·수량</th><th>재고 전→후</th><th>작성자</th><th>메모</th></tr></thead><tbody id="hist"></tbody></table></div></section>`;
         histApply();
       }
