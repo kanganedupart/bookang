@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.76" />
+    <meta name="bookflow-build" content="2026-09-10.77" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.76", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.77", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -115,6 +115,10 @@
       .operating-class-list{max-height:none;overflow:visible;display:grid;gap:12px;margin-top:16px}.operating-class-card{display:block;border:1px solid var(--line);border-radius:10px;padding:0;background:#fff;overflow:hidden}.operating-class-card:nth-child(even){background:#fbfcfe}.operating-class-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:11px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}.operating-class-main{text-align:left;white-space:normal;width:100%;border:0;background:transparent;padding:0}.operating-class-main:hover{background:transparent}.operating-class-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end}.operating-class-books{padding:11px 14px}.operating-class-books-title{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--ink2)}.operating-class-books-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.operating-book-cell{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border:1px solid #d9e1ea;border-radius:8px;padding:8px 9px;background:#fff;min-width:0}.operating-book-name{font-weight:700;overflow-wrap:anywhere}.operating-book-cell button{padding:6px 9px;min-height:34px;border-color:#e2a8a8;color:#9c3030;background:#fff7f7;white-space:nowrap}.operating-book-cell button:hover{background:#fdeaea}.operating-no-books{color:var(--muted);padding:4px 0}
       .badge{display:inline-block;padding:3px 9px;border-radius:999px;background:#eef1f4;font-size:12px}.ok{background:var(--blue-soft);color:var(--blue)}.warn{background:var(--warn-soft);color:var(--warn)}.danger{background:var(--bad-soft);color:var(--bad)}
       .panel h2 .badge.warn{background:#eceff2;color:#66707a}
+      .history-panel .history-filters{grid-template-columns:150px 150px 110px minmax(160px,1fr) 80px;gap:8px;align-items:end}.history-panel .history-filters>label{margin:0;display:flex;flex-direction:column;gap:4px}.history-panel .history-filters .history-query{grid-column:auto}.history-more-filters{margin:8px 0}.history-more-filters>summary{cursor:pointer;color:var(--ink2)}
+      @media(max-width:900px){.history-panel .history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.history-panel .history-filters .history-query{grid-column:auto}.history-panel .history-student-choice{margin:8px 0}}
+      .history-filters{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:10px;margin:14px 0}.history-filters .history-query{grid-column:span 5}.history-student-choice{max-width:440px}.history-results{max-height:65vh;overflow:auto}.history-readable-table{width:100%;table-layout:fixed}.history-readable-table th:nth-child(1){width:18%}.history-readable-table th:nth-child(2){width:13%}.history-readable-table th:nth-child(3){width:25%}.history-readable-table th:nth-child(4){width:29%}.history-readable-table th:nth-child(5){width:15%}.history-readable-table td{text-align:left;vertical-align:top;overflow-wrap:anywhere}.history-short{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-event-details>summary{color:var(--blue);cursor:pointer;white-space:nowrap}.history-event-details[open]>div{position:fixed;z-index:100;inset:20vh 15vw auto;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 30px #0002;border-radius:10px;padding:16px;max-height:65vh;overflow:auto}.history-event-details[open]>summary{position:relative;z-index:101}.history-event-details ul{padding-left:20px}.history-event-details p{margin:8px 0}
+      @media(max-width:720px){.history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.history-filters .history-query{grid-column:1/-1}.history-results{max-height:none;overflow:visible}.history-readable-table,.history-readable-table tbody{display:block}.history-readable-table thead{display:none}.history-readable-table tr{display:grid;grid-template-columns:1fr 1fr;padding:12px 0;border-bottom:1px solid var(--line);gap:8px}.history-readable-table td{display:block;border:0;padding:0;min-width:0}.history-readable-table td:nth-child(3),.history-readable-table td:nth-child(4){grid-column:1/-1}.history-readable-table td:nth-child(2){text-align:right}.history-event-details[open]>div{inset:18vh 12px auto;max-height:65vh}}
       button.withdrawal-cancel-button{min-height:0;padding:3px 9px;border:0;border-radius:999px;font-family:inherit;font-size:12px;font-weight:inherit;line-height:inherit;vertical-align:baseline;color:var(--bad);background:#fff;box-shadow:inset 0 0 0 1px #e0b3ae}
       #screen td>b+small:has(.badge){display:inline;margin-left:6px}
       .receipt{border-left:4px solid var(--blue);background:#f7f9fc;padding:12px 15px;margin:14px 0 18px;border-radius:0 7px 7px 0}
@@ -189,7 +193,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.76";
+      const BOOKFLOW_BUILD = "2026-09-10.77";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -7430,6 +7434,7 @@
                 : `${x.before} → ${x.after}`;
             extra.push({
               type: "반변경",
+              periodId: x.periodId,
               time: x.time,
               studentId: s.id,
               studentName: s.name,
@@ -7439,7 +7444,8 @@
           }
           for (const x of arr(s.withdrawals))
             extra.push({
-              type: "퇴반",
+              type: "퇴반등록",
+              periodId: x.periodId,
               time: x.time,
               studentId: s.id,
               studentName: s.name,
@@ -7477,7 +7483,11 @@
           });
         for (const h of arr(S.refundHistory))
           extra.push({
-            type: h.type === "퇴반취소" ? "퇴반취소" : "환불완료",
+            type: h.type === "퇴반취소" ? "퇴반취소" : "퇴반완료",
+            periodId: h.periodId,
+            historyBookLines: arr(h.bookAmounts),
+            quantity: h.quantity,
+            totalAmount: h.totalAmount,
             time: h.time,
             studentId: h.studentId,
             taskId: h.taskId,
@@ -9866,14 +9876,23 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         });
       }
       function historyScreen() {
-        const today = new Date(),
-          month = new Date(today.getTime() - 29 * 86400000)
-            .toISOString()
-            .slice(0, 10);
+        const today = localDateKey(), month = new Date(Date.now() - 29 * 86400000).toISOString().slice(0,10);
+        const options = (items, value) => items.map(([v,l]) => '<option value="'+esc(v)+'" '+(v===value?'selected':'')+'>'+esc(l)+'</option>').join("");
+        const types = ["신규등록","반변경","반종료","반재운영","퇴반등록","퇴반완료","퇴반취소","추가결제완료","추가결제되돌림","실사","엑셀등록","백업복원"];
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>업무이력</h2><p class="muted">누가 언제 무엇을 처리했고 재고가 어떻게 바뀌었는지 확인합니다. 처리번호는 상세 추적용으로 검색에만 사용합니다.</p>
- <div class="filter-row"><label>시작일<input id="histFrom" type="date" value="${esc(window.histFrom || month)}" onchange="histApply()"></label><label>종료일<input id="histTo" type="date" value="${esc(window.histTo || today.toISOString().slice(0, 10))}" onchange="histApply()"></label><label>처리<select id="histType" onchange="histApply()"><option value="">전체 처리</option>${["IN", "DISTRIBUTE", "RETURN", "ADJUST", "신규등록", "반변경", "반종료", "반재운영", "퇴반", "퇴반취소", "환불완료", "추가결제완료", "추가결제되돌림", "실사", "엑셀등록", "백업복원"].map((x) => `<option value="${x}" ${window.histType === x ? "selected" : ""}>${esc({ IN: "입고", DISTRIBUTE: "배부", RETURN: "회수", ADJUST: "재고조정" }[x] || x)}</option>`).join("")}</select></label><label>업무유형<select id="histReason" onchange="histApply()"><option value="">전체 유형</option>${[["NORMAL","일반"],["FREE","무료"],["EXTRA_PAYMENT","유료"],["CLASS_MOVE","반변경"],["MISDISTRIBUTION","실수"],["OTHER","기타"]].map(([v,l])=>`<option value="${v}" ${window.histReason===v?"selected":""}>${l}</option>`).join("")}</select></label><label>메모<select id="histMemoOnly" onchange="histApply()"><option value="">전체</option><option value="Y" ${window.histMemoOnly==="Y"?"selected":""}>메모 있는 기록만</option></select></label><label>통합검색<input id="histSearch" value="${esc(window.histQuery || "")}" placeholder="학생·반·교재·작성자·메모" oninput="histApply()"></label><button onclick="document.getElementById('histFrom').value='${month}';document.getElementById('histTo').value='${today.toISOString().slice(0, 10)}';document.getElementById('histType').value='';document.getElementById('histReason').value='';document.getElementById('histMemoOnly').value='';document.getElementById('histSearch').value='';histApply()">초기화</button></div><p class="muted" id="histCount"></p>
- <div class="scroll"><table class="history-table"><thead><tr><th>일시</th><th>처리·유형</th><th>대상</th><th>교재·수량</th><th>재고 전→후</th><th>작성자</th><th>메모</th></tr></thead><tbody id="hist"></tbody></table></div></section>`;
+          '<section class="panel history-panel"><h2>업무이력</h2><div class="history-filters">' +
+          '<label>시작일<input id="histFrom" type="date" value="'+esc(window.histFrom||month)+'" onchange="histApply()"></label>'+
+          '<label>종료일<input id="histTo" type="date" value="'+esc(window.histTo||today)+'" onchange="histApply()"></label>'+
+          '<label>검색 기준<select id="histScope" onchange="window.histStudentId=\'\';histApply()">'+options([["STUDENT","학생"],["BOOK","교재"],["CLASS","반"],["ALL","전체"]],window.histScope||"STUDENT")+'</select></label>'+
+          '<label class="history-query">검색어<input id="histSearch" value="'+esc(window.histQuery||"")+'" placeholder="학생 이름 또는 뒷번호" oninput="window.histStudentId=\'\';histApply()"></label>'+
+          '<button onclick="window.histFrom=\'\';window.histTo=\'\';window.histType=\'\';window.histReason=\'\';window.histMemoOnly=\'\';window.histQuery=\'\';window.histStudentId=\'\';historyScreen()">초기화</button></div>'+
+          '<details class="history-more-filters"><summary>처리·유형·메모 필터</summary><div class="history-filters">'+
+          '<label>처리<select id="histType" onchange="histApply()">'+options([["","전체 처리"],["IN","입고"],["DISTRIBUTE","배부"],["RETURN","회수"],["ADJUST","재고조정"],...types.map(x=>[x,x])],window.histType||"")+'</select></label>'+
+          '<label>업무유형<select id="histReason" onchange="histApply()">'+options([["","전체 유형"],["NORMAL","일반"],["FREE","무료"],["EXTRA_PAYMENT","유료"],["CLASS_MOVE","반변경"],["MISDISTRIBUTION","실수"],["OTHER","기타"]],window.histReason||"")+'</select></label>'+
+          '<label>메모<select id="histMemoOnly" onchange="histApply()">'+options([["","전체"],["Y","메모 있는 기록만"]],window.histMemoOnly||"")+'</select></label>'+
+          '</div></details>'+
+          '<label id="histStudentChoice" class="history-student-choice" hidden>학생 선택<select id="histStudent" onchange="window.histStudentId=this.value;histApply()"></select></label>'+
+          '<p class="muted" id="histCount"></p><div class="history-results"><table class="history-readable-table"><thead><tr><th>일시</th><th>처리</th><th>대상</th><th>교재·수량</th><th>상세</th></tr></thead><tbody id="hist"></tbody></table></div></section>';
         histApply();
       }
       function periodManagement() {
@@ -10792,95 +10811,85 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         studentStatus();
         alert("퇴반취소가 완료되었습니다. 이전 반과 재원 상태를 복원했습니다. 회수한 교재는 미배부로 확인해 다시 배부하세요.");
       }
+      function historyParticipants(m) {
+        const ids = new Set([...(m.studentId ? [m.studentId] : []), ...arr(m.studentIds).filter(x=>typeof x==="string"), ...Object.keys(m.studentDeltas||{}), ...Object.keys(m.studentNames||{}).filter(x=>!Array.isArray(m.studentNames))]);
+        return [...ids].map(id=>({ id, name:m.studentNames?.[id] || (m.studentId===id ? m.studentName : "") || S.students?.[id]?.name || id }));
+      }
+      function historyParticipantQuantity(m, id) {
+        const raw = m.studentDeltas?.[id];
+        if (raw != null && Number.isFinite(Number(raw))) return Math.abs(Number(raw));
+        const participants = historyParticipants(m);
+        if (participants.length===1 && participants[0].id===id && (m.quantity!=null || m.itemCount!=null)) return Math.abs(Number(m.quantity ?? m.itemCount));
+        return null;
+      }
+      function historyBookLines(m) {
+        if (m.historyBookLines?.length) return m.historyBookLines.map(x=>({id:x.bookId,name:x.bookName||x.bookId,quantity:x.quantity}));
+        if (m.bookId || m.bookName) return [{id:m.bookId||"",name:movementBookName(m),quantity:m.quantity!=null||m.itemCount!=null ? Math.abs(Number(m.quantity??m.itemCount)) : null}];
+        return [];
+      }
+      function historyProjection(m, scope, query, studentId="") {
+        const q=String(query||"").trim().toLocaleLowerCase("ko"), has=text=>String(text||"").toLocaleLowerCase("ko").includes(q);
+        const participants=historyParticipants(m), books=historyBookLines(m);
+        const base={m,participants,books,who:participants.length===1?participants[0].name:participants.length?"일괄처리 "+participants.length+"명":m.studentName||m.className||"전체",quantity:m.quantity!=null||m.itemCount!=null?Math.abs(Number(m.quantity??m.itemCount)):null,personal:false};
+        if (!q && !studentId) return [base];
+        const matching=participants.filter(x=>(!studentId||x.id===studentId)&&(has(x.name)||has(S.students?.[x.id]?.name)||has(x.id)));
+        if (scope==="STUDENT" || (scope==="ALL" && matching.length)) {
+          return matching.map(x=>({...base,who:x.name,studentId:x.id,quantity:historyParticipantQuantity(m,x.id),personal:true}));
+        }
+        if (scope==="BOOK") {
+          const found=books.filter(x=>has(x.name));
+          return found.length?[{...base,books:found,quantity:found.every(x=>x.quantity!=null)?found.reduce((n,x)=>n+Math.abs(Number(x.quantity)),0):null}]:[];
+        }
+        if (scope==="CLASS") {
+          // Only class names captured with this event; never infer from today's enrollment.
+          const found=participants.filter(x=>has(m.className)||String(m.classNames?.[x.id]||"").split(" · ").some(name=>name&&has(name)));
+          const classLabels=[...new Set([m.className,...arr(m.classNames).flatMap(x=>String(x).split(" · "))].filter(x=>x&&has(x)))];
+          if (!classLabels.length) return [];
+          const quantities=found.map(x=>historyParticipantQuantity(m,x.id));
+          return [{...base,who:classLabels.join(" · "),matchedParticipants:found,quantity:found.length&&quantities.every(x=>x!=null)?quantities.reduce((n,x)=>n+x,0):null,classSearch:true}];
+        }
+        const hay=[...participants.map(x=>x.name),...books.map(x=>x.name),m.className,...arr(m.classNames),m.actor,m.memo,m.batchId].join(" ");
+        return has(hay)?[base]:[];
+      }
+      function historyResultHtml(row) {
+        const m=row.m, total=Math.abs(Number(m.quantity??m.itemCount??0)), count=row.participants.length;
+        const type=movementLabel(m), reason={NORMAL:"일반",FREE:"무료",EXTRA_PAYMENT:"유료",CLASS_MOVE:"반변경",MISDISTRIBUTION:"실수",OTHER:"기타"}[m.businessReason||"NORMAL"]||"";
+        const bookTitle=row.books.length===1?row.books[0].name:row.books.length?"교재 "+row.books.length+"종":"—";
+        const quantity=row.quantity==null ? (row.books.length?"수량 확인 필요":"") : row.quantity+"권";
+        const batch=count>1 ? "일괄처리 전체 "+count+"명"+(total?" · "+total+"권":"") : "개별 처리";
+        const flow=m.stockBefore==null?"":'<p><b>'+(count>1?"전체 일괄처리 기준 재고":"재고")+'</b> '+esc(m.stockBefore)+' → '+esc(m.stockAfter)+'</p>';
+        const details='<details class="history-event-details"><summary>상세 보기</summary><div>'+
+          '<button type="button" onclick="this.closest(\'details\').open=false">닫기</button><p><b>'+esc(batch)+'</b></p>'+flow+
+          (m.totalAmount!=null?'<p>퇴반 환불 계산액 '+esc(won(m.totalAmount))+(m.type==="퇴반취소"?" · 이전 확정 기록 보존":"")+'</p>':"")+
+          '<p>작성자 '+esc(m.actor||"—")+'</p><p>'+esc(m.memo||"메모 없음")+'</p>'+
+          (row.books.length>1?'<p>조회 교재</p><ul>'+row.books.map(b=>'<li>'+esc(b.name)+(b.quantity!=null?' · '+esc(b.quantity)+'권':'')+'</li>').join("")+'</ul>':"")+
+          (row.classSearch?'<p>처리 당시 해당 반 학생 '+row.matchedParticipants.length+'명</p><ul>'+row.matchedParticipants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul>':"")+
+          (count>1?'<details><summary>전체 처리 대상 '+count+'명</summary><ul>'+row.participants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul></details>':"")+
+          (m.batchId?'<p>처리번호 '+esc(m.batchId)+'</p>':"")+'</div></details>';
+        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b><small>'+esc(reason)+'</small></td>'+
+          '<td data-label="대상"><b class="history-short" title="'+esc(row.who)+'">'+esc(row.who)+'</b>'+(row.personal&&count>1?'<small>일괄처리 중 이 학생의 기록</small>':row.classSearch?'<small>처리 당시 반 기준</small>':"")+'</td>'+
+          '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="상세">'+details+'</td></tr>';
+      }
       function histApply() {
-        const fromInput = document.getElementById("histFrom"),
-          toInput = document.getElementById("histTo"),
-          typeInput = document.getElementById("histType"),
-          reasonInput = document.getElementById("histReason"),
-          memoInput = document.getElementById("histMemoOnly"),
-          searchInput = document.getElementById("histSearch"),
-          countBox = document.getElementById("histCount"),
-          body = document.getElementById("hist");
-        if (!fromInput || !toInput || !typeInput || !reasonInput || !memoInput || !searchInput || !countBox || !body)
-          return;
-        window.histFrom = fromInput.value;
-        window.histTo = toInput.value;
-        window.histType = typeInput.value;
-        window.histReason = reasonInput.value;
-        window.histMemoOnly = memoInput.value;
-        window.histQuery = searchInput.value;
-        const from = fromInput.value
-            ? new Date(fromInput.value + "T00:00:00").getTime()
-            : 0,
-          to = toInput.value
-            ? new Date(toInput.value + "T23:59:59.999").getTime()
-            : Infinity,
-          q = searchInput.value.trim().toLowerCase();
-        const rows = allHistory()
-          .filter((m) => {
-            const t = new Date(m.time).getTime(),
-              type =
-                {
-                  IN: "IN",
-                  DISTRIBUTE: "DISTRIBUTE",
-                  RETURN: "RETURN",
-                  ADJUST: "ADJUST",
-                }[m.type] || m.type,
-              hay = [
-                movementNames(m).join(" "),
-                arr(m.classNames).join(" "),
-                m.className,
-                m.studentName,
-                movementBookName(m),
-                m.actor,
-                m.memo,
-                m.batchId,
-              ]
-                .join(" ")
-                .toLowerCase();
-            return (
-              t >= from &&
-              t <= to &&
-              (!typeInput.value || type === typeInput.value) &&
-              (!reasonInput.value ||
-                (m.businessReason || "NORMAL") === reasonInput.value) &&
-              (!memoInput.value || String(m.memo || "").trim()) &&
-              (!q || hay.includes(q))
-            );
-          })
-          .slice(0, 1000);
-        countBox.textContent = `검색 결과 ${rows.length}건${rows.length === 1000 ? " (최근 1,000건까지만 표시)" : ""}`;
-        body.innerHTML = rows
-          .map((m) => {
-            const names = movementNames(m),
-              classes = uniq(arr(m.classNames)),
-              who =
-                m.studentName ||
-                (classes.length === 1 && names.length > 1
-                  ? `${classes[0]} · ${names.length}명`
-                  : classes.length > 1 && names.length > 1
-                    ? `${classes[0]} 외 ${classes.length - 1}개 반 · ${names.length}명`
-                    : names.length > 1
-                      ? `${names[0]} 외 ${names.length - 1}명`
-                      : names.join(", ")) ||
-                "-",
-              flow =
-                m.stockBefore == null
-                  ? "-"
-                  : `${m.stockBefore} → ${m.stockAfter}`;
-            const reason =
-                {
-                  NORMAL: "일반",
-                  FREE: "무료",
-                  EXTRA_PAYMENT: "유료",
-                  CLASS_MOVE: "반변경",
-                  MISDISTRIBUTION: "실수",
-                  OTHER: "기타",
-                }[m.businessReason || "NORMAL"] || "",
-              qty = Math.abs(Number(m.quantity || m.itemCount || 0));
-            return `<tr><td>${fmt(m.time)}</td><td><b>${esc({ IN: "입고", DISTRIBUTE: m.mode === "ADDITIONAL" ? "추가배부" : "배부", RETURN: "회수", ADJUST: "조정" }[m.type] || m.type)}</b><small>${esc(reason)}</small></td><td title="${esc(names.join(", "))}">${esc(who)}</td><td>${esc(movementBookName(m))}<small>${qty ? `${qty}권` : ""}</small></td><td><b>${flow}</b></td><td>${esc(m.actor || "-")}</td><td title="${esc(m.memo || "")}">${m.memo ? `<b>메모 있음</b><small>${esc(m.memo)}</small>` : "-"}</td></tr>`;
-          })
-          .join("");
+        const byId=id=>document.getElementById(id), body=byId("hist");
+        if (!body) return;
+        for (const [key,id] of [["histFrom","histFrom"],["histTo","histTo"],["histType","histType"],["histReason","histReason"],["histMemoOnly","histMemoOnly"],["histQuery","histSearch"],["histScope","histScope"]]) window[key]=byId(id).value;
+        const scope=window.histScope, q=window.histQuery.trim(), from=window.histFrom?new Date(window.histFrom+"T00:00:00").getTime():0,to=window.histTo?new Date(window.histTo+"T23:59:59.999").getTime():Infinity;
+        byId("histSearch").placeholder={STUDENT:"학생 이름 또는 뒷번호",BOOK:"교재명",CLASS:"처리 당시 반명",ALL:"학생·교재·반·작성자·메모"}[scope];
+        const events=allHistory().filter(m=>{
+          const t=new Date(m.time).getTime();
+          return t>=from&&t<=to&&(!m.periodId||m.periodId===selectedPeriodId())&&(!window.histType||m.type===window.histType)&&(!window.histReason||(m.businessReason||"NORMAL")===window.histReason)&&(!window.histMemoOnly||String(m.memo||"").trim());
+        });
+        const candidates=new Map();
+        if (scope==="STUDENT"&&q) for(const m of events) for(const row of historyProjection(m,scope,q)) if(row.studentId) candidates.set(row.studentId,row.who);
+        const choice=byId("histStudentChoice"), studentSelect=byId("histStudent");
+        choice.hidden=!(scope==="STUDENT"&&q&&candidates.size);
+        if (!candidates.has(window.histStudentId)) window.histStudentId="";
+        studentSelect.innerHTML='<option value="">검색된 학생 전체 ('+candidates.size+'명)</option>'+[...candidates].map(([id,name])=>'<option value="'+esc(id)+'" '+(id===window.histStudentId?"selected":"")+'>'+esc(name)+([...candidates.values()].filter(x=>x===name).length>1?' · ID '+esc(id):"")+'</option>').join("");
+        const rows=[];
+        for(const m of events){rows.push(...historyProjection(m,scope,q,scope==="STUDENT"?window.histStudentId:""));if(rows.length>=1000)break;}
+        body.innerHTML=rows.slice(0,1000).map(historyResultHtml).join("")||'<tr><td colspan="5">검색된 이력이 없습니다.</td></tr>';
+        byId("histCount").textContent="검색 결과 "+Math.min(rows.length,1000)+"건"+(rows.length>=1000?" (최근 1,000건)":"")+(scope==="STUDENT"&&q?" · 학생 "+(window.histStudentId?1:candidates.size)+"명":"")+" · 일괄처리 전체 수량·재고는 상세 보기에서 확인";
       }
     </script>
   </body>

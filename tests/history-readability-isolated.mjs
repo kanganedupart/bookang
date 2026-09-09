@@ -1,0 +1,79 @@
+import assert from 'node:assert/strict';
+import { readFile, mkdir } from 'node:fs/promises';
+import { chromium } from 'playwright';
+const html=await readFile(new URL('../bookang.html',import.meta.url),'utf8');
+const previous=await readFile(new URL('./withdrawal-ui-playwright-isolated.mjs',import.meta.url),'utf8');
+const extract=(start,end)=>new Function('return '+previous.slice(previous.indexOf(start),previous.indexOf(end)))();
+const fake=extract('function installFakeFirebase(', 'let forcedStaleResponses');
+const fixture=new Function(previous.slice(previous.indexOf('function fnvId('),previous.indexOf('function installFakeFirebase('))+';return seedState')();
+let state=process.env.BOOKFLOW_HISTORY_SNAPSHOT?JSON.parse((await readFile(process.env.BOOKFLOW_HISTORY_SNAPSHOT,'utf8')).replace(/^\uFEFF/,'')):fixture();
+if(process.env.BOOKFLOW_HISTORY_SNAPSHOT){
+  const original=state, selected=Object.values(original.students).filter(s=>/임건우|강승희\(테스트\)/.test(s.name)), ids=new Set(selected.map(s=>s.id));
+  const related=m=>ids.has(m.studentId)||Object.keys(m.studentNames||{}).some(id=>ids.has(id))||Object.keys(m.studentDeltas||{}).some(id=>ids.has(id));
+  const subset=record=>Object.fromEntries(Object.entries(record||{}).filter(([,m])=>related(m)));
+  state={...fixture(),currentPeriodId:original.currentPeriodId,periods:original.periods,books:original.books,classes:original.classes,students:Object.fromEntries(selected.map(s=>[s.id,s])),movements:subset(original.movements),refundHistory:subset(original.refundHistory),refundTaskEvents:subset(original.refundTaskEvents),refundTasks:subset(original.refundTasks),chargeHistory:{},chargeTasks:{},classEvents:{},ecodingEvents:{}};
+}
+if(!process.env.BOOKFLOW_HISTORY_SNAPSHOT){
+  const pid=state.currentPeriodId;
+  state.students.L1={id:'L1',name:'임건우7179',active:true};
+  state.students.L2={id:'L2',name:'임건우5242',active:true};
+  state.movements.H1={id:'H1',periodId:pid,time:'2026-09-08T00:41:00+09:00',type:'DISTRIBUTE',bookId:'B1',bookName:'국매 9-1주',quantity:-2,studentIds:{L2:'L2',SACTIVE:'SACTIVE'},studentNames:{L2:'임건우5242',SACTIVE:'재원검수'},studentDeltas:{L2:1,SACTIVE:1},classNames:{L2:'옛반A',SACTIVE:'옛반B'},stockBefore:10,stockAfter:8};
+  state.movements.H2={id:'H2',periodId:pid,time:'2026-09-09T00:41:00+09:00',type:'DISTRIBUTE',bookId:'B2',bookName:'사회문화',quantity:-1,studentIds:{L1:'L1'},studentNames:{L1:'임건우7179'},studentDeltas:{L1:1}};
+}
+const build=html.match(/bookflow-build" content="([^"]+)/)[1];
+const key='__history_isolated__';
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+const outputs=[];
+try{
+for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
+  const context=await browser.newContext({viewport:{width,height}});
+  await context.route('**/*',route=>{
+    const url=route.request().url();
+    if(url.includes('/version.json'))return route.fulfill({contentType:'application/json',body:JSON.stringify({build})});
+    if(url.startsWith('https://history-audit.invalid/bookang.html'))return route.fulfill({contentType:'text/html',body:html});
+    if(url.includes('bookflowStaffLogin'))return route.fulfill({contentType:'application/json',body:JSON.stringify({firebaseEmail:'isolated@example.invalid',firebasePassword:'isolated',role:'admin'})});
+    if(url.includes('gstatic.com/firebasejs/'))return route.fulfill({contentType:'application/javascript',body:''});
+    return route.abort();
+  });
+  await context.addInitScript(fake,{seed:state,stateKey:key});
+  const page=await context.newPage();
+  const errors=[];page.on('pageerror',e=>{errors.push(String(e));console.error(String(e));});
+  await page.goto('https://history-audit.invalid/bookang.html');
+  await page.waitForTimeout(1000);
+  if(await page.locator('#staffName').count()){
+    await page.locator('#staffName').fill('검수자');await page.locator('#staffPin').fill('0000');
+    await page.getByRole('button',{name:'로그인',exact:true}).click();
+  } else console.log((await page.locator('body').innerText()).slice(0,1200));
+  await page.locator('[data-main-tab="이력"]').click();
+  await page.locator('#histFrom').fill('2026-08-01');await page.locator('#histTo').fill('2026-09-30');
+  const before=await page.evaluate(k=>localStorage.getItem(k),key);
+  await page.locator('#histSearch').fill('임건우');
+  const candidates=await page.locator('#histStudent option').allTextContents();
+  assert(candidates.some(x=>x.includes('7179'))&&candidates.some(x=>x.includes('5242')),'same-name students must be separately selectable');
+  const option=page.locator('#histStudent option').filter({hasText:'5242'});
+  const sid=await option.getAttribute('value');await page.locator('#histStudent').selectOption(sid);
+  const rows=page.locator('#hist tr');assert(await rows.count()>0);
+  for(const row of await rows.all()){
+    assert.equal(await row.getAttribute('data-history-student'),sid);
+    assert.match(await row.locator('td').nth(2).innerText(),/5242/);
+    assert.match(await row.locator('td').nth(3).innerText(),/1권/);
+  }
+  await page.screenshot({path:new URL('../backups/history-'+name+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
+  const detail=rows.first().locator('.history-event-details');await detail.locator(':scope > summary').click();
+  assert.match(await detail.innerText(),/전체 일괄처리 기준 재고/);
+  await detail.getByRole('button',{name:'닫기',exact:true}).click();
+  assert.equal(await detail.getAttribute('open'),null);
+  await page.locator('#histScope').selectOption('BOOK');await page.locator('#histSearch').fill('국매 9-1주');
+  for(const row of await page.locator('#hist tr').all())assert.match(await row.locator('td').nth(3).innerText(),/국매 9-1주/);
+  const checks=await page.evaluate(()=>{
+    const m={type:'DISTRIBUTE',studentIds:{A:'A',B:'B'},studentNames:{A:'동명1234',B:'동명5678'},studentDeltas:{A:2,B:3},classNames:{A:'과거반A',B:'과거반B'},bookName:'테스트교재',quantity:5};
+    return {student:historyProjection(m,'STUDENT','동명','A').map(x=>[x.studentId,x.quantity]),classes:historyProjection(m,'CLASS','과거반A').map(x=>[x.who,x.quantity,x.matchedParticipants.map(s=>s.id)]),wrong:historyProjection(m,'CLASS','현재반').length,unknown:historyProjection({...m,studentDeltas:{}},'STUDENT','동명','A')[0].quantity};
+  });
+  assert.deepEqual(checks,{student:[['A',2]],classes:[['과거반A',2,['A']]],wrong:0,unknown:null});
+  assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),before,'history reads must not modify any data');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'page must not overflow horizontally');
+  assert.deepEqual(errors,[]);outputs.push({viewport:name,studentId:sid,rows:await rows.count(),readOnly:true});
+  await context.close();
+}
+}finally{await browser.close();}
+console.log(JSON.stringify(outputs,null,2));
