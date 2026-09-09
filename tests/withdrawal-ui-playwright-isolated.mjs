@@ -55,7 +55,7 @@ function seedState() {
     },
     students: {
       SACTIVE: { id: "SACTIVE", name: "재원검수", active: true, admissionDate: "2026-09-04", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { C1: "C1" } }, classes: { C1: "C1" }, holdings: {} },
-      SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BRETURN: 1, BNEWHELD: 1, BMISSING: 0 }, withdrawals: {} },
+      SEXIT: { id: "SEXIT", name: "퇴반검수", active: false, admissionDate: "2026-09-01", periodMembership: { [periodId]: false }, periodClasses: { [periodId]: {} }, classes: {}, holdings: { BHELD: 1, BRETURN: 1, BNEWHELD: 1, BMISSING: 0 }, withdrawals: { WEXACT: { id:"WEXACT", periodId, beforeClassIds:{ C1:"C1" }, beforeClasses:["정규 검수반"], reason:"격리 검수", actor:"검수자", time:"2026-09-05T09:00:00+09:00" } } },
       SNEW: { id: "SNEW", name: "신규부분검수", active: true, onboarding: false, admissionDate: "2026-09-06", createdPeriodId: periodId, createdAt: "2026-09-06T08:00:00+09:00", createdBy: "등록검수자", periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CNEW: "CNEW" } }, classes: { CNEW: "CNEW" }, bookExclusions: { [periodId]: { BNEWEXCLUDED: { reason: "격리 검수" } } }, holdings: {} },
       SBUNDLE1: { id: "SBUNDLE1", name: "묶음검수일", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
       SBUNDLE2: { id: "SBUNDLE2", name: "묶음검수이", active: true, admissionDate: "2026-09-06", createdPeriodId: periodId, periodMembership: { [periodId]: true }, periodClasses: { [periodId]: { CBUNDLE: "CBUNDLE" } }, classes: { CBUNDLE: "CBUNDLE" }, holdings: {} },
@@ -73,6 +73,7 @@ function seedState() {
         studentId: "SEXIT",
         studentName: "퇴반검수",
         status: "PENDING",
+        withdrawalId: "WEXACT",
         source: "MANUAL",
         exitDate: "2026-09-05",
         createdAt: "2026-09-05T09:00:00+09:00",
@@ -548,6 +549,19 @@ try {
     assert.equal(persisted.students.SEXIT.holdings.BRETURN, 0, `${viewport.name}: returned holding not cleared`);
     assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
     assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
+    const withdrawalCancelBefore = JSON.stringify({ books:persisted.books, holdings:persisted.students.SEXIT.holdings, movements:persisted.movements, refundCompleted:Object.values(persisted.refundHistory).filter((item)=>item.type === "퇴반완료") });
+    await page.evaluate(async () => {
+      window.askConfirm = async () => true;
+      window.alert = () => {};
+      await cancelCompletedWithdrawal("SEXIT", "RTASK_EXACT");
+    });
+    const afterWithdrawalCancel = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
+    assert.equal(afterWithdrawalCancel.refundTasks.RTASK_EXACT.status, "CANCELLED", `${viewport.name}: completed withdrawal was not cancelled`);
+    assert.equal(afterWithdrawalCancel.students.SEXIT.active, true, `${viewport.name}: student active status was not restored`);
+    assert.equal(afterWithdrawalCancel.students.SEXIT.periodMembership.P2026T3, true, `${viewport.name}: period membership was not restored`);
+    assert.deepEqual(afterWithdrawalCancel.students.SEXIT.periodClasses.P2026T3, { C1:"C1" }, `${viewport.name}: former class exact-set was not restored`);
+    const withdrawalCancelAfter = JSON.stringify({ books:afterWithdrawalCancel.books, holdings:afterWithdrawalCancel.students.SEXIT.holdings, movements:afterWithdrawalCancel.movements, refundCompleted:Object.values(afterWithdrawalCancel.refundHistory).filter((item)=>item.type === "퇴반완료") });
+    assert.equal(withdrawalCancelAfter, withdrawalCancelBefore, `${viewport.name}: withdrawal cancellation changed inventory, holdings, ledger, or completed refund history`);
     await page.evaluate((key) => {
       const saved = JSON.parse(localStorage.getItem(key));
       for (const student of Object.values(saved.students)) for (const change of Object.values(student.classChanges || {})) change.workCompletedAt = change.workCompletedAt || "2026-09-07T08:00:00+09:00";

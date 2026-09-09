@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-08.73" />
+    <meta name="bookflow-build" content="2026-09-09.74" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-08.73", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-09.74", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -188,7 +188,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-08.73";
+      const BOOKFLOW_BUILD = "2026-09-09.74";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -10394,7 +10394,9 @@
           return `<tr data-book-id="${esc(row.bookId)}"><td><b>${esc(row.bookName)}</b></td><td>${row.unitPrice == null ? '<span class="danger">금액 미등록</span>' : won(row.unitPrice)}</td><td>${stateUi}</td><td>${action}</td><td>${row.refundIncluded ? `<b class="success">${done ? '환불완료' : '환불 포함'}</b>` : '<span class="muted">환불 제외</span>'}</td></tr>`;
         }).join('') || '<tr><td colspan="5">처리할 교재가 없습니다.</td></tr>';
         const completedText = done ? `완료 ${esc(fmt(task.completedAt || task.exitCompletedAt))} · ${esc(task.completedBy || task.exitCompletedBy || '')}` : '실제로 회수할 교재만 선택한 뒤 퇴반완료하세요.';
-        const completionButton = done ? '' : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
+        const completionButton = done
+          ? `<button class="danger-btn" style="width:100%" onclick="cancelCompletedWithdrawal('${student.id}','${task.id}')">퇴반취소</button>`
+          : `<button class="btn" style="width:100%" onclick="completeRefund('${student.id}','${task.id}')">퇴반완료</button>`;
         const completionNotice = window.withdrawalCompletionNotice?.taskId === task.id ? `<div class="receipt transaction-result"><b>${esc(window.withdrawalCompletionNotice.message)}</b></div>` : '';
         return `<section class="exit-review-card">${completionNotice}<h3>${done ? '퇴반완료 내역' : '퇴반대기 교재 확인'}</h3><p class="muted">퇴반일 ${esc(refundTaskExitDate(S, task) || '-')} · ${completedText}</p><div class="receipt"><b>최종 환불 ${included.length}종 · ${won(total)} · 환불 제외 ${excluded.length}종</b></div><label style="max-width:180px">상태<select aria-label="퇴반 교재 상태" onchange="window.withdrawalBookFilter=this.value;render()"><option ${filter === '전체' ? 'selected' : ''}>전체</option><option ${filter === '배부' ? 'selected' : ''}>배부</option><option ${filter === '미배부' ? 'selected' : ''}>미배부</option></select></label><p class="muted">검색 결과 ${visibleRows.length}종 / 전체 ${rows.length}종</p><div class="withdrawal-table-expanded"><table><thead><tr><th>교재</th><th>교재비</th><th>상태</th><th>처리</th><th>환불</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">미배부 제외는 환불 대상에서만 제외하며 기록은 남습니다.</p>${completionButton}</section>`;
       }
@@ -10498,14 +10500,14 @@
                 refundMissingPriceCount: amounts.filter((amount) => amount.total == null).length,
               };
             });
-document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반대기 <span class="badge ${rows.length ? "warn" : "ok"}">${rows.length}명</span></h2><p class="muted">한 목록에서 상태를 확인합니다. 교무부가 미배부 제외와 회수 여부를 확인한 뒤 퇴반완료하면, 남은 미배부 교재와 환불금액이 확정되고 실제반·공통반에서 모두 제외됩니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>처리 전 전체</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>퇴반완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input id="refundSearch" value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="filterRefundRows(this.value)"></label></div><p id="refundResultCount">검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody id="refundRows">${rows.map((task) => `<tr data-student="${esc(String(task.studentName || S.students?.[task.studentId]?.name || "").toLocaleLowerCase("ko"))}"><td>${task.isExitReview ? `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>` : esc(task.exitDate || "-")}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b></td><td><b>${task.isExitReview ? "-" : `${task.refundBookCount}종`}</b></td><td><b>${task.isExitReview ? "-" : task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${!task.isExitReview && task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.isExitReview ? '<span class="badge warn">퇴반일 확인 필요</span>' : task.status !== "DONE" ? '<span class="badge warn">퇴반대기</span>' : '<span class="badge ok">퇴반완료</span>'}</td><td>${task.isExitReview ? '<span class="muted">이코딩 퇴반일 수신 대기</span>' : `<button onclick="openRefundStudent('${task.studentId}','${task.periodId || ""}')">상세 확인</button>`}</td></tr>`).join("") || '<tr data-empty="1"><td colspan="7">해당 퇴반 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
+document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반대기 <span class="badge ${rows.length ? "warn" : "ok"}">${rows.length}명</span></h2><p class="muted">한 목록에서 상태를 확인합니다. 교무부가 미배부 제외와 회수 여부를 확인한 뒤 퇴반완료하면, 남은 미배부 교재와 환불금액이 확정되고 실제반·공통반에서 모두 제외됩니다.</p><div class="filter-row"><label>대상<select onchange="refundPeriodFilter=this.value;refundTaskScreen()"><option value="ACTIVE_ALL">운영 대상 전체</option>${arr(S.periods).filter((period) => activeIds.has(period.id)).map((period) => `<option value="${period.id}" ${periodFilter === period.id ? "selected" : ""}>${esc(periodLabel(period))}</option>`).join("")}</select></label><label>상태<select onchange="refundStatus=this.value;refundTaskScreen()"><option value="PENDING" ${status === "PENDING" ? "selected" : ""}>처리 전 전체</option><option value="DONE" ${status === "DONE" ? "selected" : ""}>퇴반완료</option><option value="ALL" ${status === "ALL" ? "selected" : ""}>전체</option></select></label><label>통합검색<input id="refundSearch" value="${esc(window.refundQuery || "")}" placeholder="학생명 검색" oninput="filterRefundRows(this.value)"></label></div><p id="refundResultCount">검색 결과 ${rows.length}명</p><div class="scroll"><table><thead><tr><th>퇴반일</th><th>대상</th><th>학생</th><th>미배부 종수</th><th>환불 금액</th><th>상태</th><th>확인</th></tr></thead><tbody id="refundRows">${rows.map((task) => `<tr data-student="${esc(String(task.studentName || S.students?.[task.studentId]?.name || "").toLocaleLowerCase("ko"))}"><td>${task.isExitReview ? `<span class="badge warn">확인 필요</span><small>감지 ${esc(fmt(task.createdAt))}</small>` : esc(task.exitDate || "-")}</td><td><b>${esc(deskPeriodName(task.periodId))}</b></td><td><b>${esc(task.studentName || S.students?.[task.studentId]?.name || "")}</b></td><td><b>${task.isExitReview ? "-" : `${task.refundBookCount}종`}</b></td><td><b>${task.isExitReview ? "-" : task.refundAmountMissing ? "확정 불가" : won(task.refundAmount)}</b>${!task.isExitReview && task.refundAmountMissing ? `<small class="error">금액 미등록 ${task.refundMissingPriceCount}종</small>` : ""}</td><td>${task.isExitReview ? '<span class="badge warn">퇴반일 확인 필요</span>' : task.status !== "DONE" ? '<span class="badge warn">퇴반대기</span>' : '<span class="badge ok">퇴반완료</span>'}</td><td>${task.isExitReview ? '<span class="muted">이코딩 퇴반일 수신 대기</span>' : `<button class="refund-detail-button">상세 확인</button>${task.status === "DONE" ? `<button class="danger-btn" onclick="cancelCompletedWithdrawal('${task.studentId}','${task.id}')">퇴반취소</button>` : ""}`}</td></tr>`).join("") || '<tr data-empty="1"><td colspan="7">해당 퇴반 학생이 없습니다.</td></tr>'}</tbody></table></div></section>`;
         const statusSelect = document.querySelector('select[onchange="refundStatus=this.value;refundTaskScreen()"]');
         if (statusSelect) {
           statusSelect.innerHTML = `<option value="ALL">전체</option><option value="PENDING">퇴반대기</option><option value="DONE">퇴반완료</option>`;
           statusSelect.value = status;
         }
         const actionableRows = rows.filter((task) => !task.isExitReview);
-        [...document.querySelectorAll('#refundRows button')].forEach((button, index) => {
+        [...document.querySelectorAll('#refundRows .refund-detail-button')].forEach((button, index) => {
           const task = actionableRows[index];
           if (!task) return;
           button.onclick = () => openRefundStudent(task.studentId, task.periodId || '', task.id || '');
@@ -10717,6 +10719,77 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         S = r.snapshot.val();
         window.withdrawalCompletionNotice = { taskId: task.id, message: "퇴반완료 · 최종 환불금액 저장 완료" };
         studentStatus();
+      }
+      function completedWithdrawalRestoreSnapshot(state, sid, taskId) {
+        const task = state.refundTasks?.[taskId], student = state.students?.[sid];
+        if (!task || !student || task.studentId !== sid || task.status !== "DONE" || !task.periodId || !task.withdrawalId) return null;
+        const withdrawal = student.withdrawals?.[task.withdrawalId];
+        if (!withdrawal || withdrawal.periodId !== task.periodId) return null;
+        const classIds = Object.keys(withdrawal.beforeClassIds || {}).sort();
+        if (!classIds.length || classIds.some((classId) => !state.classes?.[classId] || state.classes[classId].periodId !== task.periodId || state.classes[classId].active === false)) return null;
+        return {
+          task,
+          student,
+          withdrawal,
+          classIds,
+          signature: JSON.stringify({ sid, taskId, periodId: task.periodId, withdrawalId: task.withdrawalId, status: task.status, classIds }),
+        };
+      }
+      async function cancelCompletedWithdrawal(sid, taskId) {
+        if (operationBusy) return alert("앞 작업을 반영 중입니다.");
+        const restore = completedWithdrawalRestoreSnapshot(S, sid, taskId);
+        if (!restore) return alert("퇴반취소할 수 없습니다. 퇴반 전 반 기록이 없거나 해당 반이 현재 운영 중이 아닙니다. 반관리에서 확인하세요.");
+        if (restore.student.periodMembership?.[restore.task.periodId] === true)
+          return alert("이미 재원 상태로 복원된 학생입니다.");
+        const classNames = restore.classIds.map((classId) => S.classes[classId].name || classId);
+        if (!(await askConfirm(`${restore.student.name} 학생의 퇴반완료를 취소할까요?\n\n복원 반\n${classNames.join("\n")}\n\n학생과 이전 반만 복원합니다. 기존 환불 기록·보유 교재·회수 내역·재고는 바꾸지 않으며, 회수한 교재는 복원 후 미배부로 표시됩니다.`))) return;
+        const r = await runBlockingSave("퇴반취소를 저장하고 있습니다.", () => transaction((st) => {
+          const latest = completedWithdrawalRestoreSnapshot(st, sid, taskId);
+          if (!latest || latest.signature !== restore.signature || latest.student.periodMembership?.[latest.task.periodId] === true) return false;
+          if (!periodAllowsForId(st, latest.task.periodId, "STUDENT_EDIT")) return false;
+          const changedAt = now(), target = latest.student, task = latest.task, withdrawal = latest.withdrawal;
+          target.periodMembership = target.periodMembership || {};
+          target.periodMembership[task.periodId] = true;
+          target.periodClasses = target.periodClasses || {};
+          target.periodClasses[task.periodId] = Object.fromEntries(latest.classIds.map((classId) => [classId, classId]));
+          rebuildStudentClasses(target);
+          target.active = true;
+          target.onboarding = false;
+          target.pendingReturn = false;
+          target.retainedBooksOnExit = false;
+          for (const [bookId, item] of Object.entries(task.books || {})) {
+            const exclusion = target.bookExclusions?.[task.periodId]?.[bookId];
+            if (item?.status === "EXCLUDED" && exclusion?.source === "EXIT_REVIEW") delete target.bookExclusions[task.periodId][bookId];
+          }
+          withdrawal.cancelledAt = changedAt;
+          withdrawal.cancelledBy = actor;
+          withdrawal.cancelReason = "퇴반취소";
+          const syncRecord = target.integrationSync?.ecoding?.[task.periodId];
+          if (syncRecord && ["WAITING", "CONFIRMED"].includes(syncRecord.status)) {
+            syncRecord.status = "CANCELLED";
+            syncRecord.cancelledAt = changedAt;
+            syncRecord.cancelledBy = actor;
+            syncRecord.cancelReason = "WITHDRAWAL_CANCELLED";
+          }
+          task.status = "CANCELLED";
+          task.cancelledAt = changedAt;
+          task.cancelledBy = actor;
+          task.cancelReason = "퇴반취소";
+          st.refundTaskEvents = st.refundTaskEvents || {};
+          const eventId = "RTE" + crypto.randomUUID();
+          st.refundTaskEvents[eventId] = { id:eventId, type:"COMPLETED_WITHDRAWAL_CANCELLED", taskId:task.id, periodId:task.periodId, studentId:sid, studentName:target.name, classIds:Object.fromEntries(latest.classIds.map((classId) => [classId,classId])), actor, time:changedAt, memo:"퇴반취소 · 퇴반완료 직전 반 복원" };
+          st.refundHistory = st.refundHistory || {};
+          const historyId = "RH" + crypto.randomUUID();
+          st.refundHistory[historyId] = { id:historyId, type:"퇴반취소", taskId:task.id, periodId:task.periodId, studentId:sid, studentName:target.name, totalAmount:Number(task.totalAmount || 0), actor, time:changedAt, memo:`퇴반취소 · 퇴반 전 ${latest.classIds.length}개 반 복원 · 기존 환불 ${won(task.totalAmount)} 기록 보존` };
+        }, { skipOptimistic:true, silentRender:true }));
+        if (!r?.committed) return alert("퇴반취소를 저장하지 못했습니다. 상태나 이전 반이 변경됐는지 다시 확인하세요.");
+        S = r.snapshot.val();
+        window.withdrawalTaskId = "";
+        window.withdrawalCompletionNotice = null;
+        window.statusStudentId = sid;
+        window.studentQuery = S.students?.[sid]?.name || "";
+        studentStatus();
+        alert("퇴반취소가 완료되었습니다. 이전 반과 재원 상태를 복원했습니다. 회수한 교재는 미배부로 확인해 다시 배부하세요.");
       }
       function histApply() {
         const fromInput = document.getElementById("histFrom"),

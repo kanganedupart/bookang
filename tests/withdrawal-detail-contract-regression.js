@@ -68,6 +68,7 @@ const panel = functionSource("exitReviewPanel");
 contains(panel, /setExitReturnDecision/, "퇴반 상세에 회수/유지 처리가 연결되지 않았습니다.");
 contains(panel, /setExitRefundDecision/, "퇴반 상세에 환불유지/제외 처리가 연결되지 않았습니다.");
 contains(panel, /completeRefund/, "퇴반 상세에 퇴반완료가 연결되지 않았습니다.");
+contains(panel, /cancelCompletedWithdrawal/, "퇴반완료 상세에 퇴반취소가 연결되지 않았습니다.");
 
 const complete = functionSource("completeRefund");
 contains(complete, /returnDecisions/, "퇴반완료가 보유교재 결정 완료 여부를 검사하지 않습니다.");
@@ -84,6 +85,17 @@ contains(complete, /target\.status\s*!==\s*["']PENDING["']|task\.status\s*!==\s*
 assert.doesNotMatch(complete, /\.stock\s*[+\-]?=/,
   "퇴반완료 함수가 재고를 직접 변경합니다.");
 
+const cancel = functionSource("cancelCompletedWithdrawal");
+contains(cancel, /completedWithdrawalRestoreSnapshot/, "퇴반취소가 연결된 완료기록과 이전 반을 검증하지 않습니다.");
+contains(cancel, /periodMembership\s*\[[^\]]+\]\s*=\s*true/, "퇴반취소가 대상 기간 재원을 복원하지 않습니다.");
+contains(cancel, /periodClasses\s*\[[^\]]+\]\s*=\s*Object\.fromEntries/, "퇴반취소가 퇴반 전 반을 복원하지 않습니다.");
+contains(cancel, /task\.status\s*=\s*["']CANCELLED["']/, "퇴반취소가 완료 작업을 이력 상태로 종결하지 않습니다.");
+contains(cancel, /type\s*:\s*["']퇴반취소["']/, "퇴반취소 이력을 남기지 않습니다.");
+contains(cancel, /source\s*===\s*["']EXIT_REVIEW["']/, "퇴반 처리에서 만든 미배부 제외만 선별하지 않습니다.");
+assert.doesNotMatch(cancel, /\.stock\s*[+\-]?=/, "퇴반취소가 재고를 변경합니다.");
+assert.doesNotMatch(cancel, /\.holdings\s*[+\-]?=|holdings\s*\[[^\]]+\]\s*[+\-]?=/, "퇴반취소가 학생 보유수량을 변경합니다.");
+assert.doesNotMatch(cancel, /type\s*:\s*["'](?:DISTRIBUTE|RETURN)["']/, "퇴반취소가 배부·회수 원장을 생성합니다.");
+
 const helper = spawnSync(process.execPath, [path.join(__dirname, "withdrawal-ledger-invariants.js")], {
   encoding: "utf8",
 });
@@ -98,5 +110,6 @@ process.stdout.write(JSON.stringify({
     "환불유지/제외 무재고변경",
     "퇴반완료 금액 snapshot",
     "퇴반완료 중복차단",
+    "퇴반취소 이전반 복원 및 재고·보유·원장 불변",
   ],
 }, null, 2) + "\n");
