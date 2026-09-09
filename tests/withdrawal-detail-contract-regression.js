@@ -68,7 +68,7 @@ const panel = functionSource("exitReviewPanel");
 contains(panel, /setExitReturnDecision/, "퇴반 상세에 회수/유지 처리가 연결되지 않았습니다.");
 contains(panel, /setExitRefundDecision/, "퇴반 상세에 환불유지/제외 처리가 연결되지 않았습니다.");
 contains(panel, /completeRefund/, "퇴반 상세에 퇴반완료가 연결되지 않았습니다.");
-contains(panel, /cancelCompletedWithdrawal/, "퇴반완료 상세에 퇴반취소가 연결되지 않았습니다.");
+contains(source, /withdrawal-cancel-button[\s\S]*?cancelCompletedWithdrawal/, "학생 이름 옆에 퇴반취소가 연결되지 않았습니다.");
 
 const complete = functionSource("completeRefund");
 contains(complete, /returnDecisions/, "퇴반완료가 보유교재 결정 완료 여부를 검사하지 않습니다.");

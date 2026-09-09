@@ -525,6 +525,11 @@ try {
     assert.equal(await page.locator("#studentStatusDetail .history-details").count(), 1, `${viewport.name}: completed withdrawal lost recent history`);
     assert.equal(await page.locator("#studentStatusDetail .student-book-toolbar").count(), 0, `${viewport.name}: completed withdrawal duplicated the general student table`);
     assert.equal(await page.locator("#studentStatusDetail .exit-review-card tbody tr").count(), 5, `${viewport.name}: completed withdrawal lost distributed books`);
+    const cancelButton = page.locator('#studentStatusDetail .student-head h2 .withdrawal-cancel-button');
+    assert.equal(await cancelButton.count(), 1, `${viewport.name}: cancel button must be beside the student status`);
+    assert.equal(await page.locator('#studentStatusDetail .exit-review-card').getByRole('button', { name:'퇴반취소', exact:true }).count(), 0, `${viewport.name}: old bottom button remains`);
+    await cancelButton.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: decodeURIComponent(new URL(`../backups/cancel-button-${viewport.name}.png`, import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1') });
     await page.locator("#studentStatusSearch").fill("기록검수");
     const archiveCandidate = page.locator("#studentStatusAutoResults button", { hasText: "기록검수" });
     await archiveCandidate.waitFor();
@@ -550,11 +555,11 @@ try {
     assert.equal(persisted.books.BRETURN.stock, 8, `${viewport.name}: returned stock mismatch`);
     assert.equal(Object.values(persisted.movements).filter((movement) => movement.bookId === "BRETURN" && movement.type === "RETURN").length, 1, `${viewport.name}: return ledger exact-once failed`);
     const withdrawalCancelBefore = JSON.stringify({ books:persisted.books, holdings:persisted.students.SEXIT.holdings, movements:persisted.movements, refundCompleted:Object.values(persisted.refundHistory).filter((item)=>item.type === "퇴반완료") });
-    await page.evaluate(async () => {
-      window.askConfirm = async () => true;
-      window.alert = () => {};
-      await cancelCompletedWithdrawal("SEXIT", "RTASK_EXACT");
-    });
+    await page.locator('#studentStatusSearch').fill('퇴반검수');
+    await page.locator('#studentStatusAutoResults button', { hasText:'퇴반검수' }).click();
+    await page.locator('#studentStatusDetail .student-head .withdrawal-cancel-button').click();
+    await page.locator('.app-dialog .confirm-button').click();
+    await page.locator('.app-dialog .confirm-button').click();
     const afterWithdrawalCancel = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
     assert.equal(afterWithdrawalCancel.refundTasks.RTASK_EXACT.status, "CANCELLED", `${viewport.name}: completed withdrawal was not cancelled`);
     assert.equal(afterWithdrawalCancel.students.SEXIT.active, true, `${viewport.name}: student active status was not restored`);
@@ -565,7 +570,9 @@ try {
     await page.evaluate((key) => {
       const saved = JSON.parse(localStorage.getItem(key));
       for (const student of Object.values(saved.students)) for (const change of Object.values(student.classChanges || {})) change.workCompletedAt = change.workCompletedAt || "2026-09-07T08:00:00+09:00";
-      saved.students.SACTIVE.classChanges = {
+      // Use an independent active student: SACTIVE was intentionally withdrawn above.
+      saved.students.SMOVE = { id:'SMOVE', name:'반이동검수', active:true, onboarding:false, periodMembership:{P2026T3:true}, periodClasses:{P2026T3:{CADD:'CADD'}}, classes:{CADD:'CADD'}, holdings:{} };
+      saved.students.SMOVE.classChanges = {
         CM1: { id:"CM1", periodId:"P2026T3", beforeClassIds:{ C1:"C1" }, afterClassIds:{ C1:"C1" }, memo:"1차 검수", actor:"검수자", time:"2026-09-07T09:00:00+09:00", workStatus:"PENDING" },
         CM2: { id:"CM2", periodId:"P2026T3", beforeClassIds:{ C1:"C1" }, afterClassIds:{ C1:"C1" }, memo:"2차 검수", actor:"검수자", time:"2026-09-07T10:00:00+09:00", workStatus:"PENDING" },
       };
@@ -575,14 +582,14 @@ try {
     await page.locator('[data-main-tab="반이동"]').waitFor();
     assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반관리 1/, `${viewport.name}: pending class-move count is not per student`);
     await page.locator('[data-main-tab="반이동"]').click();
-    await page.locator("tbody tr", { hasText: "재원검수" }).click();
+    await page.locator("tbody tr", { hasText: "반이동검수" }).click();
     assert.match(await page.locator("#screen").innerText(), /반변경 2회[\s\S]*1차 변경[\s\S]*2차 변경[\s\S]*변경 전 반[\s\S]*변경 후 반/, `${viewport.name}: class-move timeline is unreadable`);
     const classMoveInventoryBefore = await page.evaluate((key) => { const state=JSON.parse(localStorage.getItem(key)); return JSON.stringify({books:state.books,holdings:Object.fromEntries(Object.values(state.students).map(student=>[student.id,student.holdings||{}])),movements:state.movements}); }, FAKE_STATE_KEY);
     await page.getByRole("button", { name: "반변경 처리 완료", exact: true }).click();
     await page.locator(".app-dialog .confirm-button").click();
     await page.locator(".app-dialog .confirm-button").click();
     const classMoveCompleted = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), FAKE_STATE_KEY);
-    assert.ok(classMoveCompleted.students.SACTIVE.classChanges.CM1.workCompletedAt && classMoveCompleted.students.SACTIVE.classChanges.CM2.workCompletedAt, `${viewport.name}: all pending class changes were not completed together`);
+    assert.ok(classMoveCompleted.students.SMOVE.classChanges.CM1.workCompletedAt && classMoveCompleted.students.SMOVE.classChanges.CM2.workCompletedAt, `${viewport.name}: all pending class changes were not completed together`);
     const classMoveInventoryAfter = JSON.stringify({books:classMoveCompleted.books,holdings:Object.fromEntries(Object.values(classMoveCompleted.students).map(student=>[student.id,student.holdings||{}])),movements:classMoveCompleted.movements});
     assert.equal(classMoveInventoryAfter, classMoveInventoryBefore, `${viewport.name}: class-move completion changed inventory or ledger`);
     assert.match(await page.locator('[data-main-tab="반이동"]').innerText(), /반관리 0/, `${viewport.name}: completed class move remained in pending count`);
