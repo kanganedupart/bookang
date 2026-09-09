@@ -47,29 +47,63 @@ for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
   await page.locator('[data-main-tab="이력"]').click();
   await page.locator('#histFrom').fill('2026-08-01');await page.locator('#histTo').fill('2026-09-30');
   const before=await page.evaluate(k=>localStorage.getItem(k),key);
+  assert.equal(await page.locator('#histScope').inputValue(),'ALL','unified search must be the default');
+  await page.locator('#histSearch').fill('임');
+  await page.waitForTimeout(250);
+  assert.equal(await page.locator('#histSuggestions').isVisible(),false,'one character must not open suggestions');
   await page.locator('#histSearch').fill('임건우');
-  const candidates=await page.locator('#histStudent option').allTextContents();
+  await page.locator('#histSuggestions button').first().waitFor();
+  const candidates=await page.locator('#histSuggestions button').allTextContents();
   assert(candidates.some(x=>x.includes('7179'))&&candidates.some(x=>x.includes('5242')),'same-name students must be separately selectable');
-  const option=page.locator('#histStudent option').filter({hasText:'5242'});
-  const sid=await option.getAttribute('value');await page.locator('#histStudent').selectOption(sid);
+  await page.locator('#histSuggestions button').filter({hasText:'5242'}).click();
+  const sid=await page.evaluate(()=>window.histEntity.id);
   const rows=page.locator('#hist tr');assert(await rows.count()>0);
   for(const row of await rows.all()){
     assert.equal(await row.getAttribute('data-history-student'),sid);
     assert.match(await row.locator('td').nth(2).innerText(),/5242/);
     assert.match(await row.locator('td').nth(3).innerText(),/1권/);
   }
+  assert.equal(await page.locator('#hist .history-event-details li').count(),0,'hidden bulk lists must not be built while typing');
   await page.screenshot({path:new URL('../backups/history-'+name+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
   const detail=rows.first().locator('.history-event-details');await detail.locator(':scope > summary').click();
+  await detail.getByText('전체 일괄처리 기준 재고',{exact:true}).waitFor();
   assert.match(await detail.innerText(),/전체 일괄처리 기준 재고/);
   await detail.getByRole('button',{name:'닫기',exact:true}).click();
   assert.equal(await detail.getAttribute('open'),null);
-  await page.locator('#histScope').selectOption('BOOK');await page.locator('#histSearch').fill('국매 9-1주');
+  await page.locator('#histSearch').fill('국매 9-1주');
+  await page.locator('#histSuggestions button').filter({hasText:'교재'}).first().waitFor();
+  await page.locator('#histSuggestions button').filter({hasText:'교재'}).first().click();
   for(const row of await page.locator('#hist tr').all())assert.match(await row.locator('td').nth(3).innerText(),/국매 9-1주/);
   const checks=await page.evaluate(()=>{
     const m={type:'DISTRIBUTE',studentIds:{A:'A',B:'B'},studentNames:{A:'동명1234',B:'동명5678'},studentDeltas:{A:2,B:3},classNames:{A:'과거반A',B:'과거반B'},bookName:'테스트교재',quantity:5};
     return {student:historyProjection(m,'STUDENT','동명','A').map(x=>[x.studentId,x.quantity]),classes:historyProjection(m,'CLASS','과거반A').map(x=>[x.who,x.quantity,x.matchedParticipants.map(s=>s.id)]),wrong:historyProjection(m,'CLASS','현재반').length,unknown:historyProjection({...m,studentDeltas:{}},'STUDENT','동명','A')[0].quantity};
   });
   assert.deepEqual(checks,{student:[['A',2]],classes:[['과거반A',2,['A']]],wrong:0,unknown:null});
+  const isolation=await page.evaluate(()=>{
+    const original=S,pid=window.periodChoiceId;
+    try{
+      S={...S,movements:{PA:{type:'IN',bookId:'A',bookName:'동일교재',periodId:'PA',time:'2026-09-01',quantity:1},PB:{type:'IN',bookId:'B',bookName:'동일교재',periodId:'PB',time:'2026-09-01',quantity:9}},students:{},refundTasks:{},refundHistory:{},refundTaskEvents:{},chargeTasks:{},chargeHistory:{},ecodingEvents:{},classEvents:{}};
+      return ['PA','PB','PA'].map(p=>{window.periodChoiceId=p;resetDerivedState();return [...historyPrepared().entities.values()].filter(e=>e.kind==='BOOK').map(e=>e.id).sort();});
+    }finally{S=original;window.periodChoiceId=pid;resetDerivedState();}
+  });
+  assert.deepEqual(isolation,[['A'],['B'],['A']],'same-name books in opposite periods must never leak into candidates');
+  await page.locator('#histSearch').fill('임건우');
+  await page.locator('#histSuggestions button').first().waitFor();
+  await page.locator('#histSearch').press('ArrowDown');await page.locator('#histSearch').press('Enter');
+  assert.equal(await page.evaluate(()=>window.histEntity.kind),'STUDENT');
+  await page.locator('#histSearch').fill('');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(()=>window.histEntity),null,'deleting text must clear the selected identity');
+  const typing=await page.evaluate(()=>{
+    const original=window.histApply;window.typingApplyCalls=0;
+    window.histApply=function(){window.typingApplyCalls++;return original();};
+    const input=document.getElementById('histSearch');
+    for(const value of ['임','임건','임건우','임건','임','']){input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));}
+    return window.typingApplyCalls;
+  });
+  assert.equal(typing,0,'typing and deleting must not synchronously rebuild history');
+  await page.waitForTimeout(350);
+  assert.equal(await page.evaluate(()=>window.typingApplyCalls),1,'rapid input must apply only the final search');
   assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),before,'history reads must not modify any data');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'page must not overflow horizontally');
   assert.deepEqual(errors,[]);outputs.push({viewport:name,studentId:sid,rows:await rows.count(),readOnly:true});

@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.77" />
+    <meta name="bookflow-build" content="2026-09-10.78" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.77", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.78", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -68,6 +68,7 @@
       .subtabs button.on{color:#174d8c;border-bottom-color:var(--blue);font-weight:750}
       .panel{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px #1a24300a}
       .panel>h2+p,.panel>p.muted{display:none}
+      #histCount,#histSelection:not(:empty){display:block;font-size:12px;margin:6px 0}
       .panel h2{font-size:17px;margin:0 0 14px}.panel h3{font-size:14px;margin:24px 0 10px}
       .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
       .grid.manage-split{grid-template-columns:minmax(420px,.85fr) minmax(520px,1.15fr)}
@@ -115,6 +116,9 @@
       .operating-class-list{max-height:none;overflow:visible;display:grid;gap:12px;margin-top:16px}.operating-class-card{display:block;border:1px solid var(--line);border-radius:10px;padding:0;background:#fff;overflow:hidden}.operating-class-card:nth-child(even){background:#fbfcfe}.operating-class-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:11px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}.operating-class-main{text-align:left;white-space:normal;width:100%;border:0;background:transparent;padding:0}.operating-class-main:hover{background:transparent}.operating-class-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end}.operating-class-books{padding:11px 14px}.operating-class-books-title{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--ink2)}.operating-class-books-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.operating-book-cell{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border:1px solid #d9e1ea;border-radius:8px;padding:8px 9px;background:#fff;min-width:0}.operating-book-name{font-weight:700;overflow-wrap:anywhere}.operating-book-cell button{padding:6px 9px;min-height:34px;border-color:#e2a8a8;color:#9c3030;background:#fff7f7;white-space:nowrap}.operating-book-cell button:hover{background:#fdeaea}.operating-no-books{color:var(--muted);padding:4px 0}
       .badge{display:inline-block;padding:3px 9px;border-radius:999px;background:#eef1f4;font-size:12px}.ok{background:var(--blue-soft);color:var(--blue)}.warn{background:var(--warn-soft);color:var(--warn)}.danger{background:var(--bad-soft);color:var(--bad)}
       .panel h2 .badge.warn{background:#eceff2;color:#66707a}
+      section.history-panel>.history-filters{grid-template-columns:140px 140px 86px minmax(180px,1fr) 120px 100px 150px 76px}.history-search-box{position:relative}.history-search-box input{width:100%;max-width:none}#histSuggestions{position:absolute;z-index:110;top:100%;left:0;right:0;min-width:240px;max-height:320px;overflow:auto;background:white;border:1px solid var(--field);border-radius:6px;box-shadow:0 5px 16px #0002}#histSuggestions button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;border-radius:0;border-bottom:1px solid var(--line);white-space:normal;padding:8px 10px}#histSuggestions button[aria-selected="true"]{background:var(--blue-soft)}#histSuggestions>div{padding:12px}.history-memo{max-width:100%;margin-bottom:4px}
+      @media(max-width:1250px){section.history-panel>.history-filters{grid-template-columns:repeat(4,minmax(0,1fr))}}
+      @media(max-width:720px){section.history-panel>.history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}section.history-panel>.history-filters .history-query{grid-column:1/-1}#histSuggestions{min-width:0}.history-readable-table td:last-child{grid-column:1/-1}}
       .history-panel .history-filters{grid-template-columns:150px 150px 110px minmax(160px,1fr) 80px;gap:8px;align-items:end}.history-panel .history-filters>label{margin:0;display:flex;flex-direction:column;gap:4px}.history-panel .history-filters .history-query{grid-column:auto}.history-more-filters{margin:8px 0}.history-more-filters>summary{cursor:pointer;color:var(--ink2)}
       @media(max-width:900px){.history-panel .history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.history-panel .history-filters .history-query{grid-column:auto}.history-panel .history-student-choice{margin:8px 0}}
       .history-filters{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:10px;margin:14px 0}.history-filters .history-query{grid-column:span 5}.history-student-choice{max-width:440px}.history-results{max-height:65vh;overflow:auto}.history-readable-table{width:100%;table-layout:fixed}.history-readable-table th:nth-child(1){width:18%}.history-readable-table th:nth-child(2){width:13%}.history-readable-table th:nth-child(3){width:25%}.history-readable-table th:nth-child(4){width:29%}.history-readable-table th:nth-child(5){width:15%}.history-readable-table td{text-align:left;vertical-align:top;overflow-wrap:anywhere}.history-short{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-event-details>summary{color:var(--blue);cursor:pointer;white-space:nowrap}.history-event-details[open]>div{position:fixed;z-index:100;inset:20vh 15vw auto;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 30px #0002;border-radius:10px;padding:16px;max-height:65vh;overflow:auto}.history-event-details[open]>summary{position:relative;z-index:101}.history-event-details ul{padding-left:20px}.history-event-details p{margin:8px 0}
@@ -129,7 +133,8 @@
       .withdrawal-table-expanded{border:1px solid var(--line);border-radius:8px;margin-bottom:16px;overflow:visible}.withdrawal-table-expanded table{width:100%;min-width:0}
       .history-table th:nth-child(1),.history-table td:nth-child(1){width:12%}.history-table th:nth-child(2),.history-table td:nth-child(2){width:11%}.history-table th:nth-child(3),.history-table td:nth-child(3){width:18%}.history-table th:nth-child(4),.history-table td:nth-child(4){width:16%}.history-table th:nth-child(5),.history-table td:nth-child(5){width:11%}.history-table th:nth-child(6),.history-table td:nth-child(6){width:10%}.history-table th:nth-child(7),.history-table td:nth-child(7){width:22%}
       .history-table td:nth-child(3),.history-table td:nth-child(4),.history-table td:nth-child(7){text-align:left}.student-table th:nth-child(1),.student-table td:nth-child(1){width:12%}.student-table th:nth-child(2),.student-table td:nth-child(2){width:28%}.student-table th:nth-child(3),.student-table td:nth-child(3){width:36%}.student-table th:nth-child(4),.student-table td:nth-child(4){width:14%}.student-table th:nth-child(5),.student-table td:nth-child(5){width:10%}
-      .inventory-table{min-width:1240px;table-layout:fixed}.inventory-table th,.inventory-table td{vertical-align:middle}.inventory-table th:nth-child(1),.inventory-table td:nth-child(1),.inventory-table th:nth-child(2),.inventory-table td:nth-child(2){width:8%}.inventory-table th:nth-child(3),.inventory-table td:nth-child(3){width:18%;text-align:left}.inventory-table th:nth-child(4),.inventory-table td:nth-child(4),.inventory-table th:nth-child(5),.inventory-table td:nth-child(5){width:7%}.inventory-table th:nth-child(6),.inventory-table td:nth-child(6),.inventory-table th:nth-child(7),.inventory-table td:nth-child(7){width:7%}.inventory-table th:nth-child(8),.inventory-table td:nth-child(8){width:18%;text-align:left}.inventory-table th:nth-child(9),.inventory-table td:nth-child(9){width:21%}.inventory-table td:nth-child(6) input{width:100%;max-width:none;text-align:center;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(7){font-weight:650;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(8) input{width:100%;max-width:none}.inventory-table td:nth-child(8) small{display:block;margin-top:5px;line-height:1.35}.inventory-table td:nth-child(9) .row-actions{display:flex;flex-wrap:nowrap;justify-content:center;align-items:center;gap:8px}.inventory-table td:nth-child(9) .row-actions button{flex:0 0 auto;width:auto;min-width:58px;padding:6px 9px;white-space:nowrap}
+      .inventory-table{min-width:1480px;table-layout:fixed}.inventory-table th,.inventory-table td{vertical-align:middle}.inventory-table th:nth-child(1),.inventory-table td:nth-child(1),.inventory-table th:nth-child(2),.inventory-table td:nth-child(2){width:8%}.inventory-table th:nth-child(3),.inventory-table td:nth-child(3){width:18%;text-align:left}.inventory-table th:nth-child(5),.inventory-table td:nth-child(5),.inventory-table th:nth-child(6),.inventory-table td:nth-child(6){width:7%}.inventory-table th:nth-child(7),.inventory-table td:nth-child(7),.inventory-table th:nth-child(8),.inventory-table td:nth-child(8){width:7%}.inventory-table th:nth-child(9),.inventory-table td:nth-child(9){width:18%;text-align:left}.inventory-table th:nth-child(10),.inventory-table td:nth-child(10){width:21%}.inventory-table td:nth-child(7) input{width:100%;max-width:none;text-align:center;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(8){font-weight:650;font-variant-numeric:tabular-nums}.inventory-table td:nth-child(9) input{width:100%;max-width:none}.inventory-table td:nth-child(9) small{display:block;margin-top:5px;line-height:1.35}.inventory-table td:nth-child(10) .row-actions{display:flex;flex-wrap:nowrap;justify-content:center;align-items:center;gap:8px}.inventory-table td:nth-child(10) .row-actions button{flex:0 0 auto;width:auto;min-width:58px;padding:6px 9px;white-space:nowrap}
+      .inventory-table th:nth-child(4),.inventory-table td:nth-child(4){width:15%;text-align:left}.inventory-intakes small{display:block;line-height:1.4}.inventory-intakes button{padding:3px 7px;min-height:28px;font-size:12px}
       .student-status-panel{padding-top:16px}.student-search-line{display:grid;grid-template-columns:90px minmax(280px,420px);gap:12px;align-items:center;max-width:540px}.student-search-line strong{font-size:14px}.student-search-line input{max-width:none}.student-search-results{max-width:540px;margin-left:102px}.student-empty{display:none}
       .student-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:18px 0 12px;padding-top:16px;border-top:1px solid var(--line)}.student-head h2{margin:0 0 2px}.student-actions{margin:0;justify-content:flex-end}
       .compact-details{border:1px solid var(--line);border-radius:7px;background:#fafbfd;margin:10px 0 14px}.compact-details summary{cursor:pointer;padding:9px 12px;font-weight:650;color:#3f4d5c}.class-chip-list{display:flex;gap:7px;flex-wrap:wrap;padding:0 12px 12px}.class-chip-list span{border:1px solid var(--line2);border-radius:999px;background:#fff;padding:5px 11px;font-size:12.5px;min-height:30px;margin:0}.class-chip-list button{border:1px solid var(--line2);border-radius:999px;background:#fff;padding:5px 11px;font-size:12.5px;min-height:44px;margin:0}.class-chip-list button:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-soft)}
@@ -193,7 +198,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.77";
+      const BOOKFLOW_BUILD = "2026-09-10.78";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -6989,6 +6994,33 @@
           operationBusy = false;
         }
       }
+      function inventoryIntakeIndex() {
+        // Stock is shared by book ID. Match that same scope, not names or returns.
+        return derivedValue("inventoryIntakes",()=>{
+          const index=new Map();
+          for(const m of arr(S.movements)){
+            if(m.type!=="IN"||!m.bookId)continue;
+            if(!index.has(m.bookId))index.set(m.bookId,[]);
+            index.get(m.bookId).push(m);
+          }
+          for(const records of index.values())records.sort((a,b)=>String(a.time||"").localeCompare(String(b.time||"")));
+          return index;
+        });
+      }
+      function inventoryIntakeSummary(bid) {
+        const records=inventoryIntakeIndex().get(bid)||[];
+        const valid=records.every(m=>Number.isFinite(Number(m.quantity))&&Number(m.quantity)>0);
+        return {records,total:valid?records.reduce((sum,m)=>sum+Number(m.quantity),0):null,first:records[0],additional:valid?records.slice(1).reduce((sum,m)=>sum+Number(m.quantity),0):null,last:records.at(-1)};
+      }
+      function inventoryIntakeHtml(bid) {
+        const s=inventoryIntakeSummary(bid);
+        if(!s.records.length)return '<small>입고 기록 없음</small>';
+        return '<b>누적 '+(s.total==null?'확인 필요':s.total+'권')+'</b><small>최초 '+esc(s.first.quantity)+'권 · 추가 '+(s.additional==null?'확인 필요':s.additional+'권')+'</small><small>최근 '+esc(s.last.time?fmt(s.last.time):'일시 미기록')+'</small><button type="button" onclick="showInventoryIntakes(\''+esc(bid)+'\')">입고내역 '+s.records.length+'건</button>';
+      }
+      function showInventoryIntakes(bid) {
+        const s=inventoryIntakeSummary(bid),host=document.getElementById("appDialogHost");if(!host)return;
+        host.innerHTML='<div class="app-dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-label="입고내역"><h2>'+esc(S.books[bid]?.name||'교재')+' 입고내역</h2><p>동일 교재 ID의 전체 입고 기록 기준입니다. 최초는 첫 입고 기록, 추가는 이후 입고 합계입니다. 회수·재고조정은 제외합니다.</p><div class="scroll"><table><thead><tr><th>입고일시</th><th>수량</th><th>메모</th></tr></thead><tbody>'+s.records.map(m=>'<tr><td>'+esc(m.time?fmt(m.time):'일시 미기록')+'</td><td>'+esc(m.quantity)+'권</td><td>'+esc(m.memo||'—')+'</td></tr>').join('')+'</tbody></table></div><button type="button" onclick="document.getElementById(\'appDialogHost\').innerHTML=\'\'">닫기</button></section></div>';
+      }
       function inventory() {
         const relevantBookIds = periodBookIds(),
           all = arr(S.books).filter(
@@ -7033,12 +7065,12 @@
                 a.name.localeCompare(b.name, "ko"),
             );
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="receipt"><b>실사 순서</b><br>1. 실물재고와 메모 입력 → 2. <b>실사 확인(기록만)</b> → 3. 두 번 세어도 차이가 확실할 때만 <b>전산재고 맞춤</b><small>실사 확인은 재고를 바꾸지 않습니다. 전산재고 맞춤만 실물수량으로 강제 조정하고 조정원장을 남깁니다.</small></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';invQuery='';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;invQuery='';inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;invQuery='';inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showInventoryBookPicker(this.value)" oninput="invQuery=this.value;showInventoryBookPicker(this.value);filterInventoryRows(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('inventoryBookResults');if(b)b.innerHTML=''},160)"><div id="inventoryBookResults" class="picker-results"></div></div></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
+          `<section class="panel"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><h2>재고 전체현황·총무 실사</h2><div><button onclick="downloadStock('filtered')">현재 검색결과 엑셀</button> <button class="btn" onclick="downloadStock('all')">전체 검수 엑셀</button></div></div><div class="receipt"><b>실사 순서</b><br>1. 실물재고와 메모 입력 → 2. <b>실사 확인(기록만)</b> → 3. 두 번 세어도 차이가 확실할 때만 <b>전산재고 맞춤</b><small>실사 확인은 재고를 바꾸지 않습니다. 전산재고 맞춤만 실물수량으로 강제 조정하고 조정원장을 남깁니다.</small></div><div class="filter-row inventory-filter"><label>과목<select onchange="invSubject=this.value;invTeacher='전체';invQuery='';inventory()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="invTeacher=this.value;invQuery='';inventory()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>재고상태<select onchange="invState=this.value;invQuery='';inventory()">${["전체","재고있음","재고0","차이있음","미실사"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>교재명 검색<div class="managed-combo"><input id="inventoryBookSearch" value="${esc(window.invQuery || "")}" placeholder="교재명 입력 또는 선택" onfocus="showInventoryBookPicker(this.value)" oninput="invQuery=this.value;showInventoryBookPicker(this.value);filterInventoryRows(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('inventoryBookResults');if(b)b.innerHTML=''},160)"><div id="inventoryBookResults" class="picker-results"></div></div></label><button onclick="invSubject='전체';invTeacher='전체';invState='전체';invQuery='';inventory()">초기화</button></div><p class="muted" id="invCount">검색 결과 ${rows.length}종 / 전체 ${all.length}종</p><div class="scroll"><table class="inventory-table"><thead><tr><th>과목</th><th>강사</th><th>교재</th><th>입고정보</th><th>전산재고</th><th>학생보유</th><th>실물재고</th><th>차이</th><th>메모·검수자</th><th>처리</th></tr></thead><tbody id="inventoryRows">${rows
             .map((b) => {
               const a = b.audit || {};
               const needsAdjustment = !!a.id && Number(a.diff || 0) !== 0;
               const auditCount = arr(S.audits).filter((x) => x.bookId === b.id).length;
-              return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher || "")}</td><td>${esc(b.name)}</td><td><b>${b.stock || 0}</b></td><td>${arr(S.students).reduce((n, s) => n + held(s.id, b.id), 0)}</td><td><input id="p${b.id}" type="number" value="${a.physical ?? ""}" data-audit-id="${esc(a.id || "")}" data-audit-system="${a.system ?? ""}" data-audit-physical="${a.physical ?? ""}" oninput="previewAuditDiff('${b.id}',this.value)"></td><td id="d${b.id}">${a.diff ?? ""}</td><td><input id="a${b.id}" value="${esc(a.memo || "")}"><small>${esc(a.actor || "")} ${a.time ? fmt(a.time) : ""}</small></td><td><div class="row-actions"><button class="btn" onclick="audit('${b.id}')">실사 확인(기록만)</button><button class="${needsAdjustment ? "danger-btn" : ""}" onclick="adjustToPhysical('${b.id}')" ${needsAdjustment ? "" : "disabled"}>전산재고 맞춤</button><button onclick="showAuditHistory('${b.id}')">이력 ${auditCount}</button></div></td></tr>`;
+              return `<tr><td>${esc(b.subject)}</td><td>${esc(b.teacher || "")}</td><td>${esc(b.name)}</td><td class="inventory-intakes">${inventoryIntakeHtml(b.id)}</td><td><b>${b.stock || 0}</b></td><td>${arr(S.students).reduce((n, s) => n + held(s.id, b.id), 0)}</td><td><input id="p${b.id}" type="number" value="${a.physical ?? ""}" data-audit-id="${esc(a.id || "")}" data-audit-system="${a.system ?? ""}" data-audit-physical="${a.physical ?? ""}" oninput="previewAuditDiff('${b.id}',this.value)"></td><td id="d${b.id}">${a.diff ?? ""}</td><td><input id="a${b.id}" value="${esc(a.memo || "")}"><small>${esc(a.actor || "")} ${a.time ? fmt(a.time) : ""}</small></td><td><div class="row-actions"><button class="btn" onclick="audit('${b.id}')">실사 확인(기록만)</button><button class="${needsAdjustment ? "danger-btn" : ""}" onclick="adjustToPhysical('${b.id}')" ${needsAdjustment ? "" : "disabled"}>전산재고 맞춤</button><button onclick="showAuditHistory('${b.id}')">이력 ${auditCount}</button></div></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
         [...document.querySelectorAll("#inventoryRows tr")].forEach((row,index)=>{const book=rows[index];if(!book)return;row.dataset.bookId=book.id;if(window.inventoryBookChoice===book.id)row.classList.add("book-picker-selected");});
@@ -7292,7 +7324,7 @@
             ),
           selectedBookIds = new Set(source.map((b) => b.id)),
           currentHeader = [
-            "대상","과목","강사","교재명","전산재고","학생보유","실물재고","차이","실사메모","검수자","검수일시",
+            "대상","과목","강사","교재명","전산재고","학생보유","실물재고","차이","실사메모","검수자","검수일시","누적 입고(동일 교재 ID)","최초 입고","추가 입고","최근 입고일시",
           ],
           currentRows = [
             currentHeader,
@@ -7308,6 +7340,10 @@
               b.audit?.memo ?? "",
               b.audit?.actor ?? "",
               b.audit?.time ? new Date(b.audit.time) : "",
+              inventoryIntakeSummary(b.id).records.length ? inventoryIntakeSummary(b.id).total ?? "확인 필요" : "입고 기록 없음",
+              inventoryIntakeSummary(b.id).first?.quantity ?? "",
+              inventoryIntakeSummary(b.id).records.length ? inventoryIntakeSummary(b.id).additional ?? "확인 필요" : "",
+              inventoryIntakeSummary(b.id).last?.time ? new Date(inventoryIntakeSummary(b.id).last.time) : "",
             ]),
           ],
           diffRows = [
@@ -7373,15 +7409,15 @@
           wb,
           "현재 재고",
           currentRows,
-          [16,10,16,32,11,11,11,9,34,12,19],
-          { leftCols: [0,1,2,3,8,9], numberCols: [4,5,6,7], dateCols: [10], diffCol: 7 },
+          [16,10,16,32,11,11,11,9,34,12,19,24,12,12,19],
+          { leftCols: [0,1,2,3,8,9], numberCols: [4,5,6,7,11,12,13], dateCols: [10,14], diffCol: 7 },
         );
         appendStyledStockSheet(
           wb,
           "재고 차이",
           diffRows,
-          [16,10,16,32,11,11,11,9,34,12,19],
-          { leftCols: [0,1,2,3,8,9], numberCols: [4,5,6,7], dateCols: [10], diffCol: 7 },
+          [16,10,16,32,11,11,11,9,34,12,19,24,12,12,19],
+          { leftCols: [0,1,2,3,8,9], numberCols: [4,5,6,7,11,12,13], dateCols: [10,14], diffCol: 7 },
         );
         appendStyledStockSheet(
           wb,
@@ -9406,6 +9442,7 @@
         return m.bookName || S.books[m.bookId]?.name || "";
       }
       function movementLabel(m) {
+        if (m.type === "IN") return "입고";
         if (m.type === "BOOK_EXCLUDE") return "미배부 제외";
         if (m.type === "BOOK_EXCLUDE_CANCEL") return "미배부 제외 취소";
         if (m.type === "DISTRIBUTE") {
@@ -9883,16 +9920,14 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           '<section class="panel history-panel"><h2>업무이력</h2><div class="history-filters">' +
           '<label>시작일<input id="histFrom" type="date" value="'+esc(window.histFrom||month)+'" onchange="histApply()"></label>'+
           '<label>종료일<input id="histTo" type="date" value="'+esc(window.histTo||today)+'" onchange="histApply()"></label>'+
-          '<label>검색 기준<select id="histScope" onchange="window.histStudentId=\'\';histApply()">'+options([["STUDENT","학생"],["BOOK","교재"],["CLASS","반"],["ALL","전체"]],window.histScope||"STUDENT")+'</select></label>'+
-          '<label class="history-query">검색어<input id="histSearch" value="'+esc(window.histQuery||"")+'" placeholder="학생 이름 또는 뒷번호" oninput="window.histStudentId=\'\';histApply()"></label>'+
-          '<button onclick="window.histFrom=\'\';window.histTo=\'\';window.histType=\'\';window.histReason=\'\';window.histMemoOnly=\'\';window.histQuery=\'\';window.histStudentId=\'\';historyScreen()">초기화</button></div>'+
-          '<details class="history-more-filters"><summary>처리·유형·메모 필터</summary><div class="history-filters">'+
+          '<label>검색 기준<select id="histScope" onchange="window.histEntity=null;window.histStudentId=\'\';historyInputChanged()">'+options([["ALL","전체"],["STUDENT","학생"],["BOOK","교재"],["CLASS","반"]],window.histScope||"ALL")+'</select></label>'+
+          '<label class="history-query">통합검색<div class="history-search-box"><input id="histSearch" value="'+esc(window.histQuery||"")+'" placeholder="학생·교재·반 이름 2글자 이상" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="histSuggestions" autocomplete="off" oninput="historyInputChanged(event)" onfocus="historyShowSuggestions()" onkeydown="historySearchKey(event)" oncompositionstart="window.histComposing=true" oncompositionend="window.histComposing=false;historyInputChanged()" onblur="historyBlurSuggestions()"><div id="histSuggestions" role="listbox" hidden></div></div></label>'+
           '<label>처리<select id="histType" onchange="histApply()">'+options([["","전체 처리"],["IN","입고"],["DISTRIBUTE","배부"],["RETURN","회수"],["ADJUST","재고조정"],...types.map(x=>[x,x])],window.histType||"")+'</select></label>'+
           '<label>업무유형<select id="histReason" onchange="histApply()">'+options([["","전체 유형"],["NORMAL","일반"],["FREE","무료"],["EXTRA_PAYMENT","유료"],["CLASS_MOVE","반변경"],["MISDISTRIBUTION","실수"],["OTHER","기타"]],window.histReason||"")+'</select></label>'+
           '<label>메모<select id="histMemoOnly" onchange="histApply()">'+options([["","전체"],["Y","메모 있는 기록만"]],window.histMemoOnly||"")+'</select></label>'+
-          '</div></details>'+
-          '<label id="histStudentChoice" class="history-student-choice" hidden>학생 선택<select id="histStudent" onchange="window.histStudentId=this.value;histApply()"></select></label>'+
-          '<p class="muted" id="histCount"></p><div class="history-results"><table class="history-readable-table"><thead><tr><th>일시</th><th>처리</th><th>대상</th><th>교재·수량</th><th>상세</th></tr></thead><tbody id="hist"></tbody></table></div></section>';
+          '<button onclick="window.histFrom=\'\';window.histTo=\'\';window.histType=\'\';window.histReason=\'\';window.histMemoOnly=\'\';window.histQuery=\'\';window.histStudentId=\'\';window.histEntity=null;window.histLimit=100;historyScreen()">초기화</button></div>'+
+          '<p id="histSelection" class="muted"></p>'+
+          '<p class="muted" id="histCount" aria-live="polite"></p><div class="history-results"><table class="history-readable-table"><thead><tr><th>일시</th><th>처리</th><th>대상</th><th>교재·수량</th><th>메모·상세</th></tr></thead><tbody id="hist"></tbody></table></div><button id="histMore" hidden onclick="window.histLimit=(window.histLimit||100)+100;histApply()">이력 더 보기</button></section>';
         histApply();
       }
       function periodManagement() {
@@ -10812,8 +10847,11 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         alert("퇴반취소가 완료되었습니다. 이전 반과 재원 상태를 복원했습니다. 회수한 교재는 미배부로 확인해 다시 배부하세요.");
       }
       function historyParticipants(m) {
+        const cache=derivedValue("historyParticipantsCache",()=>new WeakMap());
+        if(cache.has(m)) return cache.get(m);
         const ids = new Set([...(m.studentId ? [m.studentId] : []), ...arr(m.studentIds).filter(x=>typeof x==="string"), ...Object.keys(m.studentDeltas||{}), ...Object.keys(m.studentNames||{}).filter(x=>!Array.isArray(m.studentNames))]);
-        return [...ids].map(id=>({ id, name:m.studentNames?.[id] || (m.studentId===id ? m.studentName : "") || S.students?.[id]?.name || id }));
+        const result=[...ids].map(id=>({ id, name:m.studentNames?.[id] || (m.studentId===id ? m.studentName : "") || S.students?.[id]?.name || id }));
+        cache.set(m,result);return result;
       }
       function historyParticipantQuantity(m, id) {
         const raw = m.studentDeltas?.[id];
@@ -10827,23 +10865,24 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         if (m.bookId || m.bookName) return [{id:m.bookId||"",name:movementBookName(m),quantity:m.quantity!=null||m.itemCount!=null ? Math.abs(Number(m.quantity??m.itemCount)) : null}];
         return [];
       }
-      function historyProjection(m, scope, query, studentId="") {
+      function historyProjection(m, scope, query, studentId="", entity=null) {
         const q=String(query||"").trim().toLocaleLowerCase("ko"), has=text=>String(text||"").toLocaleLowerCase("ko").includes(q);
         const participants=historyParticipants(m), books=historyBookLines(m);
         const base={m,participants,books,who:participants.length===1?participants[0].name:participants.length?"일괄처리 "+participants.length+"명":m.studentName||m.className||"전체",quantity:m.quantity!=null||m.itemCount!=null?Math.abs(Number(m.quantity??m.itemCount)):null,personal:false};
         if (!q && !studentId) return [base];
-        const matching=participants.filter(x=>(!studentId||x.id===studentId)&&(has(x.name)||has(S.students?.[x.id]?.name)||has(x.id)));
+        const matching=participants.filter(x=>studentId?x.id===studentId:(has(x.name)||has(S.students?.[x.id]?.name)||has(x.id)));
         if (scope==="STUDENT" || (scope==="ALL" && matching.length)) {
           return matching.map(x=>({...base,who:x.name,studentId:x.id,quantity:historyParticipantQuantity(m,x.id),personal:true}));
         }
-        if (scope==="BOOK") {
-          const found=books.filter(x=>has(x.name));
+        if (scope==="BOOK" || (scope==="ALL"&&books.some(x=>has(x.name)))) {
+          const found=books.filter(x=>entity?(entity.id?x.id===entity.id:x.name===entity.name):has(x.name));
           return found.length?[{...base,books:found,quantity:found.every(x=>x.quantity!=null)?found.reduce((n,x)=>n+Math.abs(Number(x.quantity)),0):null}]:[];
         }
         if (scope==="CLASS") {
           // Only class names captured with this event; never infer from today's enrollment.
-          const found=participants.filter(x=>has(m.className)||String(m.classNames?.[x.id]||"").split(" · ").some(name=>name&&has(name)));
-          const classLabels=[...new Set([m.className,...arr(m.classNames).flatMap(x=>String(x).split(" · "))].filter(x=>x&&has(x)))];
+          const classMatch=name=>name&&(entity?name===entity.name:has(name));
+          const found=participants.filter(x=>classMatch(m.className)||String(m.classNames?.[x.id]||"").split(" · ").some(classMatch));
+          const classLabels=[...new Set([m.className,...arr(m.classNames).flatMap(x=>String(x).split(" · "))].filter(classMatch))];
           if (!classLabels.length) return [];
           const quantities=found.map(x=>historyParticipantQuantity(m,x.id));
           return [{...base,who:classLabels.join(" · "),matchedParticipants:found,quantity:found.length&&quantities.every(x=>x!=null)?quantities.reduce((n,x)=>n+x,0):null,classSearch:true}];
@@ -10851,45 +10890,135 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const hay=[...participants.map(x=>x.name),...books.map(x=>x.name),m.className,...arr(m.classNames),m.actor,m.memo,m.batchId].join(" ");
         return has(hay)?[base]:[];
       }
-      function historyResultHtml(row) {
+      function historyResultHtml(row, index=-1) {
         const m=row.m, total=Math.abs(Number(m.quantity??m.itemCount??0)), count=row.participants.length;
         const type=movementLabel(m), reason={NORMAL:"일반",FREE:"무료",EXTRA_PAYMENT:"유료",CLASS_MOVE:"반변경",MISDISTRIBUTION:"실수",OTHER:"기타"}[m.businessReason||"NORMAL"]||"";
         const bookTitle=row.books.length===1?row.books[0].name:row.books.length?"교재 "+row.books.length+"종":"—";
         const quantity=row.quantity==null ? (row.books.length?"수량 확인 필요":"") : row.quantity+"권";
         const batch=count>1 ? "일괄처리 전체 "+count+"명"+(total?" · "+total+"권":"") : "개별 처리";
         const flow=m.stockBefore==null?"":'<p><b>'+(count>1?"전체 일괄처리 기준 재고":"재고")+'</b> '+esc(m.stockBefore)+' → '+esc(m.stockAfter)+'</p>';
-        const details='<details class="history-event-details"><summary>상세 보기</summary><div>'+
+        const details=index>=0?'<details class="history-event-details" ontoggle="historyOpenDetails(this,'+index+')"><summary>상세 보기</summary><div></div></details>':'<details class="history-event-details"><summary>상세 보기</summary><div>'+
           '<button type="button" onclick="this.closest(\'details\').open=false">닫기</button><p><b>'+esc(batch)+'</b></p>'+flow+
           (m.totalAmount!=null?'<p>퇴반 환불 계산액 '+esc(won(m.totalAmount))+(m.type==="퇴반취소"?" · 이전 확정 기록 보존":"")+'</p>':"")+
-          '<p>작성자 '+esc(m.actor||"—")+'</p><p>'+esc(m.memo||"메모 없음")+'</p>'+
+          '<p>작성자 '+esc(m.actor||"—")+'</p><p><b>메모 내용</b><br>'+esc(m.memo||"메모 없음")+'</p>'+
           (row.books.length>1?'<p>조회 교재</p><ul>'+row.books.map(b=>'<li>'+esc(b.name)+(b.quantity!=null?' · '+esc(b.quantity)+'권':'')+'</li>').join("")+'</ul>':"")+
           (row.classSearch?'<p>처리 당시 해당 반 학생 '+row.matchedParticipants.length+'명</p><ul>'+row.matchedParticipants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul>':"")+
           (count>1?'<details><summary>전체 처리 대상 '+count+'명</summary><ul>'+row.participants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul></details>':"")+
-          (m.batchId?'<p>처리번호 '+esc(m.batchId)+'</p>':"")+'</div></details>';
+          (m.batchId?'<details><summary>관리용 정보</summary><p>처리번호 '+esc(m.batchId)+'</p></details>':"")+'</div></details>';
         return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b><small>'+esc(reason)+'</small></td>'+
           '<td data-label="대상"><b class="history-short" title="'+esc(row.who)+'">'+esc(row.who)+'</b>'+(row.personal&&count>1?'<small>일괄처리 중 이 학생의 기록</small>':row.classSearch?'<small>처리 당시 반 기준</small>':"")+'</td>'+
-          '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="상세">'+details+'</td></tr>';
+          '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="메모·상세">'+(m.memo?'<small class="history-short history-memo" title="'+esc(m.memo)+'">메모: '+esc(m.memo)+'</small>':'<small>메모 없음</small>')+details+'</td></tr>';
+      }
+      function historyPrepared() {
+        return derivedValue("historySearchIndex",()=>{
+          const entities=new Map();
+          const add=(kind,id,name,m)=>{
+            if(!name)return;
+            const key=kind+"|"+(id||name);
+            if(!entities.has(key))entities.set(key,{key,kind,id,name,search:"",events:new Set()});
+            const e=entities.get(key);
+            const alias=String(name).toLocaleLowerCase("ko");
+            if(!e.search.includes(alias)) e.search+=" "+alias;
+            e.events.add(m);
+          };
+          const entries=allHistory().filter(m=>!m.periodId||m.periodId===selectedPeriodId()).map(m=>{
+            const people=historyParticipants(m), books=historyBookLines(m), classes=[...new Set([m.className,...arr(m.classNames).flatMap(x=>String(x).split(" · "))].filter(Boolean))];
+            for(const x of people){add("STUDENT",x.id,S.students?.[x.id]?.name||x.name,m);add("STUDENT",x.id,x.name,m);}
+            for(const x of books)add("BOOK",x.id,x.name,m);
+            for(const name of classes)add("CLASS","",name,m);
+            return {m,time:new Date(m.time).getTime(),text:[...people.flatMap(x=>[x.name,S.students?.[x.id]?.name||""]),...books.map(x=>x.name),...classes,m.actor,m.memo,m.batchId].join(" ").toLocaleLowerCase("ko")};
+          });
+          for(const e of entities.values())e.search=e.search.trim();
+          return {entries,entities};
+        });
+      }
+      function historyOpenDetails(element,index) {
+        if(!element.open||!element.isConnected||element.dataset.loaded)return;
+        const row=window.histRenderedRows?.[index];if(!row)return;
+        const host=document.createElement("div");
+        host.innerHTML="<table><tbody>"+historyResultHtml(row,-1)+"</tbody></table>";
+        element.querySelector(":scope > div").innerHTML=host.querySelector(".history-event-details > div").innerHTML;
+        element.dataset.loaded="1";
+      }
+      function historyHideSuggestions() {
+        const box=document.getElementById("histSuggestions"), input=document.getElementById("histSearch");
+        if(box)box.hidden=true;
+        if(input){input.setAttribute("aria-expanded","false");input.removeAttribute("aria-activedescendant");}
+      }
+      function historyBlurSuggestions() {
+        setTimeout(()=>{if(document.activeElement!==document.getElementById("histSearch"))historyHideSuggestions();},160);
+      }
+      function historyShowSuggestions() {
+        const input=document.getElementById("histSearch"),box=document.getElementById("histSuggestions");
+        if(!input||!box||window.histComposing||document.activeElement!==input)return;
+        const q=input.value.trim().toLocaleLowerCase("ko"),scope=document.getElementById("histScope").value;
+        if(q.length<2||window.histEntity){historyHideSuggestions();return;}
+        const groups={STUDENT:[],BOOK:[],CLASS:[]};
+        for(const e of historyPrepared().entities.values())if((scope==="ALL"||scope===e.kind)&&e.search.includes(q)&&groups[e.kind].length<8)groups[e.kind].push(e);
+        window.histCandidates=Object.values(groups).flat();
+        window.histCandidateActive=-1;
+        box.innerHTML=window.histCandidates.map((e,i)=>'<button type="button" role="option" aria-selected="false" id="histOption'+i+'" onmousedown="event.preventDefault()" onclick="historyChooseCandidate('+i+')"><span class="badge">'+({STUDENT:"학생",BOOK:"교재",CLASS:"반"}[e.kind])+'</span><span>'+esc(e.name)+(e.id&&window.histCandidates.some(other=>other.key!==e.key&&other.kind===e.kind&&other.name===e.name)?' · ID '+esc(e.id):'')+'</span></button>').join("")||'<div class="muted">일치하는 학생·교재·반이 없습니다.</div>';
+        box.hidden=false;input.setAttribute("aria-expanded","true");
+      }
+      function historyChooseCandidate(index) {
+        const e=window.histCandidates?.[index],input=document.getElementById("histSearch");if(!e||!input)return;
+        clearTimeout(window.histSuggestionTimer);clearTimeout(window.histApplyTimer);
+        window.histEntity={key:e.key,kind:e.kind,id:e.id,name:e.name};
+        window.histStudentId=e.kind==="STUDENT"?e.id:"";
+        input.value=e.name;window.histQuery=e.name;window.histLimit=100;
+        historyHideSuggestions();histApply();
+      }
+      function historySearchKey(event) {
+        if(event.isComposing||window.histComposing)return;
+        if(event.key==="Escape"){historyHideSuggestions();return;}
+        const box=document.getElementById("histSuggestions");
+        if((event.key==="ArrowDown"||event.key==="ArrowUp")&&box&&!box.hidden&&window.histCandidates?.length){
+          event.preventDefault();
+          const count=window.histCandidates.length,delta=event.key==="ArrowDown"?1:-1;
+          window.histCandidateActive=(Number(window.histCandidateActive??-1)+delta+count)%count;
+          box.querySelectorAll("button").forEach((b,i)=>b.setAttribute("aria-selected",String(i===window.histCandidateActive)));
+          const option=document.getElementById("histOption"+window.histCandidateActive);
+          event.target.setAttribute("aria-activedescendant",option.id);option.scrollIntoView({block:"nearest"});
+        } else if(event.key==="Enter"){
+          event.preventDefault();
+          if(box&&!box.hidden&&window.histCandidateActive>=0)historyChooseCandidate(window.histCandidateActive);
+          else {clearTimeout(window.histApplyTimer);histApply();}
+        }
+      }
+      function historyInputChanged(event) {
+        clearTimeout(window.histSuggestionTimer);clearTimeout(window.histApplyTimer);
+        window.histEntity=null;window.histStudentId="";window.histLimit=100;
+        const input=document.getElementById("histSearch");if(!input)return;
+        window.histQuery=input.value;
+        historyHideSuggestions();
+        const selected=document.getElementById("histSelection");if(selected)selected.textContent="";
+        if(window.histComposing||event?.isComposing)return;
+        const count=document.getElementById("histCount");if(count)count.textContent="검색 중…";
+        window.histSuggestionTimer=setTimeout(()=>{if(input===document.getElementById("histSearch"))historyShowSuggestions();},80);
+        window.histApplyTimer=setTimeout(()=>{if(input===document.getElementById("histSearch"))histApply();},220);
       }
       function histApply() {
+        clearTimeout(window.histApplyTimer);
         const byId=id=>document.getElementById(id), body=byId("hist");
-        if (!body) return;
-        for (const [key,id] of [["histFrom","histFrom"],["histTo","histTo"],["histType","histType"],["histReason","histReason"],["histMemoOnly","histMemoOnly"],["histQuery","histSearch"],["histScope","histScope"]]) window[key]=byId(id).value;
-        const scope=window.histScope, q=window.histQuery.trim(), from=window.histFrom?new Date(window.histFrom+"T00:00:00").getTime():0,to=window.histTo?new Date(window.histTo+"T23:59:59.999").getTime():Infinity;
-        byId("histSearch").placeholder={STUDENT:"학생 이름 또는 뒷번호",BOOK:"교재명",CLASS:"처리 당시 반명",ALL:"학생·교재·반·작성자·메모"}[scope];
-        const events=allHistory().filter(m=>{
-          const t=new Date(m.time).getTime();
-          return t>=from&&t<=to&&(!m.periodId||m.periodId===selectedPeriodId())&&(!window.histType||m.type===window.histType)&&(!window.histReason||(m.businessReason||"NORMAL")===window.histReason)&&(!window.histMemoOnly||String(m.memo||"").trim());
-        });
-        const candidates=new Map();
-        if (scope==="STUDENT"&&q) for(const m of events) for(const row of historyProjection(m,scope,q)) if(row.studentId) candidates.set(row.studentId,row.who);
-        const choice=byId("histStudentChoice"), studentSelect=byId("histStudent");
-        choice.hidden=!(scope==="STUDENT"&&q&&candidates.size);
-        if (!candidates.has(window.histStudentId)) window.histStudentId="";
-        studentSelect.innerHTML='<option value="">검색된 학생 전체 ('+candidates.size+'명)</option>'+[...candidates].map(([id,name])=>'<option value="'+esc(id)+'" '+(id===window.histStudentId?"selected":"")+'>'+esc(name)+([...candidates.values()].filter(x=>x===name).length>1?' · ID '+esc(id):"")+'</option>').join("");
-        const rows=[];
-        for(const m of events){rows.push(...historyProjection(m,scope,q,scope==="STUDENT"?window.histStudentId:""));if(rows.length>=1000)break;}
-        body.innerHTML=rows.slice(0,1000).map(historyResultHtml).join("")||'<tr><td colspan="5">검색된 이력이 없습니다.</td></tr>';
-        byId("histCount").textContent="검색 결과 "+Math.min(rows.length,1000)+"건"+(rows.length>=1000?" (최근 1,000건)":"")+(scope==="STUDENT"&&q?" · 학생 "+(window.histStudentId?1:candidates.size)+"명":"")+" · 일괄처리 전체 수량·재고는 상세 보기에서 확인";
+        if(!body)return;
+        for(const [key,id] of [["histFrom","histFrom"],["histTo","histTo"],["histType","histType"],["histReason","histReason"],["histMemoOnly","histMemoOnly"],["histQuery","histSearch"],["histScope","histScope"]])window[key]=byId(id).value;
+        const q=window.histQuery.trim(),normalized=q.toLocaleLowerCase("ko"),scope=window.histScope,entity=window.histEntity;
+        const from=window.histFrom?new Date(window.histFrom+"T00:00:00").getTime():0,to=window.histTo?new Date(window.histTo+"T23:59:59.999").getTime():Infinity;
+        const prepared=historyPrepared(),entityEvents=entity?prepared.entities.get(entity.key)?.events:null,rows=[],limit=window.histLimit||100;
+        const show=(!q||q.length>=2||entity);
+        if(show)for(const entry of prepared.entries){
+          const m=entry.m;
+          if(entry.time<from||entry.time>to||window.histType&&m.type!==window.histType||window.histReason&&(m.businessReason||"NORMAL")!==window.histReason||window.histMemoOnly&&!String(m.memo||"").trim())continue;
+          if(entity&&!entityEvents?.has(m))continue;
+          if(!entity&&q&&!entry.text.includes(normalized))continue;
+          rows.push(...historyProjection(m,entity?.kind||scope,q,entity?.kind==="STUDENT"?entity.id:"",entity));
+          if(rows.length>limit)break;
+        }
+        window.histRenderedRows=rows.slice(0,limit);
+        body.innerHTML=window.histRenderedRows.map((row,i)=>historyResultHtml(row,i)).join("")||'<tr><td colspan="5">'+(!show?"2글자 이상 입력하면 검색합니다.":"검색된 이력이 없습니다.")+'</td></tr>';
+        byId("histMore").hidden=rows.length<=limit;
+        byId("histCount").textContent="검색 결과 "+Math.min(rows.length,limit)+"건"+(rows.length>limit?" 이상 · 아래에서 더 보기":"")+" · 전체 수량·재고는 상세 보기";
+        byId("histSelection").textContent=entity?({STUDENT:"학생",BOOK:"교재",CLASS:"반"}[entity.kind])+" 선택: "+entity.name:"";
       }
     </script>
   </body>
