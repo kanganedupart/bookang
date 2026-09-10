@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.82" />
+    <meta name="bookflow-build" content="2026-09-10.83" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.82", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.83", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -223,7 +223,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.82";
+      const BOOKFLOW_BUILD = "2026-09-10.83";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1343,7 +1343,7 @@
         if (!period) return !Object.keys(st.periods || {}).length;
         if (period.status === "ACTIVE") return true;
         if (period.status === "CLOSING")
-          return ["RETURN", "AUDIT", "ADJUST", "CHARGE", "REFUND"].includes(action);
+          return ["RETURN", "AUDIT", "ADJUST", "CHARGE", "REFUND", "PRICE"].includes(action);
         return false;
       }
       function pendingChargeCount() {
@@ -2173,6 +2173,26 @@
           return ["RETURN", "AUDIT", "ADJUST", "CHARGE"].includes(action);
         return false;
       }
+      function requirePeriodAction(action, pid = selectedPeriodId()) {
+        if (periodAllowsForId(S, pid, action)) return true;
+        alert("이 대상은 해당 처리를 할 수 없습니다. 배부 종료 후에는 회수·실사·정산만, 완전 마감 후에는 조회만 가능합니다.");
+        return false;
+      }
+      function periodTransaction(pid, action, mutator, options = {}) {
+        // Read period status and write its operation atomically at the root, including retries.
+        // Student-only transactions cannot validate a simultaneous remote period closure.
+        let blocked = false;
+        return transaction((st) => {
+          if (selectedPeriodId() !== pid || !periodAllowsForId(st, pid, action)) {
+            blocked = true;
+            return false;
+          }
+          return mutator(st);
+        }, options).then((result) => {
+          if (!result.committed && blocked) alert("대상이 바뀌었거나 운영 상태가 변경되어 저장하지 않았습니다. 현재 대상을 다시 확인하세요.");
+          return result;
+        });
+      }
       function clearSelections() {
         selected = [];
         receipt = null;
@@ -2194,7 +2214,7 @@
         const ps = periods(),
           pid = selectedPeriodId(),
           p = S.periods?.[pid];
-        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사만 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span>${p?.bookStartDate ? `<span class="badge">교재 시작 ${esc(p.bookStartDate)}</span>` : ""}</div>`;
+        periodBar.innerHTML = `<div class="context-bar"><b>현재 대상</b><select onchange="window.periodChoiceId=this.value;clearSelections();render()">${ps.map((x) => `<option value="${x.id}" ${x.id === pid ? "selected" : ""}>${esc(periodLabel(x))}</option>`).join("") || "<option>기존 운영자료</option>"}</select><span class="badge ${p?.status === "ACTIVE" ? "ok" : p?.status === "CLOSING" ? "warn" : ""}">${p ? { ACTIVE: "배부·회수 가능", CLOSING: "회수·실사·정산 가능", CLOSED: "조회만 가능" }[p.status] : "기간 설정 전"}</span>${p?.bookStartDate ? `<span class="badge">교재 시작 ${esc(p.bookStartDate)}</span>` : ""}</div>`;
       }
       function hubNav(items, current, setter) {
         return `<div class="subtabs">${items.map(([key, label]) => `<button type="button" class="${current === key ? "on" : ""}" data-hub-key="${esc(key)}" onclick="setHubView('${setter}','${key}')">${label}</button>`).join("")}</div>`;
@@ -2875,12 +2895,14 @@
         render();
       }
       async function excludeStudentBook(sid, bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const student = S.students?.[sid], book = S.books?.[bid];
         if (!student || !book || held(sid, bid) > 0) return alert("미배부 교재만 제외할 수 있습니다.");
         const reason = String(window.memoDraft || "").trim();
         if (!reason) return alert("미배부 제외 사유를 입력하세요.");
         if (!(await askConfirm(`${student.name} 학생의 '${book.name}'을 배부·환불 대상에서 제외할까요?\n재고 수량은 변하지 않습니다.`))) return;
-        const pid = selectedPeriodId(), result = await transaction((st) => {
+        const pid = selectedPeriodId(), result = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const target = st.students?.[sid];
           if (!target || Number(target.holdings?.[bid] || 0) > 0) return false;
@@ -2900,10 +2922,12 @@
         if (result.committed) { S = result.snapshot.val(); bid = ""; action = ""; selected = []; receipt = null; memoDraft = ""; render(); }
       }
       async function restoreStudentBook(sid, bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const student = S.students?.[sid], book = S.books?.[bid];
         if (!student || !book || !studentBookIsExcluded(S, sid, bid)) return;
         if (!(await askConfirm(`${student.name} 학생의 '${book.name}' 미배부 제외를 취소할까요?\n현재 반에 매칭되어 있으면 다시 미배부·배부 대상에 포함됩니다.`))) return;
-        const pid = selectedPeriodId(), result = await transaction((st) => {
+        const pid = selectedPeriodId(), result = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           const target = st.students?.[sid];
           if (!target?.bookExclusions?.[pid]?.[bid]) return false;
           delete target.bookExclusions[pid][bid];
@@ -3209,6 +3233,8 @@
  <button class="${isReturn?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!total || specificShort.length ? "disabled" : ""} onclick="${specific?`commitBundleSpecific('${mode}',this)`:`commitBundle('${mode}',this)`}">${ids.length}명 ${total}권 ${mode==="RETURN"?"전체 회수":mode==="SPECIFIC_RETURN"?"선택 1종 회수":mode==="SPECIFIC_DISTRIBUTE"?"선택 교재 배부":"재고 있는 교재 배부"} 확정</button>${completed}`;
       }
       async function commitBundle(type, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction(type === "RETURN" ? "RETURN" : "DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const ids = [...(window.bundleSelected || [])].sort(),
           isReturn = type === "RETURN",
@@ -3242,7 +3268,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, type === "RETURN" ? "RETURN" : "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -3355,6 +3381,8 @@
         }
       }
       async function commitBundleSpecific(type, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction(type === "RETURN" ? "RETURN" : "DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const ids = [...(window.bundleSelected || [])].sort(),
           bookIds = [...(window.bundleSelectedBookIds || [])].sort(),
@@ -3388,7 +3416,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-           const result = await transaction((st) => {
+           const result = await periodTransaction(operationPeriodId, type === "RETURN" ? "RETURN" : "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -3576,6 +3604,8 @@
  <button class="${mode==="RETURN"?"danger-btn":"btn"}" style="width:100%;margin-top:12px" ${!qty || (mode==="DISTRIBUTE"&&short.length) ? "disabled" : ""} onclick="${mode==="RETURN"?`commitClassReturn('${cid}',this)`:`commitBulkClass('${cid}',this)`}">${qty}권 ${mode==="RETURN"?"전체 회수":"전체 배부"} 확정</button>${completed}`;
       }
       async function commitBulkClass(cid, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const shown = classBulkPlan(S, cid),
           signature = bulkSignature(shown),
@@ -3597,7 +3627,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -3724,6 +3754,8 @@
           .join("|");
       }
       async function commitClassReturn(cid, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("RETURN", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const shown = classReturnPlan(S, cid),
           signature = returnSignature(shown),
@@ -3743,7 +3775,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "RETURN", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4004,6 +4036,8 @@
         return `${completed}<details class="compact-details"><summary>이 교재 전체 회수</summary><div class="flow"><div>보유 인원<br><b>${holderCount}명</b></div><div class="arrow">전량 회수 →</div><div>회수 권수<br><b>${quantity}권</b></div></div><div class="flow"><div>재고 전<br><b>${p.stock}권</b></div><div class="arrow">+${quantity} →</div><div>재고 후<br><b>${after}권</b></div></div><p><b>보유자 ${holderCount}명 · 실제 보유 ${quantity}권</b> 전량 회수</p><label>회수 사유</label><input id="bookReturnMemo" placeholder="예: 교재 실수배부 전체 회수"><button class="danger-btn" style="width:100%;margin-top:12px" onclick="commitBookReturn('${bid}',this)">${quantity}권 전체 회수 확정</button></details>`;
       }
       async function commitBookReturn(bid, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("RETURN", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const shown = academyReturnPlan(S).find((x) => x.bid === bid) || null,
           signature = shown ? returnSignature([shown]) : "",
@@ -4021,7 +4055,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "RETURN", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4110,6 +4144,8 @@
         }
       }
       async function commitAcademyReturn(button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("RETURN", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const shown = academyReturnPlan(S),
           signature = returnSignature(shown),
@@ -4129,7 +4165,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "RETURN", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4221,6 +4257,8 @@
         }
       }
       async function commitAcademyBulk(button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const fullPlan = academyBulkPlan(S),
           shown = academySelectedBulkPlan(fullPlan),
@@ -4242,7 +4280,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4331,6 +4369,8 @@
         }
       }
       async function commitBulkBook(bid, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const shown = bookBulkPlan(S, bid),
           signature = shown
@@ -4355,7 +4395,7 @@
           batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4488,6 +4528,7 @@
           for (const pid of periodOrder) {
             const balance = Number(balances[pid] || 0);
             if (remaining <= 0 || balance <= 0) continue;
+            if (!periodAllowsForId(st, pid, "RETURN")) return null;
             const take = Math.min(remaining, balance);
             (result[pid] ||= {})[sid] =
               Number(result[pid]?.[sid] || 0) - take;
@@ -4498,6 +4539,8 @@
         return result;
       }
       async function commitMove(bid, type, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction(type === "RETURN" ? "RETURN" : "DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         if (!selected.length) return alert("대상을 선택하세요.");
         const originalButtonText = button?.textContent || "";
@@ -4551,7 +4594,7 @@
           // phantom preview or a long-lived "반영 중" button.
           window.action = "";
           window.memoDraft = "";
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, type === "RETURN" ? "RETURN" : "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -4752,6 +4795,8 @@
         }
       }
       async function allForStudent(sid, type, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction(type === "RETURN" ? "RETURN" : "DISTRIBUTE", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const memo = document.querySelector("#studentAllMemo")?.value.trim() || "",
           opId = operationId(button),
@@ -4786,7 +4831,7 @@
         const batchId = "B" + crypto.randomUUID();
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, type === "RETURN" ? "RETURN" : "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -5524,6 +5569,8 @@
         document.querySelector("#screen").innerHTML = `<section class="panel"><h2>운영 반</h2><p class="muted">반별 교재를 독립된 칸으로 표시합니다. ‘연결 해제’는 그 칸의 교재만 반에서 제외하며 재고·학생 보유·원장은 변하지 않습니다.</p><div class="catalog-filter"><label>과목<select onchange="operationSubject=this.value;operationTeacher='전체';operatingClassManagement()"><option>전체</option>${subjects.map((x)=>`<option ${x===subject?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="operationTeacher=this.value;operatingClassManagement()"><option>전체</option>${teachers.map((x)=>`<option ${x===teacher?"selected":""}>${esc(x)}</option>`).join("")}</select></label><label>상태<select onchange="operationState=this.value;operatingClassManagement()">${["운영","종료","전체"].map((x)=>`<option ${x===state?"selected":""}>${x}</option>`).join("")}</select></label><label>반명 검색<input value="${esc(window.operationQuery || "")}" placeholder="반명 입력" oninput="operationQuery=this.value;clearTimeout(searchTimer);searchTimer=setTimeout(operatingClassManagement,180)"></label></div><div class="list operating-class-list">${rows.map((c)=>{const books=arr(c.books);return `<article class="operating-class-card"><div class="operating-class-head"><button class="operating-class-main" onclick="openOperatingClassDetail('${c.id}')"><b>${esc(c.subject)} · ${esc(c.teacher||"미지정")} · ${esc(c.name)}</b> · 고유 ${studentsForClass(c.id).length}명</button><i class="badge ${c.active===false?"":"ok"}">${c.active===false?"종료":"운영"}</i><div class="operating-class-actions">${isCommonClassLike(c,pid)?'<i class="badge">자동관리</i>':`<button onclick="${c.active===false?`reopenClass('${c.id}')`:`closeClass('${c.id}')`}">${c.active===false?"재운영":"반 종료"}</button>`}</div></div><div class="operating-class-books"><div class="operating-class-books-title"><b>매칭 교재 ${books.length}종</b><small>교재별로 확인 후 해제</small></div>${books.length?`<div class="operating-class-books-grid">${books.map((bid)=>`<div class="operating-book-cell"><span class="operating-book-name">${esc(S.books[bid]?.name||bid)}</span><button type="button" onclick="unlinkClassBook('${c.id}','${bid}')">연결 해제</button></div>`).join("")}</div>`:'<div class="operating-no-books">연결된 교재 없음</div>'}</div></article>`}).join("") || '<p class="muted">조건에 맞는 반이 없습니다.</p>'}</div></section>`;
       }
       async function unlinkClassBook(cid, bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const c=S.classes?.[cid], b=S.books?.[bid];
         if(!c||!b||!Object.prototype.hasOwnProperty.call(c.books||{},bid)) return alert("이미 연결이 해제됐거나 반·교재를 찾을 수 없습니다.");
         const classStudents=studentsForClass(cid), beforeMissing=classStudents.filter((s)=>held(s.id,bid)===0).length;
@@ -5531,7 +5578,7 @@
         const removedMissing=classStudents.filter((s)=>held(s.id,bid)===0&&!stillAssignedAfter(s)).length;
         if(!(await askConfirm(`${c.name}에서 ${b.name} 연결을 해제할까요?\n이 반 미배부 ${beforeMissing}명 중 다른 반 연결이 없는 ${removedMissing}명의 미배부가 사라집니다.\n재고·학생 보유·입고/배부/회수 원장은 변하지 않습니다.`))) return;
         const operationId=`UNLINK|${cid}|${bid}|${crypto.randomUUID()}`; let already=false, committedRemovedMissing=removedMissing;
-        const r=await transaction((st)=>{
+        const r=await periodTransaction(operationPeriodId, "MANAGEMENT", (st)=>{
           const target=st.classes?.[cid], book=st.books?.[bid];
           if(!target||!book||!Object.prototype.hasOwnProperty.call(target.books||{},bid)){already=true;return false;}
           const targetPid=target.periodId||st.currentPeriodId;
@@ -5662,6 +5709,8 @@
         if (document.getElementById("newClassType")?.value === "COMMON") return;
       }
       async function createClass() {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const pid = selectedPeriodId(),
           commonMode = document.getElementById("newClassType")?.value === "COMMON",
           subject = newClassSubject.value.trim(),
@@ -5688,7 +5737,7 @@
         const cid = commonMode ? systemCommonClassId(pid, subject) : id("C", `${pid}|${name}`),
           targetCount = commonMode ? studentRosterAtDate(S,pid,localDateKey()).rows.length : (selectedExistingId ? studentsForClass(selectedExistingId).length : 0);
         if (!(await askConfirm(`${commonMode?"전체 학생 공통":name}에 교재 ${bids.length}종(${bids.map((bookId)=>S.books?.[bookId]?.name||bookId).join(" · ")})을 연결할까요?\n현재 고유 대상 ${targetCount}명 · 재고와 보유수량은 변경되지 않습니다.`))) return;
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
             st.classes = st.classes || {};
             if (bids.some((bookId) => !st.books?.[bookId] || st.books[bookId].active === false || st.books[bookId].subject !== subject)) return false;
             if (commonMode) {
@@ -5750,12 +5799,14 @@
         render();
       }
       async function closeClass(cid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         if (isCommonClassLike(S.classes?.[cid], S.classes?.[cid]?.periodId)) return alert("전체 학생 공통반은 종료할 수 없습니다. 교재별 배부 종료일을 사용하세요.");
         const memo = await askPrompt("반 종료 사유를 입력하세요.");
         if (memo == null) return;
         if (!memo.trim()) return alert("반 종료 사유를 입력하세요.");
         if (!(await askConfirm("반을 종료할까요? 학생 보유와 재고는 유지되며 신규 배정·배부 대상에서만 제외됩니다."))) return;
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const c = st.classes?.[cid];
           if (!c || c.active === false || isCommonClassLike(c, c.periodId)) return false;
           c.active = false;
@@ -5770,11 +5821,13 @@
         render();
       }
       async function reopenClass(cid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         if (isCommonClassLike(S.classes?.[cid], S.classes?.[cid]?.periodId)) return alert("전체 학생 공통반은 자동 관리됩니다.");
         const memo = await askPrompt("재운영 사유를 입력하세요.");
         if (memo == null) return;
         if (!memo.trim()) return alert("재운영 사유를 입력하세요.");
-        const r = await transaction((st)=>{
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st)=>{
           const c=st.classes?.[cid]; if(!c || c.active !== false || isCommonClassLike(c, c.periodId)) return false;
           c.active=true; c.reopenedAt=now(); c.reopenedBy=actor; c.reopenMemo=memo.trim();
           st.classEvents=st.classEvents||{}; const eid="CE"+crypto.randomUUID();
@@ -5840,12 +5893,14 @@
           row.hidden = query && !String(row.dataset.search || "").includes(query);
       }
       async function saveBookPrice(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("PRICE", operationPeriodId)) return;
         const input = document.getElementById(`bookPrice_${bid}`),
           raw = String(input?.value ?? "").trim(),
           price = raw === "" ? null : Number(raw);
         if (price != null && (!Number.isInteger(price) || price < 0))
           return alert("교재비는 0원 이상의 정수로 입력하세요.");
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "PRICE", (st) => {
           const book = st.books?.[bid];
           if (!book) return false;
           if (price == null) delete book.price;
@@ -5859,6 +5914,8 @@
         else bookManagement();
       }
       async function saveBookDistributionState(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const book = S.books?.[bid], nextState = document.getElementById(`bookState_${bid}`)?.value;
         if (!book || !["ACTIVE", "CLOSED"].includes(nextState)) return;
         const label = ({ACTIVE:"배부 가능",CLOSED:"배부 종료"})[nextState];
@@ -5866,7 +5923,7 @@
           ? "지금부터 대상 학생의 미배부·금액과 배부 대상에 포함됩니다."
           : "새 배부만 막고 기존 보유·재고·이력은 유지됩니다.";
         if (!(await askConfirm(`${book.name}\n상태를 ‘${label}’로 바꿀까요?\n${explanation}`))) return;
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const target = st.books?.[bid];
           if (!target || target.active === false) return false;
           target.distributionStatus = nextState;
@@ -5880,6 +5937,8 @@
         catalogManagement();
       }
       async function setBookDistributionClosed(bid, closed) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const book = S.books?.[bid];
         if (!book) return;
         if (
@@ -5890,7 +5949,7 @@
           ))
         )
           return;
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const target = st.books?.[bid];
           if (!target || target.active === false) return false;
           target.distributionStatus = closed ? "CLOSED" : "ACTIVE";
@@ -5910,13 +5969,15 @@
         render();
       }
       async function saveBookDistributionEndDate(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const book = S.books?.[bid], input = document.getElementById(`bookEnd_${bid}`), endDate = String(input?.value || "").trim();
         if (!book) return;
         const message = endDate
           ? `${book.name} 교재를 ${endDate} 당일부터 신규 배부 대상에서 제외할까요? ${endDate} 전날까지 입학한 학생에게만 미배부로 적용됩니다.`
           : `${book.name} 교재의 예약 종료일을 삭제할까요?`;
         if (!(await askConfirm(message))) return;
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const target = st.books?.[bid];
           if (!target || target.active === false) return false;
           delete target.distributionClosed;
@@ -5930,6 +5991,8 @@
         render();
       }
       async function createBook() {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const subject = newBookSubject.value.trim(),
           teacher = newBookTeacher.value.trim() || "학원 공통",
           name = newBookName.value.trim(),
@@ -5945,7 +6008,7 @@
           );
         const bid = id("B", name),
           normalizedName = name.normalize("NFKC").trim().toLocaleLowerCase("ko"),
-          r = await transaction((st) => {
+          r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
             st.books = st.books || {};
             if (st.books[bid] || arr(st.books).some((book) => String(book.name || "").normalize("NFKC").trim().toLocaleLowerCase("ko") === normalizedName)) return false;
             st.books[bid] = {
@@ -5984,6 +6047,8 @@
         return blockers;
       }
       async function editUnusedBook(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const book = S.books?.[bid];
         if (!book) return alert("교재를 찾을 수 없습니다.");
         const pre = unusedBookBlockers(S, bid);
@@ -5995,7 +6060,7 @@
         if (!next.subject || !next.name) return alert("과목과 교재명을 입력하세요.");
         let blocked = [];
         const normalized = next.name.normalize("NFKC").trim().toLocaleLowerCase("ko");
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const target = st.books?.[bid]; if (!target) return false;
           blocked = unusedBookBlockers(st, bid); if (blocked.length) return false;
           if (arr(st.books).some((item) => item.id !== bid && String(item.name || "").normalize("NFKC").trim().toLocaleLowerCase("ko") === normalized)) { blocked=["동일 교재명"]; return false; }
@@ -6007,13 +6072,15 @@
         alert(r.committed ? "미사용 교재 정보를 수정하고 감사기록을 남겼습니다." : `수정 차단: ${blocked.join(" · ") || "상태 변경"}`); render();
       }
       async function deleteUnusedBook(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const book = S.books?.[bid];
         if (!book) return alert("교재를 찾을 수 없습니다.");
         const pre = unusedBookBlockers(S, bid);
         if (pre.length) return alert(`삭제할 수 없습니다: ${pre.join(" · ")}`);
         if (!(await askConfirm(`${book.name} 교재를 삭제할까요? 미사용 교재만 삭제됩니다.`))) return;
         let blocked = [];
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const target = st.books?.[bid];
           if (!target) return false;
           blocked = unusedBookBlockers(st, bid);
@@ -6028,8 +6095,10 @@
         render();
       }
       async function archiveBook(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         let msg = "";
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           const b = st.books?.[bid],
             heldQty = arr(st.students).reduce(
               (n, s) => n + Number(s.holdings?.[bid] || 0),
@@ -6213,6 +6282,8 @@
         render();
       }
       async function toggleNewStudentComplete(sid, button, event) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         event?.stopPropagation();
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const pid = selectedPeriodId(), operationIdValue = operationId(button), student = S.students?.[sid], wasComplete = Boolean(newStudentWorkRecord(student,pid)), summary = studentDistributionSummary(sid), availableMissing = assignedBooks(sid).filter((book) => eligibleIn(S,sid,book.id) && !held(sid,book.id) && Number(book.stock||0) > 0).length;
@@ -6224,7 +6295,7 @@
         if (!(await askConfirm(message))) return;
         operationBusy = true;
         try {
-          const result = await transaction((st) => {
+          const result = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
             const student = st.students?.[sid];
             if (!student || student.active === false || student.onboarding) return false;
             student.newStudentWork = student.newStudentWork || {};
@@ -6383,6 +6454,8 @@
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><h2>신규생 등록</h2><div class="new-entry-row"><label>신규생 이름<textarea id="newNames" rows="3" oninput="newNamesDraft=this.value" placeholder="학생명 1명당 한 줄">${esc(window.newNamesDraft || "")}</textarea></label><label>입학일<input type="date" value="${registrationDate}" onchange="registrationDate=this.value;newStudentId='';newAssigned=[];studentAdmin()"></label><button onclick="saveNewStudentNames()">이름 저장</button></div><div class="registration-filters"><label>학생명<input value="${esc(listQuery)}" placeholder="학생명 검색" oninput="newListQuery=this.value;studentAdmin()"></label><label>시작일<input type="date" value="${esc(listFrom)}" onchange="newListFrom=this.value;studentAdmin()"></label><span class="range-separator">~</span><label>종료일<input type="date" value="${esc(listTo)}" onchange="newListTo=this.value;studentAdmin()"></label></div><p class="registration-result">조회 결과 ${registered.length}명</p><table class="registration-table"><thead><tr><th>학생명</th><th>입학일</th><th>반배정</th><th>등록</th></tr></thead><tbody>${rows || '<tr><td colspan="4">조회된 학생이 없습니다.</td></tr>'}</tbody></table></section><section class="panel">${assignment}</section></div>`;
       }
       async function distributeNewStudent(sid, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("DISTRIBUTE", operationPeriodId)) return;
         const s = S.students[sid],
           fullPlan = bundleDistributionPlan(S, [sid]),
           availablePlan = fullPlan.filter((item) => item.after >= 0),
@@ -6406,7 +6479,7 @@
         const opId = operationId(button), batchId = "B" + crypto.randomUUID();
         let message = "";
         try {
-          const result = await transaction((st) => {
+          const result = await periodTransaction(operationPeriodId, "DISTRIBUTE", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) { message = st.processedOperations[opId].message; return false; }
             if (!periodAllows(st, "DISTRIBUTE")) { message = "현재 운영기간에서는 배부할 수 없습니다."; return false; }
@@ -6438,6 +6511,8 @@
         }
       }
       async function saveNewStudentNames(button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         button = button || (document.activeElement?.tagName === "BUTTON" ? document.activeElement : null);
         const originalButtonText = button?.textContent || "이름 저장";
@@ -6472,7 +6547,7 @@
         if (dup)
           return alert(`기존·종료 학생을 포함해 같은 이름이 있습니다: ${dup}`);
         let failure = "";
-        const r = await runBlockingSave("신규생 이름을 저장하고 있습니다.", () => scopedStudentsTransaction((st) => {
+        const r = await runBlockingSave("신규생 이름을 저장하고 있습니다.", () => periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) {
             failure = "운영 중인 기간에서만 신규생을 등록할 수 있습니다.";
             return false;
@@ -6534,6 +6609,8 @@
         studentAdmin();
       }
       async function assignNewStudent(sid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const classIds = window.newAssigned || [],
           pid = selectedPeriodId();
         if (!sid || !classIds.length) return alert("반을 한 개 이상 선택하세요.");
@@ -6547,7 +6624,7 @@
           return alert("추가할 반을 선택하세요.");
         const r = await runBlockingSave(
           wasOnboarding ? "신규생 반배정을 저장하고 있습니다." : "추가 반을 저장하고 있습니다.",
-          () => scopedStudentTransaction(sid, (st) => {
+          () => periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students?.[sid];
           if (!s || s.active === false) return false;
@@ -6610,6 +6687,8 @@
         render();
       }
       async function moveStudent(sid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const classIds = window.editAssigned || [],
           memo = (window.classMemoDraft || "").trim(),
           pid = selectedPeriodId();
@@ -6626,7 +6705,7 @@
             classIds.flatMap((cid) => arr(S.classes?.[cid]?.books)),
           );
         let distributeIds = [], returnIds = [];
-        const r = await runBlockingSave("반변경을 저장하고 있습니다.", () => scopedStudentTransaction(sid, (st) => {
+        const r = await runBlockingSave("반변경을 저장하고 있습니다.", () => periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           if (!periodAllows(st, "STUDENT_EDIT")) return false;
           const s = st.students[sid];
           if (!s || s.active === false || s.onboarding) return false;
@@ -6709,6 +6788,8 @@
         render();
       }
       async function withdrawStudent(sid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const s = S.students?.[sid];
         if (!s || s.active === false) return alert("이미 퇴반 처리된 학생입니다.");
         const details = await askWithdrawalDetails(s.name);
@@ -6723,7 +6804,7 @@
           return;
         const pid = selectedPeriodId(),
           refundId = "R" + crypto.randomUUID(),
-          r = await transaction((st) => {
+          r = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
             const student = st.students?.[sid];
             if (!student || student.active === false) return false;
@@ -6824,6 +6905,8 @@
         render();
       }
       async function withdrawStudentKeepBooks(sid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         const s = S.students?.[sid];
         if (!s || s.active === false)
           return alert("이미 전체 퇴반 처리된 학생입니다.");
@@ -6843,7 +6926,7 @@
         const pid = selectedPeriodId(),
           exitDate = localDateKey(),
           refundId = "R" + crypto.randomUUID(),
-          r = await transaction((st) => {
+          r = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
             if (!periodAllows(st, "STUDENT_EDIT")) return false;
             const student = st.students?.[sid];
             if (!student || student.active === false) return false;
@@ -6947,6 +7030,8 @@
           );
       }
       async function doIntake(button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("IN", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const bid = window.inBid,
           q = Number(inQty.value),
@@ -6960,7 +7045,7 @@
         operationBusy = true;
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "IN", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) {
               msg = st.processedOperations[opId].message;
@@ -7160,6 +7245,8 @@
         );
       }
       async function audit(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("AUDIT", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const p = Number(document.querySelector(`#p${bid}`).value),
           memo = document.querySelector(`#a${bid}`).value.trim();
@@ -7167,7 +7254,7 @@
           return alert("실물재고와 검수 메모를 입력하세요.");
         operationBusy = true;
         try {
-          await transaction((st) => {
+          await periodTransaction(operationPeriodId, "AUDIT", (st) => {
             const b = st.books[bid],
               x = {
               id: "A" + crypto.randomUUID(),
@@ -7207,6 +7294,8 @@
         if (count) count.textContent = `검색 결과 ${shown}종`;
       }
       async function adjustToPhysical(bid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("ADJUST", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const physicalInput = document.querySelector(`#p${bid}`),
           p = Number(physicalInput.value),
@@ -7222,7 +7311,7 @@
         operationBusy = true;
         let msg = "";
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "ADJUST", (st) => {
             const b = st.books[bid],
               before = b.stock || 0;
             if (
@@ -8218,6 +8307,8 @@
         render();
       }
       async function completeClassMoveWork(sid) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const pid = selectedPeriodId(), transition = classMoveTransitionForStudent(sid), unresolved = classMoveUnresolvedBooks(sid);
         if (!transition) return alert("이미 완료됐거나 반변경 기록이 없습니다.");
@@ -8230,7 +8321,7 @@
           movementCount: Object.keys(S.movements || {}).length,
         });
         try {
-        const result = await transaction((st) => {
+        const result = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           const student = st.students?.[sid];
           if (!student) return false;
           for (const changeId of changeIds) {
@@ -9328,6 +9419,8 @@
         alert(r.committed ? "전체 복원 완료" : "복원 실패");
       }
       async function saveImport() {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("MANAGEMENT", operationPeriodId)) return;
         const d = window.importData,
           pid = selectedPeriodId();
         if (!d || !pid) return alert("운영기간을 먼저 선택하세요.");
@@ -9344,7 +9437,7 @@
         downloadBackup();
         const importId = "I" + crypto.randomUUID();
         let msg = "";
-        const r = await transaction((st) => {
+        const r = await periodTransaction(operationPeriodId, "MANAGEMENT", (st) => {
           if (!periodAllows(st, "IMPORT")) {
             msg = "운영 중 기간에서만 엑셀등록할 수 있습니다.";
             return false;
@@ -9601,6 +9694,8 @@
         nbiFlow.innerHTML = `<div class="flow"><div>신규재고<br><b>0</b></div><div class="arrow">+${Number.isFinite(q) ? q : 0} →</div><div>입고 후<br><b>${Number.isFinite(q) ? q : 0}</b></div></div>`;
       }
       async function commitNewBookIntake(button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("IN", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const subject = nbiSubject.value.trim(),
           teacher = nbiTeacher.value.trim(),
@@ -9616,7 +9711,7 @@
         try {
           const opId = operationId(button),
             bid = id("B", `${subject}|${teacher}|${name}`);
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "IN", (st) => {
             st.processedOperations = st.processedOperations || {};
             if (st.processedOperations[opId]) return false;
             if (st.books?.[bid] || arr(st.books).some((b) => b.subject === subject && (b.teacher || "") === teacher && b.name === name)) {
@@ -9990,11 +10085,12 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
                 pending = arr(S.chargeTasks).filter(
                   (x) => x.periodId === p.id && x.status === "PENDING",
                 ).length;
-              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="period-date-control"><input aria-label="${esc(periodLabel(p))} 환불 적용 시작일" id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
+              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(({ ACTIVE: "운영 중", CLOSING: "배부 종료", CLOSED: "완전 마감" }[p.status] || "상태 확인 필요"))}</td><td><div class="period-date-control"><input aria-label="${esc(periodLabel(p))} 환불 적용 시작일" id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사·정산", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "배부 종료" : "운영 재개"}</button></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
       }
       async function savePeriodRefundEffectiveStartDate(pid) {
+        if (!requirePeriodAction("REFUND", pid)) return;
         const period = S.periods?.[pid], input = document.getElementById(`refundStart_${pid}`), dateKey = String(input?.value || "").trim();
         if (!period) return alert("대상을 찾을 수 없습니다.");
         if (dateKey && !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return alert("날짜를 확인하세요.");
@@ -10004,7 +10100,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         if (!(await askConfirm(message))) return;
         const r = await transaction((st) => {
           const target = st.periods?.[pid];
-          if (!target) return false;
+          if (!target || !periodAllowsForId(st, pid, "REFUND")) return false;
           if (dateKey) target.refundEffectiveStartDate = dateKey;
           else delete target.refundEffectiveStartDate;
           target.refundScheduleUpdatedAt = now();
@@ -10081,7 +10177,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         const reopening = current.status !== "ACTIVE";
         const message = reopening
           ? `${periodLabel(current)} 대상을 다시 운영 중으로 바꿀까요? 기존 재고와 배부·회수 이력은 그대로 유지됩니다.`
-          : `${periodLabel(current)} 대상의 운영을 종료할까요? 새 배부는 막고 회수·실사는 계속할 수 있습니다.`;
+          : `${periodLabel(current)} 대상의 배부를 종료할까요? 새 배부·입고·학생/반 변경은 막고, 회수·실사·정산은 계속할 수 있습니다.`;
         if (!(await askConfirm(message))) return;
         const r = await transaction((st) => {
           const p = st.periods?.[pid];
@@ -10105,7 +10201,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           r.committed
             ? reopening
               ? "운영 중으로 변경했습니다. 배부·회수를 다시 사용할 수 있습니다."
-              : "운영을 종료했습니다. 회수·실사는 계속 사용할 수 있습니다."
+              : "배부를 종료했습니다. 회수·실사·정산은 계속 사용할 수 있습니다."
             : "상태 변경에 실패했습니다.",
         );
         render();
@@ -10131,7 +10227,8 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           charges = arr(st.chargeTasks).filter(
             (x) => x.periodId === pid && x.status === "PENDING",
           );
-        return { holdings, charges };
+        const refunds = arr(st.refundTasks).filter((x) => x.periodId === pid && x.status === "PENDING");
+        return { holdings, charges, refunds };
       }
       function ledgerErrors(st) {
         const errors = [],
@@ -10214,6 +10311,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
       async function closePeriod(pid) {
         const out = periodOutstanding(S, pid),
           errs = ledgerErrors(S);
+        if (out.refunds.length) return alert(`퇴반·환불 미처리 ${out.refunds.length}건이 있어 완전 마감할 수 없습니다.`);
         if (out.holdings.length || out.charges.length || errs.length)
           return alert(
             `종료할 수 없습니다.\n미회수 학생교재 ${out.holdings.length}건\n추가결제 미처리 ${out.charges.length}건\n원장검증 오류 ${errs.length}건${errs[0] ? `\n${errs[0]}` : ""}`,
@@ -10226,6 +10324,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           if (!p || p.status !== "CLOSING") return false;
           const o = periodOutstanding(st, pid),
             e = ledgerErrors(st);
+          if (o.refunds.length) { msg = `퇴반·환불 미처리 ${o.refunds.length}건이 있어 완전 마감하지 않았습니다.`; return false; }
           if (o.holdings.length || o.charges.length || e.length) {
             msg = `종료 직전 검증 실패: 미회수 ${o.holdings.length}, 결제 ${o.charges.length}, 원장 ${e.length}`;
             return false;
@@ -10398,6 +10497,8 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         })).filter((row) => row.quantity > 0 || row.decision === "RETURNED");
       }
       async function setExitReturnDecision(sid, bid, decision, taskId, button) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("RETURN", operationPeriodId)) return;
         if (!['RETURNED','RETAINED'].includes(decision) || operationBusy) return;
         const task = taskId ? S.refundTasks?.[taskId] : refundTaskForStudent(sid), student = S.students?.[sid], book = S.books?.[bid];
         if (!task || task.studentId !== sid || task.periodId !== selectedPeriodId() || task.status !== 'PENDING' || !student || !book) return alert('처리 가능한 퇴반대기가 없습니다.');
@@ -10409,7 +10510,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         if (button) { button.disabled = true; button.textContent = '처리 중...'; }
         let message = '';
         try {
-          const r = await transaction((st) => {
+          const r = await periodTransaction(operationPeriodId, "RETURN", (st) => {
             const target = st.refundTasks?.[task.id], targetStudent = st.students?.[sid], targetBook = st.books?.[bid];
             if (!target || target.studentId !== sid || target.periodId !== selectedPeriodId() || target.status !== 'PENDING' || !targetStudent || !targetBook) return false;
             target.returnDecisions = target.returnDecisions || {};
@@ -10451,6 +10552,8 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
         } finally { operationBusy = false; }
       }
       async function setExitRefundDecision(sid, bid, decision, taskId = "") {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("REFUND", operationPeriodId)) return;
         if (!['PENDING','EXCLUDED'].includes(decision)) return;
         const task = taskId ? S.refundTasks?.[taskId] : refundTaskForStudent(sid), item = task?.books?.[bid], student = S.students?.[sid];
         if (!task || task.studentId !== sid || task.periodId !== selectedPeriodId() || task.status !== 'PENDING' || !item) return alert('처리 가능한 미배부 교재가 아닙니다.');
@@ -10459,7 +10562,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           reason = String(await askPrompt(`'${item.bookName}'을 환불 대상에서 제외하는 사유를 입력하세요.`) || '').trim();
           if (!reason) return;
         }
-        const r = await runBlockingSave("미배부 제외를 저장하고 있습니다.", () => transaction((st) => {
+        const r = await runBlockingSave("미배부 제외를 저장하고 있습니다.", () => periodTransaction(operationPeriodId, "REFUND", (st) => {
           const target = st.refundTasks?.[task.id], book = target?.books?.[bid];
           if (!target || target.studentId !== sid || target.periodId !== selectedPeriodId() || target.status !== 'PENDING' || !book || !['PENDING','EXCLUDED'].includes(book.status)) return false;
           const changedAt = now();
@@ -10671,6 +10774,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         };
       }
       async function completeRefund(sid, taskId = "") {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("REFUND", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const task = taskId ? S.refundTasks?.[taskId] : refundTaskForStudent(sid),
           confirmation = refundConfirmationSnapshot(S, task),
@@ -10709,7 +10814,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         // the synchronous first transaction attempt over the large root payload.
         await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
         const completedAt = now(),
-          r = await transaction((st) => {
+          r = await periodTransaction(operationPeriodId, "REFUND", (st) => {
             st.refundTasks = st.refundTasks || {};
              const target = st.refundTasks[task.id];
              if (!target || target.studentId !== sid || target.periodId !== selectedPeriodId() || target.status !== "PENDING") return false;
@@ -10840,6 +10945,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         };
       }
       async function cancelCompletedWithdrawal(sid, taskId) {
+        const operationPeriodId = selectedPeriodId();
+        if (!requirePeriodAction("STUDENT_EDIT", operationPeriodId)) return;
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const restore = completedWithdrawalRestoreSnapshot(S, sid, taskId);
         if (!restore) return alert("퇴반취소할 수 없습니다. 퇴반 전 반 기록이 없거나 해당 반이 현재 운영 중이 아닙니다. 반관리에서 확인하세요.");
@@ -10847,7 +10954,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
           return alert("이미 재원 상태로 복원된 학생입니다.");
         const classNames = restore.classIds.map((classId) => S.classes[classId].name || classId);
         if (!(await askConfirm(`${restore.student.name} 학생의 퇴반완료를 취소할까요?\n\n복원 반\n${classNames.join("\n")}\n\n학생과 이전 반만 복원합니다. 기존 환불 기록·보유 교재·회수 내역·재고는 바꾸지 않으며, 회수한 교재는 복원 후 미배부로 표시됩니다.`))) return;
-        const r = await runBlockingSave("퇴반취소를 저장하고 있습니다.", () => transaction((st) => {
+        const r = await runBlockingSave("퇴반취소를 저장하고 있습니다.", () => periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
           const latest = completedWithdrawalRestoreSnapshot(st, sid, taskId);
           if (!latest || latest.signature !== restore.signature || latest.student.periodMembership?.[latest.task.periodId] === true) return false;
           if (!periodAllowsForId(st, latest.task.periodId, "STUDENT_EDIT")) return false;

@@ -42,7 +42,8 @@ function contains(body, pattern, message) {
 const returnDecision = functionSource("setExitReturnDecision");
 contains(returnDecision, /RETURNED/, "회수완료 결정을 저장하지 않습니다.");
 contains(returnDecision, /RETAINED/, "보유유지 결정을 저장하지 않습니다.");
-contains(returnDecision, /transaction\s*\(/, "회수 결정이 원자 transaction이 아닙니다.");
+contains(returnDecision, /periodTransaction\s*\(/, "회수 결정이 기간 검증 transaction이 아닙니다.");
+assert.match(source, /function periodTransaction[\s\S]*?return transaction\(/, "기간 검증이 원자 transaction을 사용해야 합니다.");
 contains(returnDecision, /type\s*:\s*["']RETURN["']/, "회수 결정이 RETURN 원장을 만들지 않습니다.");
 contains(returnDecision, /stockBefore/, "회수 원장에 재고 전 수량이 없습니다.");
 contains(returnDecision, /stockAfter/, "회수 원장에 재고 후 수량이 없습니다.");
@@ -54,7 +55,7 @@ contains(returnDecision, /decision\s*===?\s*["']RETURNED["']|RETURNED["']\s*\)/,
 const refundDecision = functionSource("setExitRefundDecision");
 contains(refundDecision, /EXCLUDED/, "환불제외 상태가 없습니다.");
 contains(refundDecision, /PENDING/, "환불유지 상태가 없습니다.");
-contains(refundDecision, /transaction\s*\(/, "환불 결정이 원자 transaction이 아닙니다.");
+contains(refundDecision, /periodTransaction\s*\(/, "환불 결정이 기간 검증 transaction이 아닙니다.");
 assert.doesNotMatch(refundDecision, /\.stock\s*[+\-]?=/,
   "환불유지/제외 함수가 재고를 직접 변경합니다.");
 assert.doesNotMatch(refundDecision, /\.holdings\s*[+\-]?=|holdings\s*\[[^\]]+\]\s*[+\-]?=/,
