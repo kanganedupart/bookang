@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.78" />
+    <meta name="bookflow-build" content="2026-09-10.79" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.78", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.79", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -169,6 +169,13 @@
       @media(max-width:720px){.catalog-class-row,.catalog-book-row{grid-template-columns:1fr}.catalog-class-row button,.catalog-book-row button{width:100%}}
       @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(360px,1.5fr) minmax(210px,.75fr) 70px 86px}.student-status-panel .student-table{min-width:0;width:100%;table-layout:fixed}.student-status-panel .scroll{overflow-x:auto}}
       input[type="checkbox"],td input[type="checkbox"],.check{display:inline-block;width:18px!important;min-width:18px!important;max-width:18px!important;height:18px!important;min-height:18px!important;padding:0!important;margin:0;vertical-align:middle;accent-color:var(--blue);cursor:pointer}
+      .history-readable-table th,.history-readable-table td{text-align:left;vertical-align:top}
+      .history-readable-table th:nth-child(1){width:8%}.history-readable-table th:nth-child(2){width:16%}.history-readable-table th:nth-child(3){width:9%}.history-readable-table th:nth-child(4){width:17%}.history-readable-table th:nth-child(5){width:20%}.history-readable-table th:nth-child(6){width:30%}
+      .history-memo{white-space:pre-wrap;overflow:visible;overflow-wrap:anywhere;line-height:1.5;margin-bottom:6px;color:var(--ink);font-size:13px}
+      .history-dialog-handle{position:static;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:0 0 12px;margin-bottom:12px;background:transparent;cursor:move;touch-action:none;border-bottom:1px solid var(--line);user-select:none}
+      .history-dialog-handle small{display:block;font-weight:normal}.history-dialog-handle button{margin-left:auto;cursor:pointer}
+      .history-event-details[open]>summary{position:static;z-index:auto}
+      @media(max-width:720px){.history-readable-table td:nth-child(2){text-align:left}.history-readable-table td:nth-child(n+3){grid-column:1/-1}.history-readable-table td:nth-child(1)::before{content:'행위자 ';color:var(--muted)}.history-readable-table td:nth-child(2)::before{content:'일시 ';color:var(--muted)}}
     </style>
   </head>
   <body>
@@ -198,7 +205,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.78";
+      const BOOKFLOW_BUILD = "2026-09-10.79";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9927,7 +9934,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
           '<label>메모<select id="histMemoOnly" onchange="histApply()">'+options([["","전체"],["Y","메모 있는 기록만"]],window.histMemoOnly||"")+'</select></label>'+
           '<button onclick="window.histFrom=\'\';window.histTo=\'\';window.histType=\'\';window.histReason=\'\';window.histMemoOnly=\'\';window.histQuery=\'\';window.histStudentId=\'\';window.histEntity=null;window.histLimit=100;historyScreen()">초기화</button></div>'+
           '<p id="histSelection" class="muted"></p>'+
-          '<p class="muted" id="histCount" aria-live="polite"></p><div class="history-results"><table class="history-readable-table"><thead><tr><th>일시</th><th>처리</th><th>대상</th><th>교재·수량</th><th>메모·상세</th></tr></thead><tbody id="hist"></tbody></table></div><button id="histMore" hidden onclick="window.histLimit=(window.histLimit||100)+100;histApply()">이력 더 보기</button></section>';
+          '<p class="muted" id="histCount" aria-live="polite"></p><div class="history-results"><table class="history-readable-table"><thead><tr><th>행위자</th><th>일시</th><th>처리</th><th>대상</th><th>교재·수량</th><th>메모·상세</th></tr></thead><tbody id="hist"></tbody></table></div><button id="histMore" hidden onclick="window.histLimit=(window.histLimit||100)+100;histApply()">이력 더 보기</button></section>';
         histApply();
       }
       function periodManagement() {
@@ -10890,24 +10897,36 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const hay=[...participants.map(x=>x.name),...books.map(x=>x.name),m.className,...arr(m.classNames),m.actor,m.memo,m.batchId].join(" ");
         return has(hay)?[base]:[];
       }
+      function historyBusinessReason(m) {
+        return ["IN","DISTRIBUTE","RETURN"].includes(m.type) ? (m.businessReason||"NORMAL") : "";
+      }
       function historyResultHtml(row, index=-1) {
         const m=row.m, total=Math.abs(Number(m.quantity??m.itemCount??0)), count=row.participants.length;
-        const type=movementLabel(m), reason={NORMAL:"일반",FREE:"무료",EXTRA_PAYMENT:"유료",CLASS_MOVE:"반변경",MISDISTRIBUTION:"실수",OTHER:"기타"}[m.businessReason||"NORMAL"]||"";
+        const type=movementLabel(m), reason={NORMAL:"일반",FREE:"무료",EXTRA_PAYMENT:"유료",CLASS_MOVE:"반변경",MISDISTRIBUTION:"실수",OTHER:"기타"}[historyBusinessReason(m)]||"";
         const bookTitle=row.books.length===1?row.books[0].name:row.books.length?"교재 "+row.books.length+"종":"—";
         const quantity=row.quantity==null ? (row.books.length?"수량 확인 필요":"") : row.quantity+"권";
         const batch=count>1 ? "일괄처리 전체 "+count+"명"+(total?" · "+total+"권":"") : "개별 처리";
         const flow=m.stockBefore==null?"":'<p><b>'+(count>1?"전체 일괄처리 기준 재고":"재고")+'</b> '+esc(m.stockBefore)+' → '+esc(m.stockAfter)+'</p>';
-        const details=index>=0?'<details class="history-event-details" ontoggle="historyOpenDetails(this,'+index+')"><summary>상세 보기</summary><div></div></details>':'<details class="history-event-details"><summary>상세 보기</summary><div>'+
-          '<button type="button" onclick="this.closest(\'details\').open=false">닫기</button><p><b>'+esc(batch)+'</b></p>'+flow+
+        const details=index>=0?'<details class="history-event-details" ontoggle="historyOpenDetails(this,'+index+')"><summary>상세 보기</summary><div role="dialog" aria-label="업무이력 상세"></div></details>':'<details class="history-event-details"><summary>상세 보기</summary><div>'+
+          '<header class="history-dialog-handle" onpointerdown="historyDragStart(event,this)"><b>업무이력 상세 <small>제목을 끌어 이동</small></b><button type="button" onclick="this.closest(\'details\').open=false">닫기</button></header><p><b>'+esc(batch)+'</b></p>'+flow+
           (m.totalAmount!=null?'<p>퇴반 환불 계산액 '+esc(won(m.totalAmount))+(m.type==="퇴반취소"?" · 이전 확정 기록 보존":"")+'</p>':"")+
-          '<p>작성자 '+esc(m.actor||"—")+'</p><p><b>메모 내용</b><br>'+esc(m.memo||"메모 없음")+'</p>'+
+          '<p>행위자 '+esc(m.actor||"미기록")+' · '+esc(fmt(m.time))+'</p><p><b>처리 내용·메모</b><br>'+esc(m.memo||"기록 없음")+'</p><small>자동 처리 설명과 직원 입력 메모가 함께 포함될 수 있습니다.</small>'+
           (row.books.length>1?'<p>조회 교재</p><ul>'+row.books.map(b=>'<li>'+esc(b.name)+(b.quantity!=null?' · '+esc(b.quantity)+'권':'')+'</li>').join("")+'</ul>':"")+
           (row.classSearch?'<p>처리 당시 해당 반 학생 '+row.matchedParticipants.length+'명</p><ul>'+row.matchedParticipants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul>':"")+
           (count>1?'<details><summary>전체 처리 대상 '+count+'명</summary><ul>'+row.participants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul></details>':"")+
           (m.batchId?'<details><summary>관리용 정보</summary><p>처리번호 '+esc(m.batchId)+'</p></details>':"")+'</div></details>';
-        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b><small>'+esc(reason)+'</small></td>'+
+        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="행위자">'+esc(m.actor||"미기록")+'</td><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b>'+(reason?'<small>'+esc(reason)+'</small>':'')+'</td>'+
           '<td data-label="대상"><b class="history-short" title="'+esc(row.who)+'">'+esc(row.who)+'</b>'+(row.personal&&count>1?'<small>일괄처리 중 이 학생의 기록</small>':row.classSearch?'<small>처리 당시 반 기준</small>':"")+'</td>'+
-          '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="메모·상세">'+(m.memo?'<small class="history-short history-memo" title="'+esc(m.memo)+'">메모: '+esc(m.memo)+'</small>':'<small>메모 없음</small>')+details+'</td></tr>';
+          '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="메모·상세">'+(m.memo?'<div class="history-memo">'+esc(m.memo)+'</div>':'<small>메모 없음</small>')+details+'</td></tr>';
+      }
+      function historyDragStart(event,handle) {
+        if(event.target.closest("button")||event.button>0)return;
+        const panel=handle.parentElement,rect=panel.getBoundingClientRect(),startX=event.clientX,startY=event.clientY;
+        event.preventDefault();handle.setPointerCapture(event.pointerId);
+        panel.style.width=rect.width+"px";panel.style.right="auto";panel.style.bottom="auto";
+        const move=e=>{panel.style.left=Math.max(0,Math.min(innerWidth-rect.width,rect.left+e.clientX-startX))+"px";panel.style.top=Math.max(0,Math.min(innerHeight-Math.min(rect.height,innerHeight),rect.top+e.clientY-startY))+"px";};
+        const stop=()=>{handle.removeEventListener("pointermove",move);handle.removeEventListener("pointerup",stop);handle.removeEventListener("pointercancel",stop);};
+        handle.addEventListener("pointermove",move);handle.addEventListener("pointerup",stop);handle.addEventListener("pointercancel",stop);
       }
       function historyPrepared() {
         return derivedValue("historySearchIndex",()=>{
@@ -10950,7 +10969,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
       }
       function historyShowSuggestions() {
         const input=document.getElementById("histSearch"),box=document.getElementById("histSuggestions");
-        if(!input||!box||window.histComposing||document.activeElement!==input)return;
+        if(!input||!box||document.activeElement!==input)return;
         const q=input.value.trim().toLocaleLowerCase("ko"),scope=document.getElementById("histScope").value;
         if(q.length<2||window.histEntity){historyHideSuggestions();return;}
         const groups={STUDENT:[],BOOK:[],CLASS:[]};
@@ -10969,7 +10988,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         historyHideSuggestions();histApply();
       }
       function historySearchKey(event) {
-        if(event.isComposing||window.histComposing)return;
+        if(event.isComposing||event.keyCode===229)return;
         if(event.key==="Escape"){historyHideSuggestions();return;}
         const box=document.getElementById("histSuggestions");
         if((event.key==="ArrowDown"||event.key==="ArrowUp")&&box&&!box.hidden&&window.histCandidates?.length){
@@ -10992,7 +11011,8 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         window.histQuery=input.value;
         historyHideSuggestions();
         const selected=document.getElementById("histSelection");if(selected)selected.textContent="";
-        if(window.histComposing||event?.isComposing)return;
+        // Only the result list changes: the IME input node/value is never rebuilt.
+        // Searching the current composition also avoids a stranded pending timer.
         const count=document.getElementById("histCount");if(count)count.textContent="검색 중…";
         window.histSuggestionTimer=setTimeout(()=>{if(input===document.getElementById("histSearch"))historyShowSuggestions();},80);
         window.histApplyTimer=setTimeout(()=>{if(input===document.getElementById("histSearch"))histApply();},220);
@@ -11008,14 +11028,14 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const show=(!q||q.length>=2||entity);
         if(show)for(const entry of prepared.entries){
           const m=entry.m;
-          if(entry.time<from||entry.time>to||window.histType&&m.type!==window.histType||window.histReason&&(m.businessReason||"NORMAL")!==window.histReason||window.histMemoOnly&&!String(m.memo||"").trim())continue;
+          if(entry.time<from||entry.time>to||window.histType&&m.type!==window.histType||window.histReason&&historyBusinessReason(m)!==window.histReason||window.histMemoOnly&&!String(m.memo||"").trim())continue;
           if(entity&&!entityEvents?.has(m))continue;
           if(!entity&&q&&!entry.text.includes(normalized))continue;
           rows.push(...historyProjection(m,entity?.kind||scope,q,entity?.kind==="STUDENT"?entity.id:"",entity));
           if(rows.length>limit)break;
         }
         window.histRenderedRows=rows.slice(0,limit);
-        body.innerHTML=window.histRenderedRows.map((row,i)=>historyResultHtml(row,i)).join("")||'<tr><td colspan="5">'+(!show?"2글자 이상 입력하면 검색합니다.":"검색된 이력이 없습니다.")+'</td></tr>';
+        body.innerHTML=window.histRenderedRows.map((row,i)=>historyResultHtml(row,i)).join("")||'<tr><td colspan="6">'+(!show?"2글자 이상 입력하면 검색합니다.":"검색된 이력이 없습니다.")+'</td></tr>';
         byId("histMore").hidden=rows.length<=limit;
         byId("histCount").textContent="검색 결과 "+Math.min(rows.length,limit)+"건"+(rows.length>limit?" 이상 · 아래에서 더 보기":"")+" · 전체 수량·재고는 상세 보기";
         byId("histSelection").textContent=entity?({STUDENT:"학생",BOOK:"교재",CLASS:"반"}[entity.kind])+" 선택: "+entity.name:"";

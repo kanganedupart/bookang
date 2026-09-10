@@ -48,6 +48,17 @@ for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
   await page.locator('#histFrom').fill('2026-08-01');await page.locator('#histTo').fill('2026-09-30');
   const before=await page.evaluate(k=>localStorage.getItem(k),key);
   assert.equal(await page.locator('#histScope').inputValue(),'ALL','unified search must be the default');
+  await page.locator('#histSearch').focus();
+  await page.locator('#histSearch').evaluate(input=>{
+    input.value='강승';input.dispatchEvent(new Event('input',{bubbles:true}));
+    input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));
+    input.value='강승희';input.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,data:'희'}));
+  });
+  await page.waitForTimeout(400);
+  assert.notEqual(await page.locator('#histCount').innerText(),'검색 중…','Korean final syllable composition must not leave the old pending search forever');
+  assert(await page.locator('#histSuggestions').isVisible(),'Korean IME must show candidates without requiring Enter or blur');
+  assert.match(await page.locator('#histSuggestions').innerText(),/강승희/);
+  await page.locator('#histSearch').evaluate(input=>input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true})));
   await page.locator('#histSearch').fill('임');
   await page.waitForTimeout(250);
   assert.equal(await page.locator('#histSuggestions').isVisible(),false,'one character must not open suggestions');
@@ -60,20 +71,27 @@ for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
   const rows=page.locator('#hist tr');assert(await rows.count()>0);
   for(const row of await rows.all()){
     assert.equal(await row.getAttribute('data-history-student'),sid);
-    assert.match(await row.locator('td').nth(2).innerText(),/5242/);
-    assert.match(await row.locator('td').nth(3).innerText(),/1권/);
+    assert.match(await row.locator('td').nth(3).innerText(),/5242/);
+    assert.match(await row.locator('td').nth(4).innerText(),/1권/);
   }
   assert.equal(await page.locator('#hist .history-event-details li').count(),0,'hidden bulk lists must not be built while typing');
   await page.screenshot({path:new URL('../backups/history-'+name+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
   const detail=rows.first().locator('.history-event-details');await detail.locator(':scope > summary').click();
   await detail.getByText('전체 일괄처리 기준 재고',{exact:true}).waitFor();
   assert.match(await detail.innerText(),/전체 일괄처리 기준 재고/);
+  const panel=detail.locator(':scope > div'),rect=await panel.boundingBox(),handle=detail.locator('.history-dialog-handle');
+  const h=await handle.boundingBox(),close=await detail.getByRole('button',{name:'닫기',exact:true}).boundingBox();
+  assert(close.x>h.x+h.width/2,'close button must be on the right');
+  await page.mouse.move(h.x+30,h.y+12);await page.mouse.down();await page.mouse.move(h.x+40,h.y+22,{steps:3});await page.mouse.up();
+  const moved=await panel.boundingBox();assert(moved.x!==rect.x||moved.y!==rect.y,'detail must move by dragging the title');
+  await page.screenshot({path:new URL('../backups/history-detail-'+name+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
   await detail.getByRole('button',{name:'닫기',exact:true}).click();
   assert.equal(await detail.getAttribute('open'),null);
   await page.locator('#histSearch').fill('국매 9-1주');
   await page.locator('#histSuggestions button').filter({hasText:'교재'}).first().waitFor();
   await page.locator('#histSuggestions button').filter({hasText:'교재'}).first().click();
-  for(const row of await page.locator('#hist tr').all())assert.match(await row.locator('td').nth(3).innerText(),/국매 9-1주/);
+  for(const row of await page.locator('#hist tr').all())assert.match(await row.locator('td').nth(4).innerText(),/국매 9-1주/);
+  assert.deepEqual(await page.evaluate(()=>['퇴반등록','퇴반완료','퇴반취소','DISTRIBUTE','IN'].map(type=>historyBusinessReason({type}))),['','','','NORMAL','NORMAL']);
   const checks=await page.evaluate(()=>{
     const m={type:'DISTRIBUTE',studentIds:{A:'A',B:'B'},studentNames:{A:'동명1234',B:'동명5678'},studentDeltas:{A:2,B:3},classNames:{A:'과거반A',B:'과거반B'},bookName:'테스트교재',quantity:5};
     return {student:historyProjection(m,'STUDENT','동명','A').map(x=>[x.studentId,x.quantity]),classes:historyProjection(m,'CLASS','과거반A').map(x=>[x.who,x.quantity,x.matchedParticipants.map(s=>s.id)]),wrong:historyProjection(m,'CLASS','현재반').length,unknown:historyProjection({...m,studentDeltas:{}},'STUDENT','동명','A')[0].quantity};
