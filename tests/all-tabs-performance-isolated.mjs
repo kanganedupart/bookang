@@ -48,7 +48,12 @@ const stock=await page.evaluate(()=>{
  const original=S,originalPeriod=window.periodChoiceId;
  try{
   S={...S,movements:{a:{type:'IN',bookId:'A',quantity:10,time:'2026-09-01'},b:{type:'IN',bookId:'A',quantity:5,time:'2026-09-02'},c:{type:'RETURN',bookId:'A',quantity:8},d:{type:'ADJUST',bookId:'A',quantity:100},e:{type:'IN',bookId:'B',quantity:99}}};resetDerivedState();
-  const summary=inventoryIntakeSummary('A');window.periodChoiceId='another';const other=inventoryIntakeSummary('A');window.periodChoiceId=originalPeriod;
+  const summary=inventoryIntakeSummary('A');
+  const node=document.createElement('div');
+  for(const [bid,extra,expected] of [['A',false,'10'],['A',true,'5'],['B',true,'-'],['C',false,'-']]){
+    node.innerHTML=inventoryIntakeHtml(bid,extra);if(node.textContent!==expected)throw new Error('intake quantity display mismatch');
+  }
+  window.periodChoiceId='another';const other=inventoryIntakeSummary('A');window.periodChoiceId=originalPeriod;
   return {total:summary.total,additional:summary.additional,count:summary.records.length,first:summary.first.quantity,other:other.total,none:inventoryIntakeSummary('C').records.length};
  }finally{S=original;window.periodChoiceId=originalPeriod;resetDerivedState();}
 });

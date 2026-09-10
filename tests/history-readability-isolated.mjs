@@ -75,6 +75,9 @@ for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
     assert.match(await row.locator('td').nth(4).innerText(),/1권/);
   }
   assert.equal(await page.locator('#hist .history-event-details li').count(),0,'hidden bulk lists must not be built while typing');
+  assert.equal(await page.locator('#hist').getByText('상세 보기',{exact:true}).count(),0,'no repeated detail buttons');
+  assert.match(await rows.first().locator('td').nth(4).innerText(),/배부 1권/);
+  assert.equal(await rows.first().locator('.history-content-preview').evaluate(e=>getComputedStyle(e).whiteSpace),'nowrap');
   await page.screenshot({path:new URL('../backups/history-'+name+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
   const detail=rows.first().locator('.history-event-details');await detail.locator(':scope > summary').click();
   await detail.getByText('전체 일괄처리 기준 재고',{exact:true}).waitFor();
@@ -92,6 +95,15 @@ for(const [name,width,height] of [['pc',1365,900],['mobile',390,844]]){
   await page.locator('#histSuggestions button').filter({hasText:'교재'}).first().click();
   for(const row of await page.locator('#hist tr').all())assert.match(await row.locator('td').nth(4).innerText(),/국매 9-1주/);
   assert.deepEqual(await page.evaluate(()=>['퇴반등록','퇴반완료','퇴반취소','DISTRIBUTE','IN'].map(type=>historyBusinessReason({type}))),['','','','NORMAL','NORMAL']);
+  assert.match(await page.evaluate(()=>historyResultHtml({m:{type:'퇴반완료',time:'2026-09-10',memo:'자동 설명'},participants:[],books:[{name:'교재'}],who:'검수',quantity:1},0)),/환불 계산 대상 1권/);
+  await page.evaluate(()=>{
+    const row={m:{type:'IN',time:'2026-09-10'},participants:[],books:[{name:'메모없는 교재'}],who:'전체',quantity:2};
+    window.histRenderedRows=[row];document.getElementById('hist').innerHTML=historyResultHtml(row,0);
+  });
+  assert.equal(await page.locator('#hist .history-content-preview').isVisible(),false);
+  await page.locator('#hist .history-target-link').click();
+  await page.getByRole('dialog',{name:'업무이력 상세'}).waitFor();
+  await page.getByRole('dialog').getByRole('button',{name:'닫기'}).click();
   const checks=await page.evaluate(()=>{
     const m={type:'DISTRIBUTE',studentIds:{A:'A',B:'B'},studentNames:{A:'동명1234',B:'동명5678'},studentDeltas:{A:2,B:3},classNames:{A:'과거반A',B:'과거반B'},bookName:'테스트교재',quantity:5};
     return {student:historyProjection(m,'STUDENT','동명','A').map(x=>[x.studentId,x.quantity]),classes:historyProjection(m,'CLASS','과거반A').map(x=>[x.who,x.quantity,x.matchedParticipants.map(s=>s.id)]),wrong:historyProjection(m,'CLASS','현재반').length,unknown:historyProjection({...m,studentDeltas:{}},'STUDENT','동명','A')[0].quantity};
