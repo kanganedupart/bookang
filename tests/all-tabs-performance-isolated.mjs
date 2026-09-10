@@ -68,6 +68,28 @@ const stock=await page.evaluate(()=>{
 });
 if(stock)assert.deepEqual(stock,{total:15,additional:5,count:2,first:10,other:15,none:0});
 await page.evaluate(()=>{tab='재고';window.bookHubView='inventory';render();});
+if(await page.locator('#inventorySort').count()){
+ const checks=await page.evaluate(()=>{
+  const body=document.getElementById('inventoryRows'),nodes=[...body.rows],raw=globalThis.__isolatedState;
+  const first=nodes[0],bid=first.dataset.bookId,p=document.getElementById('p'+bid),memo=document.getElementById('a'+bid);
+  p.value=String(Number(S.books[bid].stock||0)+12345);p.dispatchEvent(new Event('input',{bubbles:true}));memo.value='정렬 중 보존 확인';
+  window.invQuery='국매';document.getElementById('inventoryBookSearch').value='국매';filterInventoryRows('국매');
+  const visibility=new Map(nodes.map(n=>[n,n.style.display]));
+  for(const mode of ['stockAsc','stockDesc','diffDesc','default']){
+   const select=document.getElementById('inventorySort');select.value=mode;select.dispatchEvent(new Event('change',{bubbles:true}));
+   const current=[...body.rows];
+   if(current.length!==nodes.length||!current.every(n=>nodes.includes(n)&&n.style.display===visibility.get(n)))throw Error('sorting changed row identity or visibility');
+   if(mode.startsWith('stock'))for(let i=1;i<current.length;i++){const a=Number(S.books[current[i-1].dataset.bookId].stock||0),b=Number(S.books[current[i].dataset.bookId].stock||0);if(mode==='stockAsc'?a>b:a<b)throw Error('stock order incorrect');}
+   if(mode==='diffDesc'&&current[0]!==first)throw Error('draft difference not used');
+   if(document.getElementById('p'+bid)!==p||memo.value!=='정렬 중 보존 확인'||window.invQuery!=='국매')throw Error('draft or query lost');
+  }
+  if(raw!==globalThis.__isolatedState)throw Error('sort wrote data');
+  const tops=[...document.querySelectorAll('.inventory-filter label')].map(n=>Math.round(n.getBoundingClientRect().top));
+  window.invQuery='';window.invSort='default';inventory();
+  return {oneLine:new Set(tops).size===1};
+ });
+ if(device==='PC')assert(checks.oneLine,'desktop conditions must remain one row');
+}
 await page.screenshot({path:new URL('../backups/stock-'+device+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
 if(stock){const receipt=page.locator('.inventory-intakes button').first();await receipt.click();await page.getByRole('dialog',{name:'입고내역'}).waitFor();await page.getByRole('dialog').getByRole('button',{name:'닫기'}).click();}
 const saves=await page.evaluate(async()=>{
