@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.80" />
+    <meta name="bookflow-build" content="2026-09-10.81" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.80", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-10.81", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -182,6 +182,18 @@
       .history-event-details>summary.history-content-preview::-webkit-details-marker{display:none}.history-event-details>summary.history-content-preview[hidden]{display:none}
       .history-content-preview:hover,.history-target-link:hover{text-decoration:underline}
       .history-target-link{display:block;max-width:100%;border:0;background:transparent;padding:0;min-height:0;text-align:left;font-weight:650;color:inherit;font-size:inherit}
+      .period-management-panel .period-create-section{background:#f7f9fc;border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin-bottom:18px}
+      .period-management-panel .period-create-section .section-title{margin:0 0 8px;padding:0}
+      .period-management-panel .create-box{grid-template-columns:120px minmax(180px,300px) 120px;max-width:560px;padding:0;margin:0;border:0;background:none;gap:12px}
+      .period-management-panel .create-box button{min-width:0}
+      .period-refund-note{font-size:12px;color:var(--ink2);margin:0 0 10px;line-height:1.5}
+      .period-management-panel .period-management-table{min-width:1000px;table-layout:fixed}
+      .period-management-table th,.period-management-table td{text-align:left;vertical-align:middle}
+      .period-management-table th:nth-child(1){width:22%}.period-management-table th:nth-child(2){width:11%}.period-management-table th:nth-child(3){width:250px}.period-management-table th:nth-child(4){width:13%}.period-management-table th:nth-child(5){width:6%}.period-management-table th:nth-child(6){width:13%}
+      .period-management-table tbody td{padding-top:12px;padding-bottom:12px}.period-management-table td:first-child{font-weight:650}
+      .period-date-control{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin:0;white-space:nowrap}
+      .period-date-control input{flex:0 0 156px;width:156px;min-width:156px;max-width:156px}.period-date-control button{flex:0 0 auto;margin:0}
+      @media(max-width:600px){.period-management-panel .create-box{grid-template-columns:90px minmax(0,1fr)}.period-management-panel .create-box button{grid-column:1/-1}.period-management-panel .period-create-section{padding:12px}.period-management-panel .scroll{overflow-x:auto}}
     </style>
   </head>
   <body>
@@ -211,7 +223,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.80";
+      const BOOKFLOW_BUILD = "2026-09-10.81";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9947,7 +9959,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
       function periodManagement() {
         const ps = periods();
         document.querySelector("#screen").innerHTML =
-          `<section class="panel"><h2>대상 생성·선택</h2><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div><p class="muted">환불 적용 시작일 이전 퇴반자는 해당 대상의 환불대기에 들어가지 않습니다. 퇴반일이 확인되지 않은 경우도 자동 환불대기에 넣지 않습니다.</p><div class="section-title">등록된 대상</div><div class="scroll"><table><thead><tr><th>대상</th><th>운영상태</th><th>환불 적용 시작일</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
+          `<section class="panel period-management-panel"><h2>대상 관리</h2><div class="period-create-section"><div class="section-title">새 대상 생성</div><div class="create-box"><label>연도<input id="periodYear" type="number" value="${new Date().getFullYear()}"></label><label>새 대상명<input id="periodName" placeholder="예: 정규2차"></label><button class="btn" onclick="addPeriod()">대상 생성</button></div></div><div class="section-title">등록된 대상</div><div class="period-refund-note"><b>환불 적용 시작일</b> · 해당 날짜를 포함해 이후 퇴반만 환불대기에 표시됩니다. 퇴반일 미확인 건은 자동으로 넣지 않습니다.</div><div class="scroll"><table class="period-management-table"><thead><tr><th>대상</th><th>운영상태</th><th>환불 적용 시작일</th><th>허용업무</th><th>반</th><th>미처리 추가결제</th><th>상태변경</th></tr></thead><tbody>${ps
             .map((p) => {
               const classCount = arr(S.classes).filter(
                   (c) => c.periodId === p.id,
@@ -9955,7 +9967,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
                 pending = arr(S.chargeTasks).filter(
                   (x) => x.periodId === p.id && x.status === "PENDING",
                 ).length;
-              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="action-row"><input id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div><small>해당 날짜 포함 이후 퇴반만 환불대기</small></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
+              return `<tr><td>${esc(periodLabel(p))}</td><td>${esc(p.status === "ACTIVE" ? "운영 중" : "종료")}</td><td><div class="period-date-control"><input aria-label="${esc(periodLabel(p))} 환불 적용 시작일" id="refundStart_${p.id}" type="date" value="${esc(p.refundEffectiveStartDate || "")}"><button onclick="savePeriodRefundEffectiveStartDate('${p.id}')">저장</button></div></td><td>${esc({ ACTIVE: "배부·회수", CLOSING: "회수·실사만", CLOSED: "조회만" }[p.status] || "")}</td><td>${classCount}</td><td>${pending}</td><td><button onclick="togglePeriodStatus('${p.id}')">${p.status === "ACTIVE" ? "운영 종료" : "운영 재개"}</button></td></tr>`;
             })
             .join("")}</tbody></table></div></section>`;
       }

@@ -25,6 +25,15 @@ await context.addInitScript(fake,{seed,stateKey:'memory-only'});
 const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('dialog',d=>d.dismiss());
 await page.goto('https://performance.invalid/bookang.html');await page.waitForTimeout(1500);await page.locator('#staffName').fill('검수자');await page.locator('#staffPin').fill('0000');await page.getByRole('button',{name:'로그인',exact:true}).click();await page.locator('#studentStatusSearch').waitFor({timeout:10000}).catch(async e=>{console.log(errors,await page.locator('body').innerText());throw e;});
 const before=await page.evaluate(()=>globalThis.__isolatedState);
+await page.evaluate(()=>{tab='관리';window.manageView='target';render();});
+await page.screenshot({path:new URL('../backups/target-'+device+'.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1').replaceAll('%EA%B0%9C%EB%B0%9C','개발')});
+if(await page.locator('.period-date-control').count()){
+ const controls=await page.locator('.period-date-control').evaluateAll(nodes=>nodes.map(n=>{const a=n.querySelector('input').getBoundingClientRect(),b=n.querySelector('button').getBoundingClientRect();return {aligned:Math.abs(a.y-b.y)<2,height:n.closest('tr').getBoundingClientRect().height};}));
+ assert(controls.length>0&&controls.every(c=>c.aligned&&c.height<85),'date/save must stay inline in compact rows');
+ assert.equal(await page.locator('.period-refund-note').count(),1);
+ assert.equal(await page.locator('#periodYear').count(),1);
+ assert.equal(await page.locator('#periodName').count(),1);
+}
 const metrics=[];
 for(const main of ['학생','신규','반이동','퇴반대기','일괄처리','재고','추가결제','이력','관리']){
  await page.evaluate(main=>{tab=main;render();},main);
