@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-11.84" />
+    <meta name="bookflow-build" content="2026-09-11.85" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-11.84", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-11.85", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -223,8 +223,8 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-11.84";
-      const ECODING_OPERATION_LOCKED = true;
+      const BOOKFLOW_BUILD = "2026-09-11.85";
+      const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
         alert("이코딩 자동연동을 중지했습니다. 학생조회·배부·회수와 수동 신규·반변경·퇴반은 정상적으로 사용할 수 있습니다.");
@@ -468,7 +468,7 @@
         if (externalMatches.length) return externalMatches;
         const nameKey = normalizedStudentFullName(studentName);
         return nameKey
-          ? arr(st.students).filter((student) => normalizedStudentFullName(student) === nameKey)
+          ? arr(st.students).filter((student) => !normalizeExternalId(student.externalId) && normalizedStudentFullName(student) === nameKey)
           : [];
       }
       function studentIdentityKey(student) {
@@ -1485,6 +1485,11 @@
         tabs.querySelectorAll("[data-main-tab]").forEach((button) => {
           button.addEventListener("click", () => changeTab(button.dataset.mainTab));
         });
+        if (!ECODING_OPERATION_LOCKED && typeof ecodingScopedReviewRows === 'function') {
+          const button=document.createElement('button');button.textContent=window.ecodingSyncLastError?'연동 오류':`연동 확인 ${ecodingScopedReviewRows().length}`;
+          button.title=window.ecodingSyncLastError||'로그인한 화면이 열려 있을 때 자동 확인 · 교재 처리는 직원 확인';
+          button.addEventListener('click',scopedSyncReviewScreen);tabs.appendChild(button);
+        }
       }
       let bookflowListenerStarted = false;
       let bookflowInitialRemoteLoaded = false;
@@ -7890,12 +7895,12 @@
         const shown=classes.filter(c=>{const m=draft[c.id]||{},viewMatch=view==='BULK'?!!window.ecodingBulkSelected?.[c.id]:view==='CONNECTED'?!!m.enabled:view==='UNSET'?!m.enabled:true;return viewMatch&&(listSubject==='전체'||m.subject===listSubject)&&(listTeacher==='전체'||m.teacher===listTeacher)&&(listBook==='전체'||m.bookName===listBook)}).sort((a,b)=>rank(a)-rank(b)||String(a.name||'').localeCompare(String(b.name||''),'ko'));
         return `<section class="panel"><h2>이코딩 반 연결</h2><div class="filter-row"><label>현재 대상<input value="${esc(periodLabel(selectedPeriod()))}" disabled></label><label>반명·과목·강사 검색<input value="${esc(window.ecodingClassQuery||"")}" placeholder="반명, 과목, 강사"></label><button class="btn" onclick="refreshEcodingPreview()">이코딩 반 불러오기</button></div><div class="filter-row"><label>이전 대상<select id="ecCopyPeriod" onchange="ecodingCopySourceId=this.value"><option value="">선택</option>${previous.map(p=>`<option value="${p.id}" ${p.id===window.ecodingCopySourceId?'selected':''}>${esc(periodLabel(p))}</option>`).join('')}</select></label><button onclick="copyEcodingClassInfo()" ${previous.length?'':'disabled'}>반명·과목·강사 복사</button></div><p class="muted">이전 대상에서는 반명·과목·강사만 가져옵니다. 교재·교재비·입고·배부·회수·재고는 복사하지 않습니다.</p><div class="receipt"><b>전체 학생 공통반</b><small>이코딩 반 목록에는 표시되지 않습니다. 관리 → 반·교재에서 ‘전체 학생 공통반’을 선택해 추가합니다.</small></div>${sync?`<div class="receipt"><b>최근 확인 ${fmt(sync.syncedAt)}</b> · 반 ${classes.length}개 · 학생 ${arr(sync.students).length}명</div><div class="receipt"><b>같은 교재 일괄 입력</b><div class="filter-row"><label>과목<select id="ecBulkSubject" onchange="ecodingBulkSubject=this.value;ecodingBulkTeacher='';targetManagement()"><option value="">선택</option>${subjects.map(x=>`<option ${x===window.ecodingBulkSubject?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>강사<select id="ecBulkTeacher" onchange="ecodingBulkTeacher=this.value"><option value="">선택</option>${teachers.map(x=>`<option ${x===window.ecodingBulkTeacher?'selected':''}>${esc(x)}</option>`).join('')}</select></label><button onclick="selectEcodingTeacherClasses()">해당 반 선택</button><label>교재명<input id="ecBulkBook" placeholder="한 번에 적용할 교재"></label><label>교재비<input id="ecBulkPrice" type="number" min="0" placeholder="필수 입력"></label><button class="btn" onclick="applyEcodingBookToSelected()">선택 반에 적용</button></div><small>같은 강사 반 중 일부만 적용하려면 아래 표의 적용 체크를 해제하세요. 교재명과 교재비가 모두 있어야 저장됩니다.</small></div><div class="filter-row"><label>목록 보기<select onchange="ecodingMappingView=this.value;targetManagement()"><option value="ALL" ${view==='ALL'?'selected':''}>전체</option><option value="BULK" ${view==='BULK'?'selected':''}>일괄선택</option><option value="CONNECTED" ${view==='CONNECTED'?'selected':''}>연결됨</option><option value="UNSET" ${view==='UNSET'?'selected':''}>미설정</option></select></label><b>표시 ${shown.length}개 / 전체 ${classes.length}개</b></div><div class="scroll"><table><thead><tr><th>사용</th><th>적용</th><th>이코딩 반명</th><th>인원</th><th>과목</th><th>강사</th><th>교재명</th><th>교재비</th></tr></thead><tbody>${shown.map(c=>{const m=draft[c.id]||{},bulk=!!window.ecodingBulkSelected?.[c.id];return `<tr><td><input class="check ec-map-use" data-id="${esc(c.id)}" type="checkbox" ${m.enabled?'checked':''} onchange="setEcodingDraftField('${esc(c.id)}','enabled',this.checked)"></td><td><input class="check" type="checkbox" ${bulk?'checked':''} onchange="setEcodingBulkSelected('${esc(c.id)}',this.checked)"></td><td><b>${esc(c.name)}</b></td><td>${c.activeStudents||0}</td><td><input class="ec-map-subject" data-id="${esc(c.id)}" value="${esc(m.subject||'')}" oninput="setEcodingDraftField('${esc(c.id)}','subject',this.value)"></td><td><input class="ec-map-teacher" data-id="${esc(c.id)}" value="${esc(m.teacher||'')}" oninput="setEcodingDraftField('${esc(c.id)}','teacher',this.value)"></td><td><input class="ec-map-book" data-id="${esc(c.id)}" value="${esc(m.bookName||'')}" oninput="setEcodingDraftField('${esc(c.id)}','bookName',this.value)"></td><td><input class="ec-map-price" data-id="${esc(c.id)}" type="number" min="0" value="${m.price??''}" oninput="setEcodingDraftField('${esc(c.id)}','price',this.value===''?null:Number(this.value))"></td></tr>`}).join('')||'<tr><td colspan="8">선택한 조건에 맞는 반이 없습니다.</td></tr>'}</tbody></table></div><div class="action-row"><button class="btn" onclick="saveEcodingMappings()">선택 반 저장</button><button onclick="runEcodingDiff()">신규·반이동·퇴반 확인</button></div>`:'<div class="receipt">이코딩 반을 먼저 불러오세요.</div>'}</section>`;
       }
-      async function fetchEcodingSnapshot(){
+      async function fetchEcodingSnapshot(periodId=selectedPeriodId(),mode='SCOPED'){
         if(ECODING_OPERATION_LOCKED) throw new Error('이코딩 자동연동이 중지되었습니다.');
         const user=firebase.auth().currentUser;
         if(!user) throw new Error('직원 로그인이 필요합니다.');
         const token=await user.getIdToken();
-        const response=await fetch(ECODING_SYNC_URL,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:'{}'});
+        const response=await fetch(ECODING_SYNC_URL,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({periodId,mode})});
         const body=await response.json().catch(()=>({}));
         if(!response.ok||!body.ok) throw new Error(body.message||`이코딩 연결 실패 (${response.status})`);
         return body;
@@ -7943,7 +7948,7 @@
         const originalText=button?.textContent||'이코딩 반 불러오기';
         if(button){button.disabled=true;button.textContent='불러오는 중...';}
         try{
-          const body=await fetchEcodingSnapshot(); let renamedCount=0;
+          const body=await fetchEcodingSnapshot(pid,'CATALOG_PREVIEW'); let renamedCount=0;
           const r=await transaction(st=>{
             st.ecodingSnapshots=st.ecodingSnapshots||{}; ensureSystemCommonClass(st,pid);
             const incomingById=new Map(arr(body.classes).map((item)=>[String(item.id),item]));
@@ -8062,13 +8067,13 @@
             if(directMatches.length===1)localClassId=directMatches[0].id;
           }
           const localClass=st?.classes?.[localClassId];
-          if(!localClassId||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||normalizeNameKey(localClass.teacher)==='공통'||(pid&&localClass.periodId!==pid))))continue;
-          const rawEntryDate=String(c.entryDate||c.lastModifiedAt||""),entryDate=/^\d{4}-\d{2}-\d{2}/.test(rawEntryDate)?rawEntryDate.slice(0,10):"",rawClassExitDate=String(c.exitDate||""),classExitDate=/^\d{4}-\d{2}-\d{2}/.test(rawClassExitDate)?rawClassExitDate.slice(0,10):"";
+          if(!localClassId||maps[c.id]?.enabled===false||(st?.classes&&(!localClass||localClass.active===false||localClass.systemCommon===true||(pid&&localClass.periodId!==pid))))continue;
+          const rawEntryDate=String(c.entryDate||""),entryDate=/^\d{4}-\d{2}-\d{2}/.test(rawEntryDate)?rawEntryDate.slice(0,10):"",rawClassExitDate=String(c.exitDate||""),classExitDate=/^\d{4}-\d{2}-\d{2}/.test(rawClassExitDate)?rawClassExitDate.slice(0,10):"";
           if(c.active!==true){if(classExitDate)inactiveClassDates[localClassId]=classExitDate;continue;}
           classIds[localClassId]=localClassId;
           if(entryDate)activeClassDates[localClassId]=entryDate;
         }
-        const classEntryDate=Object.values(activeClassDates).filter(Boolean).sort()[0]||admissionDate;
+        const classEntryDate=admissionDate||Object.values(activeClassDates).filter(Boolean).sort()[0]||"";
         const classExitDate=Object.values(inactiveClassDates).filter(Boolean).sort().pop()||exitDate;
         return {externalId:student.id,name:student.name,number:student.number,classIds,exitDate:Object.keys(classIds).length?"":classExitDate,admissionDate:classEntryDate,lastModifiedAt,activeClassDates,inactiveClassDates};
       }
@@ -8077,9 +8082,24 @@
         if(matches.length!==1)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
         const student=matches[0];
         if(!student)return {processed:false,refundQueued:false,reason:'STUDENT_MATCH_REQUIRED'};
-        const rawExitDate=String(prev?.exitDate||'').trim(),exitDate=/^\d{4}-\d{2}-\d{2}/.test(rawExitDate)?rawExitDate.slice(0,10):'',period=st.periods?.[pid]||{},effectiveStartDate=String(period.refundEffectiveStartDate||period.bookStartDate||'').trim(),eligibility=!exitDate?{eligible:false,reason:'EXIT_DATE_REQUIRED',exitDate,effectiveStartDate}:effectiveStartDate&&exitDate<effectiveStartDate?{eligible:false,reason:'BEFORE_EFFECTIVE_START',exitDate,effectiveStartDate}:{eligible:true,reason:'',exitDate,effectiveStartDate};
+        const rawExitDate=String(prev?.exitDate||'').trim(),exitDate=/^\d{4}-\d{2}-\d{2}(?:$|T| )/.test(rawExitDate)?rawExitDate.slice(0,10):'',period=st.periods?.[pid]||{},effectiveStartDate=String(period.refundEffectiveStartDate||period.bookStartDate||'').trim(),eligibility=!exitDate?{eligible:false,reason:'EXIT_DATE_REQUIRED',exitDate,effectiveStartDate}:effectiveStartDate&&exitDate<effectiveStartDate?{eligible:false,reason:'BEFORE_EFFECTIVE_START',exitDate,effectiveStartDate}:{eligible:true,reason:'',exitDate,effectiveStartDate};
         if(eligibility.reason==='EXIT_DATE_REQUIRED')return {processed:false,refundQueued:false,reason:eligibility.reason};
+        const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+        if(!validDate(exitDate)||(effectiveStartDate&&!validDate(effectiveStartDate)))return {processed:false,refundQueued:false,reason:'INVALID_EXIT_OR_START_DATE'};
+        const taskId=`${pid}|${student.id}${transitionId?`|${transitionId}`:''}`,existingTask=st.refundTasks?.[taskId];
+        if(existingTask){
+          // A historical task is not authority to close a student's current registration.
+          const withdrawal=student.withdrawals?.[existingTask.withdrawalId];
+          const alreadyClosed=student.periodMembership?.[pid]===false&&Object.keys(student.periodClasses?.[pid]||{}).length===0;
+          if(existingTask.status==='PENDING'&&withdrawal?.sourceEventId===transitionId&&alreadyClosed)return {processed:true,refundQueued:true,reason:'ALREADY_QUEUED',exitDate};
+          return {processed:false,refundQueued:false,reason:'EXISTING_TASK_REVIEW_REQUIRED',exitDate};
+        }
         if(!eligibility.eligible){
+          const eventId=id('RTE',`ECODING_EXIT_SKIPPED|${taskId}|${exitDate}`);
+          if(st.refundTaskEvents?.[eventId])return {processed:true,refundQueued:false,reason:eligibility.reason,exitDate};
+          const beforeClassIds=Object.fromEntries(periodClassIds(st,student.id,pid).map(cid=>[cid,cid])),withdrawalId=id('W',`ECODING_EXIT_SKIPPED|${taskId}|${exitDate}`);
+          student.withdrawals=student.withdrawals||{};
+          student.withdrawals[withdrawalId]={id:withdrawalId,periodId:pid,beforeClassIds,beforeClasses:Object.keys(beforeClassIds).map(cid=>st.classes?.[cid]?.name||cid),reason:'이코딩 퇴반 — 환불 적용 시작 전',effectiveDate:exitDate,actor:'이코딩 연동',time:now(),sourceEventId:transitionId};
           student.periodMembership=student.periodMembership||{};
           student.periodClasses=student.periodClasses||{};
           student.periodMembership[pid]=false;
@@ -8087,12 +8107,11 @@
           rebuildStudentClasses(student);
           student.active=Object.values(student.periodMembership).some(value=>value===true);
           st.refundTaskEvents=st.refundTaskEvents||{};
-          const eventId='RTE'+crypto.randomUUID();
           st.refundTaskEvents[eventId]={id:eventId,type:'BEFORE_EFFECTIVE_START_SKIPPED',periodId:pid,studentId:student.id,studentName:student.name,exitDate:eligibility.exitDate,effectiveStartDate:eligibility.effectiveStartDate,actor:'이코딩 연동',time:now(),memo:'환불 적용 시작 전 퇴반 — 환불대기 생성 안 함'};
           return {processed:true,refundQueued:false,reason:eligibility.reason,exitDate:eligibility.exitDate};
         }
         st.refundTasks=st.refundTasks||{};
-        const taskId=`${pid}|${student.id}${transitionId?`|${transitionId}`:''}`,books={};
+        const books={};
         const beforeClassNames=Object.keys(prev.classIds||{}).map(cid=>st.classes?.[cid]?.name).filter(Boolean);
         const allPeriodClassIds=periodClassIds(st,student.id,pid);
         for(const cid of allPeriodClassIds)for(const bid of Object.keys(st.classes?.[cid]?.books||{})){
@@ -8102,7 +8121,27 @@
           if(!book||bookPriceValue(book)==null||bookDistributionIsClosed(book))continue;
           books[bid]={bookId:bid,bookName:book?.name||bid,status:'PENDING',unitPrice:bookPriceValue(book)};
         }
-        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,beforeClassNames,books,status:'PENDING',source:'ECODING',exitDate:eligibility.exitDate,createdAt:now(),createdBy:'이코딩 연동'};
+        const recordedAt=now(), withdrawalId=id('W',`ECODING_EXIT|${taskId}`),
+          beforeClassIds=Object.fromEntries(allPeriodClassIds.map(cid=>[cid,cid]));
+        student.withdrawals=student.withdrawals||{};
+        student.withdrawals[withdrawalId]={id:withdrawalId,periodId:pid,beforeClassIds,
+          beforeClasses:beforeClassNames,reason:'이코딩 퇴반',effectiveDate:eligibility.exitDate,
+          actor:'이코딩 연동',time:recordedAt,sourceEventId:transitionId};
+        student.withdrawalBooks=student.withdrawalBooks||{};
+        student.withdrawalBooks[pid]=Object.fromEntries([...new Set(allPeriodClassIds.flatMap(cid=>Object.keys(st.classes?.[cid]?.books||{})))].filter(bid=>!studentBookIsExcluded(st,student.id,bid,pid)).map(bid=>[bid,bid]));
+        student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};
+        student.periodClasses[pid]={};student.periodMembership[pid]=false;student.onboarding=false;
+        student.pendingReturn=Object.values(student.holdings||{}).some(q=>Number(q)>0);
+        rebuildStudentClasses(student);
+        student.active=Object.values(student.periodMembership).some(value=>value===true);
+        st.refundTasks[taskId]={id:taskId,periodId:pid,studentId:student.id,studentName:student.name,
+          withdrawalId,beforeClassNames,books,status:'PENDING',source:'ECODING',exitDate:eligibility.exitDate,
+          returnDecisions:Object.fromEntries(Object.entries(student.holdings||{}).filter(([bid,q])=>Number(q)>0&&allPeriodClassIds.some(cid=>Object.prototype.hasOwnProperty.call(st.classes?.[cid]?.books||{},bid))).map(([bid,q])=>[bid,{bookId:bid,bookName:st.books?.[bid]?.name||bid,quantity:Number(q),decision:'UNDECIDED'}])),
+          createdAt:recordedAt,createdBy:'이코딩 연동'};
+        st.movements=st.movements||{};
+        const movementId=id('M',`ECODING_EXIT|${taskId}`);
+        st.movements[movementId]={id:movementId,type:'퇴반',periodId:pid,studentId:student.id,studentName:student.name,
+          beforeClassIds,afterClassIds:{},exitDate:eligibility.exitDate,actor:'이코딩 연동',time:recordedAt,memo:'이코딩 퇴반등록 — 교재·재고·환불 미처리'};
         return {processed:true,refundQueued:true,reason:'',exitDate:eligibility.exitDate};
       }
       async function runEcodingDiff(){
@@ -8753,6 +8792,39 @@
         }
         return duplicateCount;
       }
+      function ecodingNameChanges(st, pid, sourceStudents) {
+        const changes = [], seen = new Set();
+        for (const source of sourceStudents || []) {
+          const externalId = normalizeExternalId(source?.id), name = String(source?.name || "").trim();
+          if (!externalId || !name || seen.has(externalId)) continue;
+          seen.add(externalId);
+          // Name changes must never use name-based fallback to claim another student.
+          const matches = arr(st.students).filter(s => normalizeExternalId(s.externalId) === externalId);
+          if (matches.length !== 1) continue;
+          const student = matches[0];
+          const belongs = Object.prototype.hasOwnProperty.call(student.periodMembership || {}, pid) ||
+            Object.prototype.hasOwnProperty.call(student.periodClasses || {}, pid);
+          if (belongs && student.name !== name) changes.push({studentId:student.id, externalId, before:student.name || "", after:name});
+        }
+        return changes;
+      }
+      function applyEcodingNameChanges(st, pid, sourceStudents, observedAt) {
+        const changes = ecodingNameChanges(st, pid, sourceStudents);
+        for (const change of changes) {
+          st.students[change.studentId].name = change.after;
+          st.movements = st.movements || {};
+          const changeId = id("M", `ECODING_NAME|${pid}|${change.externalId}|${observedAt}|${change.before}|${change.after}`);
+          st.movements[changeId] = {id:changeId, type:"학생명 변경", periodId:pid,
+            studentId:change.studentId, studentName:change.after, actor:"이코딩 연동", time:observedAt,
+            beforeName:change.before, afterName:change.after, memo:`학생명 변경: ${change.before} → ${change.after}`};
+          for (const event of arr(st.ecodingEvents)) {
+            if (event.periodId === pid && event.status === "PENDING" &&
+                normalizeExternalId(event.externalStudentId) === change.externalId) event.studentName = change.after;
+          }
+          // Historical refund/issue/return records retain their original names and amounts.
+        }
+        return changes.length;
+      }
       runEcodingDiff = async function (silent = false, requestedPeriodId = "") {
         const pid = requestedPeriodId || selectedPeriodId(),
           snap = S.ecodingBaselines?.[pid],
@@ -8806,6 +8878,10 @@
             after = new Map((fresh.students || []).map((student) => [normalizeExternalId(student.id), normalizedEcodingStudent(student, maps, S, pid)]));
           const counts = { NEW: 0, MOVE: 0, ADD: 0, REMOVE: 0, EXIT: 0, WAITING: 0, CONFIRMED: 0, DUPLICATE: 0 };
           if (Number(S.integrationCutovers?.[pid]?.initialRosterAlignmentVersion || 0) < 5) {
+            // An automatic polling read must not perform the legacy destructive
+            // alignment (including cancelling work). A verified cutover is required.
+            return { blocked:true, reason:"VERIFIED_INITIAL_ALIGNMENT_REQUIRED" };
+            /* Legacy alignment retained for audit; never invoked by polling.
             let alignment = null;
             const alignmentResult = await transaction((st) => {
               alignment = alignInitialEcodingRoster(st, pid, after, fresh);
@@ -8826,8 +8902,9 @@
             resetDerivedState();
             if (!silent) alert(`초기 명단 맞춤 완료 — 이코딩 학생 ${alignment.aligned}명 연결 · 잘못된 대기 ${alignment.cancelled}건 종결\n교재 보유·배부·재고·원장은 변경하지 않았습니다.`);
             render();
-            return { baselineOnly:true, aligned:alignment.aligned, cancelled:alignment.cancelled, NEW:0, MOVE:0, EXIT:0 };
+            return { baselineOnly:true, aligned:alignment.aligned, cancelled:alignment.cancelled, NEW:0, MOVE:0, EXIT:0 }; */
           }
+          const hasNameChange = ecodingNameChanges(S, pid, fresh.students).length > 0;
           const hasRosterChange = [...after].some(([externalId, next]) => {
             const prev = before.get(externalId), nextIds = Object.keys(next.classIds || {}).sort();
             if (!nextIds.length) return false;
@@ -8883,13 +8960,14 @@
           // 이 방어가 탭 전환·입력·저장 중 불필요한 전체 화면 갱신을 막는다.
           // 단, 이코딩에는 있으나 교재 DB와 신규 대기명단에 모두 없는 학생은
           // 이전 기준자료가 먼저 갱신됐더라도 다시 신규로 복구한다.
-          if (silent && !ecodingPreparationActive(S,pid) && !hasRosterChange && !hasManualExitPending && !hasActionableStudentChange && !hasPendingDuplicates) return counts;
+          if (silent && !ecodingPreparationActive(S,pid) && !hasNameChange && !hasRosterChange && !hasManualExitPending && !hasActionableStudentChange && !hasPendingDuplicates) return counts;
           const r = await transaction((st) => {
             st.ecodingEvents = st.ecodingEvents || {};
             st.ecodingBaselines = st.ecodingBaselines || {};
             st.ecodingAbsenceCandidates = st.ecodingAbsenceCandidates || {};
             st.ecodingAbsenceCandidates[pid] = st.ecodingAbsenceCandidates[pid] || {};
             st.movements = st.movements || {};
+            counts.RENAMED = applyEcodingNameChanges(st, pid, fresh.students, fresh.syncedAt || now());
             counts.DUPLICATE = reconcilePendingEcodingDuplicates(st, pid);
             counts.DUPLICATE += cancelInvalidPrestartWork(st, pid);
             const manualExternalIds = new Set();
@@ -8937,7 +9015,8 @@
               if (localMatches.length > 1) return false;
               if (localMatches.length === 1) {
                 localMatches[0].externalId = localMatches[0].externalId || externalId;
-                closeRefundTasksForReenrollment(st, localMatches[0].id, pid);
+                // Merely observing a source student must not close refund work.
+                // Reenrollment restoration requires a separate staff decision.
               }
               const moveObservedAt=existingAbsenceCandidate?.firstSeenAt||now(),
                 desired = desiredEcodingStudentTransition(st, pid, externalId, next.classIds, next.admissionDate, moveObservedAt, next.lastModifiedAt, next.activeClassDates, next.inactiveClassDates, next.name),
@@ -9063,6 +9142,221 @@
         }
       };
 
+      // BEGIN VERIFIED SCOPED SYNC V2
+/* Isolated browser candidate. Never invokes network, persistence or production activation. */
+(function(root) {
+  'use strict';
+  root.createEcodingTransitionCandidate = function(deps) {
+    if (!deps || typeof deps.id !== 'function') throw new Error('ID_FACTORY_REQUIRED');
+    const vals = o => Object.values(o || {}), keys = o => Object.keys(o || {}).sort();
+    const clone = o => JSON.parse(JSON.stringify(o)); // Firebase JSON state only.
+    const sig = o => JSON.stringify(keys(o));
+    const norm = x => String(x || '').trim();
+    const nameKey = x => norm(x).normalize('NFKC').replace(/\s/g,'');
+    const realClasses = (st,set) => Object.fromEntries(keys(set).filter(cid=>st.classes?.[cid]?.systemCommon!==true).map(cid=>[cid,cid]));
+    const date = x => /^\d{4}-\d{2}-\d{2}$/.test(x || '') && !isNaN(Date.parse(x+'T00:00:00Z')) && new Date(x+'T00:00:00Z').toISOString().slice(0,10)===x;
+    const id = (prefix,parts) => {const value=deps.id(prefix,JSON.stringify(parts)); if(!value || /[.#$\[\]\/\u0000-\u001f\u007f]/.test(value))throw new Error('UNSAFE_GENERATED_ID');return value;};
+    const mappings = (st,pid) => Object.entries(st.ecodingClassMappings?.[pid] || {}).filter(([,m])=>m.enabled!==false&&st.classes?.[m.localClassId]?.periodId===pid&&st.classes[m.localClassId].active!==false&&st.classes[m.localClassId].systemCommon!==true);
+    const mappingSignature = (st,pid) => JSON.stringify(mappings(st,pid).map(([eid,m])=>[eid,m.localClassId]).sort((a,b)=>a[0].localeCompare(b[0])));
+    const history = (st,s,pid) => !!s && (vals(s.withdrawals).some(w=>w.periodId===pid) || vals(st.refundTasks).some(t=>t.studentId===s.id && t.periodId===pid));
+    const blocked = (st,s,pid) => !!s && (s.ecodingHolds?.[pid]?.active===true || vals(s.withdrawals).some(w=>w.periodId===pid && !w.cancelledAt && !['CANCELLED','RESTORED'].includes(w.status)) || vals(st.refundTasks).some(t=>t.studentId===s.id && t.periodId===pid && t.status==='PENDING'));
+    function plan(st,pid,snapshot,observedAt) {
+      if(snapshot?.complete!==true || !Array.isArray(snapshot.students))throw new Error('COMPLETE_SNAPSHOT_REQUIRED');
+      const mapping=mappingSignature(st,pid);
+      if(mapping==='[]' || snapshot.mappingSignature!==mapping)throw new Error('MAPPING_SIGNATURE_MISMATCH');
+      if(st.periods?.[pid]?.status!=='ACTIVE')throw new Error('ACTIVE_PERIOD_REQUIRED');
+      if(!/T.*(?:Z|[+-]\d\d:\d\d)$/.test(observedAt)||!Number.isFinite(Date.parse(observedAt)))throw new Error('OBSERVED_AT_REQUIRED');
+      const today=new Date(Date.parse(observedAt)+32400000).toISOString().slice(0,10), plans=[],seen=new Set();
+      const allowed=new Set(mappings(st,pid).map(([,m])=>m.localClassId));
+      for(const row of snapshot.students){
+        const eid=norm(row.id),name=norm(row.name);
+        if(!eid||seen.has(eid))throw new Error('DUPLICATE_OR_EMPTY_SOURCE_ID'); seen.add(eid);
+        if(keys(row.classIds).some(cid=>!allowed.has(cid)||st.classes?.[cid]?.periodId!==pid||st.classes[cid].active===false))throw new Error('WRONG_CLASS_SCOPE');
+        const matches=vals(st.students).filter(s=>norm(s.externalId)===eid),s=matches[0];
+        const p={externalId:eid,studentId:s?.id||'',name,observedAt,beforeClassIds:clone(s?.periodClasses?.[pid]||{}),afterClassIds:clone(row.classIds||{})};
+        const review=reason=>plans.push({...p,type:'REVIEW',reason});
+        if(matches.length>1){review('AMBIGUOUS_ID');continue;}
+        if(!s && vals(st.students).some(local=>nameKey(local.name)===nameKey(name))){review('NAME_MATCH_REQUIRES_LINK');continue;}
+        if(!name){review('NAME_REQUIRED');continue;}
+        // Independent name operation permits exited-student name correction without restoration.
+        if(s && s.name!==name)plans.push({...p,type:'RENAME',beforeName:s.name||''});
+        if(s?.ecodingHolds?.[pid]?.active===true){review('STUDENT_HOLD');continue;}
+        const realBefore=realClasses(st,p.beforeClassIds);
+        const before=keys(realBefore).length,after=keys(p.afterClassIds).length;
+        if(after && !before && history(st,s,pid)){review('REENROLLMENT_REQUIRES_STAFF');continue;}
+        if(!after){
+          if(before)plans.push({...p,type:row.exitConfirmed===true&&date(row.exitDate)&&row.exitDate<=today?'EXIT_CANDIDATE':'REVIEW',reason:'EXIT_WORKFLOW_REQUIRED',businessDate:date(row.exitDate)?row.exitDate:''});
+          continue;
+        }
+        if(sig(realBefore)===sig(p.afterClassIds))continue;
+        if(keys(realBefore).some(cid=>!allowed.has(cid))){review('UNMAPPED_LOCAL_CLASS');continue;}
+        p.afterClassIds={...Object.fromEntries(keys(p.beforeClassIds).filter(cid=>st.classes?.[cid]?.systemCommon===true).map(cid=>[cid,cid])),...p.afterClassIds};
+        if(s && (vals(s.classChanges).some(c=>c.periodId===pid && c.workStatus==='PENDING' && c.workSource!=='ECODING') ||
+          (s.ecodingAppliedClasses?.[pid] && sig(s.ecodingAppliedClasses[pid])!==sig(p.beforeClassIds)))){review('MANUAL_CLASS_CHANGE');continue;}
+        if(blocked(st,s,pid)){review('WITHDRAWAL_OR_REFUND_REVIEW');continue;}
+        const businessDate=before?row.changeDate:row.admissionDate;
+        if(!before&&!date(businessDate)){review('BUSINESS_DATE_REQUIRED');continue;}
+        if(date(businessDate)&&businessDate>today){review('FUTURE_BUSINESS_DATE');continue;}
+        plans.push({...p,type:before?'MOVE':'NEW',businessDate:date(businessDate)?businessDate:'',dateSource:date(businessDate)?'SOURCE':'UNKNOWN'});
+      }
+      for(const s of vals(st.students))if(keys(s.periodClasses?.[pid]).length&&s.externalId&&!seen.has(norm(s.externalId)))plans.push({type:'REVIEW',reason:'SOURCE_STUDENT_ABSENT',studentId:s.id,externalId:s.externalId,observedAt});
+      return {pid,mappingSignature:mapping,plans};
+    }
+    function apply(st,batch){
+      const {pid,plans}=batch;
+      if(st.periods?.[pid]?.status!=='ACTIVE'||mappingSignature(st,pid)!==batch.mappingSignature)throw new Error('STALE_SCOPE');
+      const out=clone(st);out.students ||= {};
+      for(const p of plans){
+        if(!['RENAME','NEW','MOVE'].includes(p.type))continue;
+        const matches=vals(out.students).filter(s=>norm(s.externalId)===p.externalId);
+        if(matches.length>1|| (p.studentId && matches[0]?.id!==p.studentId))throw new Error('STALE_IDENTITY');
+        const sid=p.studentId||id('S',['ECODING',p.externalId]),old=out.students[sid];
+        if(!old && vals(out.students).some(local=>nameKey(local.name)===nameKey(p.name)))throw new Error('NAME_MATCH_REQUIRES_LINK');
+        if(old&&norm(old.externalId)!==p.externalId)throw new Error('ID_COLLISION');
+        if(sig(old?.periodClasses?.[pid])!==sig(p.beforeClassIds))throw new Error('STALE_CLASSES');
+        if(p.type!=='RENAME'&&(blocked(out,old,pid)||(!keys(p.beforeClassIds).length&&history(out,old,pid))))throw new Error('STALE_REVIEW_REQUIRED');
+        if(p.type==='MOVE' && vals(old?.classChanges).some(c=>c.periodId===pid && c.workStatus==='PENDING' && c.workSource!=='ECODING'))throw new Error('MANUAL_CLASS_CHANGE');
+        const s=old||{id:sid,externalId:p.externalId,holdings:{},periodClasses:{},periodMembership:{},source:'ECODING'};
+        if(p.type==='RENAME'){
+          if(s.name!==p.beforeName)throw new Error('STALE_NAME');
+          s.name=p.name;s.nameChanges ||= {};const key=id('N',[pid,p.externalId,p.observedAt,p.beforeName,p.name]);
+          s.nameChanges[key]={id:key,before:p.beforeName,after:p.name,time:p.observedAt,actor:'이코딩 연동'};
+        } else {
+          s.name=p.name;s.periodClasses ||= {};s.periodMembership ||= {};s.periodClasses[pid]=clone(p.afterClassIds);s.periodMembership[pid]=true;s.active=true;
+          s.classes=Object.assign({},...vals(s.periodClasses));
+          s.ecodingAppliedClasses ||= {};s.ecodingAppliedClasses[pid]=clone(p.afterClassIds);
+          if(p.type==='NEW'){s.onboarding=false;s.admissionDate=p.businessDate;s.createdPeriodId=pid;s.createdAt=p.observedAt;s.createdBy='이코딩 연동';}
+          else {s.classChanges ||= {};const key=id('C',[pid,p.externalId,p.observedAt,p.beforeClassIds,p.afterClassIds]);s.classChanges[key]={id:key,periodId:pid,before:keys(p.beforeClassIds).map(cid=>out.classes[cid]?.name||cid).join(', '),after:keys(p.afterClassIds).map(cid=>out.classes[cid]?.name||cid).join(', '),beforeClassIds:clone(p.beforeClassIds),afterClassIds:clone(p.afterClassIds),time:p.observedAt,businessDate:p.businessDate,actor:'이코딩 연동',changeType:'MOVE',workStatus:'PENDING',workSource:'ECODING'};}
+        }
+        out.students[sid]=s;
+      }
+      return out;
+    }
+    return {mappingSignature,plan,apply};
+  };
+})(typeof globalThis==='undefined'?this:globalThis);
+
+/* Scoped synchronization adapter. No automatic book, stock or refund completion. */
+/* Scoped synchronization adapter. No automatic book, stock or refund completion. */
+function scopedEcodingBatch(st,pid,fresh) {
+  if(fresh?.membershipSchemaVersion!=='SCOPED_MEMBERSHIP_V2'||fresh.periodId!==pid||fresh.complete!==true)throw Error('검증된 반별 원본이 아닙니다.');
+  if(st.ecodingSnapshots?.[pid]?.membershipSchemaVersion==='SCOPED_MEMBERSHIP_V2'&&Date.parse(fresh.syncedAt)<Date.parse(st.ecodingSnapshots[pid].syncedAt))throw Error('더 오래된 연동 응답은 반영하지 않습니다.');
+  const engine=createEcodingTransitionCandidate({id}),maps=st.ecodingClassMappings?.[pid]||{};
+  if(engine.mappingSignature(st,pid)!==fresh.mappingSignature)throw Error('조회 중 반 연결이 변경되었습니다. 다시 확인합니다.');
+  const scope=Object.entries(maps).filter(([,m])=>{const c=st.classes?.[m.localClassId];return m.enabled!==false&&c?.periodId===pid&&c.active!==false&&!c.systemCommon;}).map(([eid])=>eid).sort();
+  if(JSON.stringify(scope)!==JSON.stringify([...(fresh.scopeClassIds||[])].sort())||fresh.classChecks?.length!==scope.length||fresh.classChecks.some(c=>!scope.includes(c.classId)||!Number.isInteger(c.total)||c.total<0))throw Error('연결 반 전체 조회가 완료되지 않았습니다.');
+  if(new Set(fresh.classChecks.map(c=>c.classId)).size!==scope.length)throw Error('조회 반 중복');
+  const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')&&!isNaN(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+  const students=fresh.students.map(row=>{
+    const n=normalizedEcodingStudent(row,maps,st,pid),matches=arr(st.students).filter(s=>normalizeExternalId(s.externalId)===normalizeExternalId(row.id));
+    const before=matches.length===1?Object.keys(matches[0].periodClasses?.[pid]||{}).filter(cid=>!st.classes[cid]?.systemCommon):[];
+    const priorRows=before.map(cid=>row.classes.find(c=>maps[c.id]?.localClassId===cid));
+    const confirmed=before.length>0&&Object.keys(n.classIds).length===0&&priorRows.every(c=>c&&c.active===false&&date(c.reportedStudentExitDate));
+    return {...row,classIds:n.classIds,admissionDate:n.admissionDate,exitConfirmed:confirmed,exitDate:confirmed?priorRows.map(c=>c.reportedStudentExitDate).sort().pop():''};
+  });
+  const batch=engine.plan(st,pid,{...fresh,students},fresh.syncedAt);
+  for(const p of batch.plans) {
+    if(p.type==='RENAME')continue;
+    const key=id('H',pid+'|'+p.externalId);
+    if(st.ecodingSyncHolds?.[pid]?.[key]?.active)p.type='REVIEW',p.reason='STUDENT_HOLD';
+  }
+  const exits=batch.plans.filter(p=>p.type==='EXIT_CANDIDATE').length;
+  const active=arr(st.students).filter(s=>Object.keys(s.periodClasses?.[pid]||{}).some(cid=>!st.classes[cid]?.systemCommon)).length;
+  if(exits>Math.max(10,Math.ceil(active*.2)))throw Error('대량 퇴반 감지 — 자동 반영을 차단했습니다.');
+  return batch;
+}
+function applyScopedEcoding(st,pid,fresh) {
+  const batch=scopedEcodingBatch(st,pid,fresh),engine=createEcodingTransitionCandidate({id}),out=engine.apply(st,batch);
+  const counts={NEW:0,MOVE:0,EXIT:0,RENAMED:0,REVIEW:0};
+  out.ecodingSyncReviews ||= {};out.ecodingSyncReviews[pid] ||= {};
+  const reviews=out.ecodingSyncReviews[pid],open=new Set();
+  for(const p of batch.plans){
+    if(p.type==='EXIT_CANDIDATE'){
+      const eventId=id('E',JSON.stringify([pid,p.externalId,'EXIT',p.beforeClassIds,p.businessDate]));
+      const result=queueEcodingExitRefund(out,pid,p.externalId,{classIds:p.beforeClassIds,exitDate:p.businessDate},eventId);
+      if(!result.processed){p.type='REVIEW';p.reason=result.reason;}else counts.EXIT++;
+    }
+    if(p.type==='REVIEW'){
+      const key=id('H',pid+'|'+p.externalId);open.add(key);const previous=reviews[key];
+      reviews[key]={id:key,externalId:p.externalId,studentId:p.studentId||'',studentName:p.name||out.students?.[p.studentId]?.name||p.externalId,reason:p.reason,status:'OPEN',beforeClassIds:p.beforeClassIds||{},afterClassIds:p.afterClassIds||{},firstSeenAt:previous?.firstSeenAt||fresh.syncedAt};counts.REVIEW++;
+    }
+    if(['NEW','MOVE','RENAME'].includes(p.type)){
+      counts[p.type==='RENAME'?'RENAMED':p.type]++;
+      const sid=p.studentId||arr(out.students).find(s=>normalizeExternalId(s.externalId)===p.externalId)?.id;
+      out.movements ||= {};const mid=id('M',JSON.stringify([pid,p.externalId,p.type,p.observedAt,p.beforeClassIds,p.afterClassIds,p.beforeName||'',p.name]));
+      out.movements[mid]={id:mid,type:p.type==='RENAME'?'학생명 변경':p.type==='NEW'?'신규 등록':'반변경',periodId:pid,studentId:sid,studentName:p.name,actor:'이코딩 연동',time:fresh.syncedAt,memo:p.type==='RENAME'?`학생명 변경: ${p.beforeName} → ${p.name}`:p.type==='NEW'?'이코딩 신규 반배정 · 교재 미처리':'이코딩 현재 반 반영 · 교재 미처리',beforeClassIds:p.beforeClassIds,afterClassIds:p.afterClassIds};
+      if(p.type==='RENAME'){out.movements[mid].beforeName=p.beforeName;out.movements[mid].afterName=p.name;}
+      else {out.movements[mid].businessDate=p.businessDate||'';out.movements[mid].dateSource=p.businessDate?'SOURCE':'UNKNOWN';}
+      for(const e of arr(out.ecodingEvents))if(e.periodId===pid&&e.status==='PENDING'&&normalizeExternalId(e.externalStudentId)===p.externalId){
+        e.studentName=p.name;
+        if(p.type!=='RENAME'&&ecodingEventClassSignature(e.afterClassIds)===ecodingEventClassSignature(p.afterClassIds)){e.status='DONE';e.appliedAt=fresh.syncedAt;e.appliedBy='이코딩 연동';}
+      }
+    }
+  }
+  for(const [key,r] of Object.entries(reviews))if(r.status==='OPEN'&&!open.has(key)){r.status='RESOLVED';r.resolvedAt=fresh.syncedAt;}
+  // A pending source-only row may have no local student yet. Update its label only.
+  for(const e of arr(out.ecodingEvents))if(e.periodId===pid&&e.status==='PENDING'){
+    const source=fresh.students.find(s=>normalizeExternalId(s.id)===normalizeExternalId(e.externalStudentId));if(source)e.studentName=source.name;
+  }
+  const changed=JSON.stringify(out)!==JSON.stringify(st);
+  if(changed){out.ecodingSnapshots ||= {};out.ecodingBaselines ||= {};out.ecodingSnapshots[pid]={...fresh,periodId:pid};out.ecodingBaselines[pid]={...fresh,periodId:pid};}
+  return {state:out,counts,changed,batch};
+}
+async function runScopedEcodingSync(silent=false,requestedPeriodId='') {
+  const pid=requestedPeriodId||selectedPeriodId();
+  if(ECODING_OPERATION_LOCKED)return {blocked:true,reason:'LOCKED'};
+  if(S.periods?.[pid]?.status!=='ACTIVE')return {blocked:true,reason:'PERIOD_CLOSED'};
+  if(S.integrationCutovers?.[pid]?.verifiedScopedSyncVersion!==2)return {blocked:true,reason:'VERIFIED_CUTOVER_REQUIRED'};
+  try {
+    const fresh=await fetchEcodingSnapshot(pid);
+    const preview=applyScopedEcoding(S,pid,fresh);
+    window.ecodingSyncLastError='';window.ecodingSyncLastCheckedAt=fresh.syncedAt;
+    if(!preview.changed)return preview.counts;
+    let result=null;
+    const r=await transaction(st=>{
+      if(st.integrationCutovers?.[pid]?.verifiedScopedSyncVersion!==2)return false;
+      result=applyScopedEcoding(st,pid,fresh);if(!result.changed)return false;
+      Object.assign(st,result.state);
+    },{silentRender:silent});
+    if(r.committed){S=r.snapshot.val();resetDerivedState();renderTabs();if(!silent)render();}
+    if(!silent)alert(`연동 확인 — 신규 ${result?.counts.NEW||0} · 반변경 ${result?.counts.MOVE||0} · 퇴반 ${result?.counts.EXIT||0} · 이름변경 ${result?.counts.RENAMED||0} · 확인필요 ${result?.counts.REVIEW||0}\n교재 배부·회수·환불은 자동 처리하지 않습니다.`);
+    return result?.counts||preview.counts;
+  }catch(e){console.warn('이코딩 반별 연동 차단',e.message);window.ecodingSyncLastError=e.message;renderTabs();if(!silent)alert(e.message);return {error:true,message:e.message};}
+}
+
+function ecodingScopedReviewRows(st=S,pid=selectedPeriodId()) {
+  return Object.values(st.ecodingSyncReviews?.[pid]||{}).filter(r=>r.status==='OPEN');
+}
+function scopedSyncReviewScreen() {
+  const pid=selectedPeriodId(),rows=ecodingScopedReviewRows(),reason={NAME_MATCH_REQUIRES_LINK:'기존 학생 연결 확인',AMBIGUOUS_ID:'학생 ID 중복',STUDENT_HOLD:'직원 연동 보류',REENROLLMENT_REQUIRES_STAFF:'재입반 · 퇴반취소 확인',UNMAPPED_LOCAL_CLASS:'교재에만 있는 반 확인',MANUAL_CLASS_CHANGE:'직원 반변경 내용 확인',WITHDRAWAL_OR_REFUND_REVIEW:'기존 퇴반·환불 확인',EXIT_WORKFLOW_REQUIRED:'퇴반일 근거 확인',SOURCE_STUDENT_ABSENT:'원본 학생 조회 확인',EXISTING_TASK_REVIEW_REQUIRED:'기존 퇴반대기 확인',BUSINESS_DATE_REQUIRED:'입학일 확인',FUTURE_BUSINESS_DATE:'입반일 도래 전'};
+  document.querySelector('#screen').innerHTML=`<section class="panel"><h2>이코딩 연동 확인 · ${esc(periodLabel(selectedPeriod()))}</h2><p class="muted">확인 필요한 학생만 보류됩니다. 교재 배부·회수·환불은 자동 처리하지 않습니다. 원본을 수정한 뒤 다시 확인하거나, 재입반은 학생 조회의 퇴반취소로 처리하세요.</p><button onclick="runScopedEcodingSync(false).then(()=>scopedSyncReviewScreen())">다시 확인</button><div class="scroll"><table><thead><tr><th>학생</th><th>확인 사유</th><th>처리</th></tr></thead><tbody>${rows.map(r=>{
+    const hold=S.ecodingSyncHolds?.[pid]?.[r.id]?.active;
+    const candidates=r.reason==='NAME_MATCH_REQUIRES_LINK'?arr(S.students).filter(s=>!s.externalId&&String(s.name||'').normalize('NFKC').replace(/\s/g,'')===String(r.studentName).normalize('NFKC').replace(/\s/g,'')):[];
+    return `<tr><td>${esc(r.studentName)}<small>${esc(r.externalId)}</small></td><td>${esc(reason[r.reason]||r.reason)}</td><td>${r.studentId?`<button onclick="openScopedReviewStudent('${esc(r.studentId)}')">학생 조회</button>`:''}<button onclick="setScopedSyncHold('${esc(r.id)}',${!hold})">${hold?'보류 해제':'연동 보류'}</button>${candidates.map(s=>`<button onclick="linkScopedReviewStudent('${esc(r.id)}','${esc(s.id)}')">기존 ${esc(s.name)} 연결 (${esc(s.id)})</button>`).join('')}</td></tr>`;
+  }).join('')||'<tr><td colspan="3">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div><button onclick="render()">닫기</button></section>`;
+}
+function openScopedReviewStudent(sid) {window.statusStudentId=sid;window.studentHubView='status';changeTab('학생');}
+async function setScopedSyncHold(key,active) {
+  const pid=selectedPeriodId(),r=S.ecodingSyncReviews?.[pid]?.[key];if(!r||S.periods?.[pid]?.status!=='ACTIVE')return;
+  if(!confirm(`${r.studentName} 학생의 연동을 ${active?'보류':'다시 허용'}할까요? 교재·재고·환불은 바뀌지 않습니다.`))return;
+  const result=await transaction(st=>{if(st.periods?.[pid]?.status!=='ACTIVE'||!st.ecodingSyncReviews?.[pid]?.[key])return false;st.ecodingSyncHolds ||= {};st.ecodingSyncHolds[pid] ||= {};st.ecodingSyncHolds[pid][key]={active,externalId:r.externalId,actor,time:now()};});
+  if(result.committed){S=result.snapshot.val();resetDerivedState();scopedSyncReviewScreen();}
+}
+async function linkScopedReviewStudent(key,sid) {
+  const pid=selectedPeriodId(),r=S.ecodingSyncReviews?.[pid]?.[key],s=S.students?.[sid];if(!r||!s||r.reason!=='NAME_MATCH_REQUIRES_LINK')return;
+  if(!confirm(`${s.name} (${sid}) 학생을 이코딩 ${r.externalId}에 연결할까요?\n동일 학생인지 확인해 주세요. 연결 후 다음 확인 때 원본 반정보가 적용됩니다. 교재 보유와 결제 기록은 유지됩니다.`))return;
+  const result=await transaction(st=>{
+    const review=st.ecodingSyncReviews?.[pid]?.[key],student=st.students?.[sid];
+    if(st.periods?.[pid]?.status!=='ACTIVE'||!review||review.reason!=='NAME_MATCH_REQUIRES_LINK'||!student||student.externalId||arr(st.students).some(x=>normalizeExternalId(x.externalId)===normalizeExternalId(review.externalId)))return false;
+    if(String(student.name).normalize('NFKC').replace(/\s/g,'')!==String(review.studentName).normalize('NFKC').replace(/\s/g,''))return false;
+    student.externalId=review.externalId;student.ecodingLinkedAt=now();student.ecodingLinkedBy=actor;
+    st.movements ||= {};const mid=id('M',`ECODING_LINK|${pid}|${sid}|${review.externalId}`);st.movements[mid]={id:mid,type:'이코딩 학생 연결',periodId:pid,studentId:sid,studentName:student.name,actor,time:now(),memo:'직원 확인 후 기존 학생 ID 연결'};
+  });
+  if(result.committed){S=result.snapshot.val();resetDerivedState();await runScopedEcodingSync(false);scopedSyncReviewScreen();}else alert('학생 상태가 바뀌어 연결하지 않았습니다.');
+}
+
+      runEcodingDiff = runScopedEcodingSync;
+      // END VERIFIED SCOPED SYNC V2
       // 이코딩은 재고를 자동 변경하지 않고 신규·반이동·퇴반 명단만 자동 감지한다.
       const ECODING_AUTO_SYNC_INTERVAL = 60 * 1000;
       const ECODING_AUTO_SYNC_ENABLED = true;
@@ -10689,7 +10983,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
                 (periodFilter === "ACTIVE_ALL" ||
                   task.periodId === periodFilter) &&
                 (status === "ALL" || task.status === status) &&
-                (!query || String(task.studentName || S.students?.[task.studentId]?.name || "")
+                (!query || String((task.status === "PENDING" && S.students?.[task.studentId]?.name) || task.studentName || "")
                   .toLowerCase().includes(query))
               );
             })
@@ -10722,6 +11016,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
                 );
               return {
                 ...task,
+                studentName: (task.status === "PENDING" && S.students?.[task.studentId]?.name) || task.studentName,
                 books,
                 refundBookCount: visibleBooks.length,
                 refundAmount: total,
