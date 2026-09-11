@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-11.86" />
+    <meta name="bookflow-build" content="2026-09-11.87" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-11.86", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-11.87", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -223,7 +223,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-11.86";
+      const BOOKFLOW_BUILD = "2026-09-11.87";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -9337,7 +9337,7 @@ function scopedSyncReviewScreen() {
     const candidates=r.reason==='NAME_MATCH_REQUIRES_LINK'?arr(S.students).filter(s=>!s.externalId&&String(s.name||'').normalize('NFKC').replace(/\s/g,'')===String(r.studentName).normalize('NFKC').replace(/\s/g,'')):[];
     return `<tr><td>${esc(r.studentName)}<small>${esc(r.externalId)}</small></td><td>${esc(reason[r.reason]||r.reason)}</td><td>${r.studentId?`<button onclick="openScopedReviewStudent('${esc(r.studentId)}')">학생 조회</button>`:''}<button onclick="setScopedSyncHold('${esc(r.id)}',${!hold})">${hold?'보류 해제':'연동 보류'}</button>${candidates.map(s=>`<button onclick="linkScopedReviewStudent('${esc(r.id)}','${esc(s.id)}')">기존 ${esc(s.name)} 연결 (${esc(s.id)})</button>`).join('')}</td></tr>`;
   }).join('')||'<tr><td colspan="3">확인할 학생이 없습니다.</td></tr>'}</tbody></table></div><button onclick="render()">닫기</button></section>`;
-  const status=document.createElement('p');status.className='muted';
+  const status=document.createElement('p');status.className='muted';status.style.display='block';
   status.textContent=window.ecodingSyncLastError?`연동 오류: ${window.ecodingSyncLastError}`:window.ecodingSyncLastCheckedAt?`최근 확인: ${fmt(window.ecodingSyncLastCheckedAt)}`:'최근 확인: 이 화면에서 다시 확인을 누르면 현재 원본을 조회합니다.';
   document.querySelector('#screen h2').after(status);
 }
