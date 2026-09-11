@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-10.83" />
+    <meta name="bookflow-build" content="2026-09-11.84" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-10.83", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-11.84", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -223,7 +223,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-10.83";
+      const BOOKFLOW_BUILD = "2026-09-11.84";
       const ECODING_OPERATION_LOCKED = true;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -996,7 +996,21 @@
         return st.students?.[sid]?.bookExclusions?.[pid]?.[bid] || null;
       }
       function studentBookIsExcluded(st, sid, bid, pid = selectedPeriodId() || st.currentPeriodId) {
-        return !!studentBookExclusion(st, sid, bid, pid);
+        return !!studentBookExclusion(st, sid, bid, pid) || !!admissionBookExclusionReason(st, sid, bid, pid);
+      }
+      // A publication's admission cutoff is not its distribution closing date.
+      // Policies are keyed by period and book ID; names never identify students/books.
+      function admissionBookExclusionReason(st, sid, bid, pid) {
+        const policy = st.books?.[bid]?.admissionPolicies?.[pid];
+        if (!policy) return "";
+        if (policy.published === false) return "해당 주 미발행";
+        const cutoff = String(policy.cutoffDate || "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoff)) return "입학 마감일 확인 필요";
+        const student = st.students?.[sid], admitted = studentAdmissionDate(student);
+        // Established baseline students without a registration date remain eligible.
+        if (!admitted) return student?.createdPeriodId === pid && !student?.initialRosterBaseline?.[pid]
+          ? "입학일 확인 필요" : "";
+        return admitted > cutoff ? `${cutoff} 이후 입학생 · 해당 주 교재 제외` : "";
       }
       function assignedBooks(sid) {
         const ids = new Set();
@@ -1006,7 +1020,7 @@
           .filter(
             (book) =>
               book &&
-              !studentBookIsExcluded(S, sid, book.id) &&
+              (!studentBookIsExcluded(S, sid, book.id) || held(sid, book.id) > 0) &&
               (!bookDistributionIsClosed(book) || held(sid, book.id) > 0),
           );
       }
@@ -2421,6 +2435,7 @@
           b.active !== false &&
           bookPriceValue(b) != null &&
           !bookDistributionIsClosed(b) &&
+          !studentBookIsExcluded(st, sid, bid, pid) &&
           s?.active !== false &&
           !s.pendingReturn &&
           activePeriodClassIds(st, sid, pid).some(
@@ -2451,6 +2466,7 @@
             (s) =>
               s.active !== false &&
               !s.pendingReturn &&
+              !studentBookIsExcluded(st, s.id, bid, pid) &&
               activePeriodClassIds(st, s.id, pid).includes(c.id),
           );
           students.forEach((s) => allIds.add(s.id));
@@ -3080,7 +3096,7 @@
           selectedPeriodId() || st.currentPeriodId,
         ))
           for (const bid of arr(st.classes?.[cid]?.books)) ids.add(bid);
-        return [...ids].filter((bid) => !studentBookIsExcluded(st, sid, bid));
+        return [...ids].filter((bid) => !studentBookIsExcluded(st, sid, bid) || Number(st.students?.[sid]?.holdings?.[bid] || 0) > 0);
       }
       function distributableAssignedBookIds(st, sid, classIds = activePeriodClassIds(st, sid)) {
         const ids = new Set();
@@ -3093,7 +3109,7 @@
             book.active !== false &&
             bookPriceValue(book) != null &&
             !bookDistributionIsClosed(book) &&
-            !studentBookIsExcluded(st, sid, bid)
+            (!studentBookIsExcluded(st, sid, bid) || Number(st.students?.[sid]?.holdings?.[bid] || 0) > 0)
           );
         });
       }
@@ -5198,6 +5214,7 @@
             (s) =>
               s.active !== false &&
               !s.pendingReturn &&
+              !studentBookIsExcluded(S, s.id, bid) &&
               activePeriodClassIds(S, s.id).some((cid) => mappedClassIds.has(cid)),
           ),
           targetIds = new Set(targets.map((s) => s.id)),
@@ -7111,7 +7128,10 @@
           for(const m of arr(S.movements)){
             if(m.type!=="IN"||!m.bookId)continue;
             if(!index.has(m.bookId))index.set(m.bookId,[]);
-            index.get(m.bookId).push(m);
+            const correction = S.intakeCorrections?.[m.id];
+            index.get(m.bookId).push(correction && correction.bookId === m.bookId
+              ? {...m, originalQuantity:m.quantity, quantity:correction.quantity, memo:`${m.memo || ""} · 입고 정정: ${correction.reason || ""}`}
+              : m);
           }
           for(const records of index.values())records.sort((a,b)=>String(a.time||"").localeCompare(String(b.time||"")));
           return index;
@@ -7119,7 +7139,7 @@
       }
       function inventoryIntakeSummary(bid) {
         const records=inventoryIntakeIndex().get(bid)||[];
-        const valid=records.every(m=>Number.isFinite(Number(m.quantity))&&Number(m.quantity)>0);
+        const valid=records.every(m=>Number.isFinite(Number(m.quantity))&&Number(m.quantity)>=0);
         return {records,total:valid?records.reduce((sum,m)=>sum+Number(m.quantity),0):null,first:records[0],additional:valid?records.slice(1).reduce((sum,m)=>sum+Number(m.quantity),0):null,last:records.at(-1)};
       }
       function inventoryIntakeHtml(bid, additional=false) {
@@ -10610,6 +10630,8 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
       function withdrawalSettlementRows(state, task) {
         const done = task?.status === 'DONE', legacyDone = done && Number(task?.refundRuleVersion || 1) < 2, rows = new Map();
         for (const item of Object.values(task?.books || {})) {
+          // Completed settlements and actual returns are immutable historical facts.
+          if (!done && item.source !== 'RETURNED' && admissionBookExclusionReason(state, task.studentId, item.bookId, task.periodId)) continue;
           const quantity = Math.max(1, Number(item.quantity || 1)), unitPrice = item.unitPrice ?? bookPriceValue(state.books?.[item.bookId]), amount = item.refundAmount ?? (unitPrice == null ? null : Number(unitPrice) * quantity);
           if (item.status === 'EXCLUDED') rows.set(item.bookId, { bookId:item.bookId, bookName:item.bookName || state.books?.[item.bookId]?.name || item.bookId, quantity, unitPrice, amount, state:'미배부 제외', refundIncluded:false, source:'MISSING' });
           else if (item.status === 'PENDING' || item.status === 'DONE') {
