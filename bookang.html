@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-11.87" />
+    <meta name="bookflow-build" content="2026-09-11.88" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-11.87", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-11.88", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -223,7 +223,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-11.87";
+      const BOOKFLOW_BUILD = "2026-09-11.88";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -8408,6 +8408,12 @@
           operationBusy = false;
         }
       }
+      function classChangeComparison(change, st = S) {
+        const before = Object.keys(change.beforeClassIds || {}), after = Object.keys(change.afterClassIds || {});
+        const removed = before.filter(cid => !after.includes(cid)), added = after.filter(cid => !before.includes(cid)), unchanged = before.filter(cid => after.includes(cid));
+        const chips = ids => ids.map(cid => `<span>${esc(st.classes?.[cid]?.name || cid)}</span>`).join("");
+        return `<div class="recent-class-flow"><div><b>변경 전 반 · 빠진 반 ${removed.length}개</b><div class="class-chip-list">${chips(removed) || "빠진 반 없음"}</div></div><div><b>변경 후 반 · 추가된 반 ${added.length}개</b><div class="class-chip-list">${chips(added) || "추가된 반 없음"}</div></div></div>${unchanged.length ? `<details class="compact-details"><summary>변경 없는 반 ${unchanged.length}개 보기</summary><div class="class-chip-list">${chips(unchanged)}</div></details>` : ""}`;
+      }
       function classMoveWorkScreen() {
         const pid = selectedPeriodId(), showDone = window.classMoveWorkView === "DONE",
           groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ["MOVE","ADD","REMOVE"].flatMap((type) => ecodingEvents(type)),
@@ -8417,7 +8423,7 @@
           eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>${event.type === "MOVE" ? "반변경" : event.type === "ADD" ? "반추가" : "반제외"}</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
           detail = selectedEvent ? ecodingEventDetail(selectedEvent) : selectedGroup ? (() => {
             const { student, changes } = selectedGroup, unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length;
-            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div><div class="recent-class-flow"><div><b>변경 전 반</b><div class="class-chip-list">${classNames(change.beforeClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div><div><b>변경 후 반</b><div class="class-chip-list">${classNames(change.afterClassIds).map((name) => `<span>${esc(name)}</span>`).join("") || "없음"}</div></div></div>`).join("")}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
+            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change)}`).join("")}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
           })() : '<h2>반변경 학생을 선택하세요.</h2><p class="muted">왼쪽 명단에서 학생을 선택하면 변경 전·후 반을 확인할 수 있습니다.</p>';
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반관리 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>구분</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
       }
