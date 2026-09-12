@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-11.88" />
+    <meta name="bookflow-build" content="2026-09-13.89" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-11.88", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-13.89", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -159,6 +159,7 @@
       @media(max-width:720px){header{grid-template-columns:1fr;padding:10px 12px;gap:10px}#actor,.context-bar{justify-content:flex-start;flex-wrap:wrap}.context-bar select{width:100%;min-width:0;max-width:none}#tabs,.subtabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin}#tabs button,.subtabs button{flex:0 0 auto}.panel{padding:14px 12px;border-radius:8px}.book-filter,.student-book-toolbar,.student-process-filter,.new-entry-row,.create-box,.grid3{display:grid;grid-template-columns:1fr;overflow:visible}.filter-row{display:flex}.filter-row.inventory-filter{display:grid;grid-template-columns:1fr;overflow:visible}.book-filter input,.book-filter select{max-width:none}.student-search-line{grid-template-columns:1fr;gap:6px;max-width:none}.student-search-results{max-width:none;margin-left:0}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}.flow{grid-template-columns:1fr;gap:6px}.flow .arrow{transform:rotate(90deg)}.history-table,.inventory-table{min-width:680px}.table-wrap>table{min-width:620px}.action-row>button{flex:1 1 auto}.student-workspace-actions{justify-content:flex-start}.scope-switch{align-items:flex-start;flex-direction:column}
         button,.btn,#actor button,select,input:not([type=file]){min-height:44px}td button,td input,td select,.picker-results button,.class-chip-list button{min-height:44px}.panel .btn[style*="width:100%"]{width:100%!important;max-width:none}.student-process-list{max-height:none;border:0;overflow:visible}.student-process-list .student-table{display:block;min-width:0}.student-process-list thead{display:none}.student-process-list tbody{display:grid;gap:10px}.student-process-list tr{display:grid;grid-template-columns:1fr auto;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;min-height:72px}.student-process-list tr.selected{border-color:var(--blue);background:var(--blue-soft)}.student-process-list td{display:block;border:0;padding:2px 4px;text-align:left}.student-process-list td:nth-child(1){font-size:12px;color:var(--muted)}.student-process-list td:nth-child(2){grid-column:1;font-size:15px}.student-process-list td:nth-child(3){grid-column:1;font-size:12px;color:var(--ink2)}.student-process-list td:nth-child(4),.student-process-list td:nth-child(5){grid-column:2;text-align:right}.workspace-side.mobile-focus{scroll-margin-top:12px}
       }
+      .current-common-classes>b{display:block;padding:9px 12px}.current-common-classes>small{display:block;padding:0 12px 10px;color:var(--muted)}
       @media(max-width:720px){.class-chip-list button{min-height:44px}.recent-class-flow{grid-template-columns:1fr}}
       @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(320px,1.4fr) minmax(190px,.8fr) 70px 86px}.student-status-panel .student-table{min-width:0}.student-status-panel .scroll{overflow-x:hidden}}
       /* 2026-08 batch usability: fit wide staff tables without removing fallback scroll. */
@@ -223,7 +224,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-11.88";
+      const BOOKFLOW_BUILD = "2026-09-13.89";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -8414,6 +8415,13 @@
         const chips = ids => ids.map(cid => `<span>${esc(st.classes?.[cid]?.name || cid)}</span>`).join("");
         return `<div class="recent-class-flow"><div><b>변경 전 반 · 빠진 반 ${removed.length}개</b><div class="class-chip-list">${chips(removed) || "빠진 반 없음"}</div></div><div><b>변경 후 반 · 추가된 반 ${added.length}개</b><div class="class-chip-list">${chips(added) || "추가된 반 없음"}</div></div></div>${unchanged.length ? `<details class="compact-details"><summary>변경 없는 반 ${unchanged.length}개 보기</summary><div class="class-chip-list">${chips(unchanged)}</div></details>` : ""}`;
       }
+      function currentCommonClassesHtml(st, sid, pid) {
+        // Read the same effective membership as student lookup; never add to saved history.
+        const classes = [...new Set(activePeriodClassIds(st, sid, pid))]
+          .map(cid => st.classes?.[cid])
+          .filter(cls => cls && cls.periodId === pid && cls.systemCommon === true);
+        return `<div class="compact-details current-common-classes"><b>현재 적용 공통반 ${classes.length}개</b><div class="class-chip-list">${classes.map(cls => `<span>${esc([cls.subject, cls.name].filter(Boolean).join(" · "))}</span>`).join("") || "<span>현재 적용 공통반 없음</span>"}</div><small>현재 소속 기준 · 위 반변경 이력과 별도로 표시합니다.</small></div>`;
+      }
       function classMoveWorkScreen() {
         const pid = selectedPeriodId(), showDone = window.classMoveWorkView === "DONE",
           groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ["MOVE","ADD","REMOVE"].flatMap((type) => ecodingEvents(type)),
@@ -8423,7 +8431,7 @@
           eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>${event.type === "MOVE" ? "반변경" : event.type === "ADD" ? "반추가" : "반제외"}</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
           detail = selectedEvent ? ecodingEventDetail(selectedEvent) : selectedGroup ? (() => {
             const { student, changes } = selectedGroup, unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length;
-            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change)}`).join("")}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
+            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change)}`).join("")}${currentCommonClassesHtml(S, student.id, pid)}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
           })() : '<h2>반변경 학생을 선택하세요.</h2><p class="muted">왼쪽 명단에서 학생을 선택하면 변경 전·후 반을 확인할 수 있습니다.</p>';
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반관리 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>구분</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
       }
