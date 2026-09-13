@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-13.89" />
+    <meta name="bookflow-build" content="2026-09-13.90" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-13.89", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-13.90", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -159,6 +159,8 @@
       @media(max-width:720px){header{grid-template-columns:1fr;padding:10px 12px;gap:10px}#actor,.context-bar{justify-content:flex-start;flex-wrap:wrap}.context-bar select{width:100%;min-width:0;max-width:none}#tabs,.subtabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin}#tabs button,.subtabs button{flex:0 0 auto}.panel{padding:14px 12px;border-radius:8px}.book-filter,.student-book-toolbar,.student-process-filter,.new-entry-row,.create-box,.grid3{display:grid;grid-template-columns:1fr;overflow:visible}.filter-row{display:flex}.filter-row.inventory-filter{display:grid;grid-template-columns:1fr;overflow:visible}.book-filter input,.book-filter select{max-width:none}.student-search-line{grid-template-columns:1fr;gap:6px;max-width:none}.student-search-results{max-width:none;margin-left:0}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}.flow{grid-template-columns:1fr;gap:6px}.flow .arrow{transform:rotate(90deg)}.history-table,.inventory-table{min-width:680px}.table-wrap>table{min-width:620px}.action-row>button{flex:1 1 auto}.student-workspace-actions{justify-content:flex-start}.scope-switch{align-items:flex-start;flex-direction:column}
         button,.btn,#actor button,select,input:not([type=file]){min-height:44px}td button,td input,td select,.picker-results button,.class-chip-list button{min-height:44px}.panel .btn[style*="width:100%"]{width:100%!important;max-width:none}.student-process-list{max-height:none;border:0;overflow:visible}.student-process-list .student-table{display:block;min-width:0}.student-process-list thead{display:none}.student-process-list tbody{display:grid;gap:10px}.student-process-list tr{display:grid;grid-template-columns:1fr auto;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;min-height:72px}.student-process-list tr.selected{border-color:var(--blue);background:var(--blue-soft)}.student-process-list td{display:block;border:0;padding:2px 4px;text-align:left}.student-process-list td:nth-child(1){font-size:12px;color:var(--muted)}.student-process-list td:nth-child(2){grid-column:1;font-size:15px}.student-process-list td:nth-child(3){grid-column:1;font-size:12px;color:var(--ink2)}.student-process-list td:nth-child(4),.student-process-list td:nth-child(5){grid-column:2;text-align:right}.workspace-side.mobile-focus{scroll-margin-top:12px}
       }
+      .class-move-complete-bar{position:sticky;bottom:8px;z-index:3;background:var(--panel,#fff);border:1px solid var(--line);padding:10px 12px;border-radius:8px;margin-top:12px;box-shadow:0 2px 8px #0001}.class-move-complete-bar small{color:var(--muted)}
+      @media(max-width:720px){.student-process-list .transition-book-table{display:block;min-width:0}.student-process-list .transition-book-table tbody{width:100%}}
       .current-common-classes>b{display:block;padding:9px 12px}.current-common-classes>small{display:block;padding:0 12px 10px;color:var(--muted)}
       @media(max-width:720px){.class-chip-list button{min-height:44px}.recent-class-flow{grid-template-columns:1fr}}
       @media(min-width:1101px){.catalog-class-row{grid-template-columns:140px 150px 170px minmax(320px,1.4fr) minmax(190px,.8fr) 70px 86px}.student-status-panel .student-table{min-width:0}.student-status-panel .scroll{overflow-x:hidden}}
@@ -224,7 +226,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-13.89";
+      const BOOKFLOW_BUILD = "2026-09-13.90";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -683,17 +685,17 @@
         render();
       }
       function latestStudentClassTransition(id) {
+        const pending = classMoveTransitionForStudent(id);
+        if (pending) return pending;
         const student = S.students?.[id], pid = selectedPeriodId();
         if (!student) return null;
-        const change = arr(student.classChanges)
-          .filter((item) => (!item.periodId || item.periodId === pid) && (Object.keys(item.beforeClassIds || {}).length || Object.keys(item.afterClassIds || {}).length))
-          .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")))[0];
+        const changes = arr(student.classChanges).filter(c => (!c.periodId || c.periodId === pid) && (c.beforeClassIds || c.afterClassIds)).sort((a,b) => String(b.time || '').localeCompare(String(a.time || '')));
+        const change = changes[0];
         if (!change) return null;
-        const beforeClassIds = Object.keys(change.beforeClassIds || {}),
-          afterClassIds = Object.keys(change.afterClassIds || {}),
-          beforeBookIds = [...new Set(beforeClassIds.flatMap((cid) => arr(S.classes?.[cid]?.books)))],
-          afterBookIds = [...new Set(afterClassIds.flatMap((cid) => arr(S.classes?.[cid]?.books)))];
-        return { sid: id, kind: "MOVE", beforeClassIds, afterClassIds, beforeBookIds, afterBookIds, memo: change.memo || "", savedAt: change.time || "" };
+        const reviewed = (change.workCompletedAt ? changes.filter(c => c.workCompletedAt === change.workCompletedAt && c.workCompletedBy === change.workCompletedBy) : [change]).sort((a,b) => String(a.time || '').localeCompare(String(b.time || '')));
+        const first = reviewed[0], last = reviewed[reviewed.length - 1], afterBookIds = classChangeBookReview(last, S, pid).afterBookIds;
+        const beforeBookIds = [...new Set([...classChangeBookReview(first, S, pid).beforeBookIds, ...reviewed.flatMap(c => classChangeBookReview(c, S, pid).beforeBookIds).filter(bid => !afterBookIds.includes(bid))])];
+        return { sid: id, kind: 'MOVE', changes: reviewed, beforeClassIds: Object.keys(first.beforeClassIds || {}), afterClassIds: Object.keys(last.afterClassIds || {}), beforeBookIds, afterBookIds, savedAt: last.time || '' };
       }
       function openStudentProcess(id) {
         window.studentTransition = latestStudentClassTransition(id);
@@ -806,7 +808,7 @@
             .filter((change) => (!change.periodId || change.periodId === pid) && Boolean(change.workCompletedAt) === done)
             .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
           return { student, changes };
-        }).filter((group) => group.changes.length);
+        }).filter((group) => group.changes.length && (done || group.changes.some(change => classChangeHasBookDifference(change, st, pid))));
       }
       function pendingClassMoveCount(st = S, pid = selectedPeriodId()) {
         const keys = new Set(classMoveWorkGroups(st, pid, false).map(({ student }) => `S:${student.id}`));
@@ -2630,7 +2632,7 @@
             ? new Set([...(transition.beforeBookIds || []), ...(transition.afterBookIds || []), ...(transition.distributeIds || []), ...(transition.returnIds || [])])
             : null,
           classes = clsOf(sid),
-          enriched = allBooks
+          enriched = (transition ? [...new Map([...allBooks, ...[...transitionIds].map(id => S.books[id]).filter(Boolean)].map(b => [b.id, b])).values()] : allBooks)
             .filter((book) => !transitionIds || transitionIds.has(book.id))
             .map((book) => {
             const related = classes.filter((c) => arr(c.books).includes(book.id)),
@@ -2666,7 +2668,7 @@
             .filter((x) =>
               (subject === "전체" || (x.book.subject || "미지정") === subject) &&
               (teacher === "전체" || x.teachers.includes(teacher)) &&
-              (state === "전체" || (state === "배부" ? held(sid, x.book.id) > 0 : held(sid, x.book.id) === 0)) &&
+              (transition || state === "전체" || (state === "배부" ? held(sid, x.book.id) > 0 : held(sid, x.book.id) === 0)) &&
               (!transition || transitionState === "전체" || (() => { const was=(transition.beforeBookIds||[]).includes(x.book.id), is=(transition.afterBookIds||[]).includes(x.book.id); return transitionState === "처리 필요" ? was !== is : transitionState === "이전 반" ? was && !is : transitionState === "새 반" ? !was && is : was && is; })()) &&
               (!query || x.book.name.toLowerCase().includes(query)),
             )
@@ -2680,8 +2682,17 @@
         window.processStudentBookState = state;
         window.processTransitionState = transitionState;
         const priceSummary = studentDistributionSummary(sid);
-        const transitionHead = transition ? `<div class="receipt"><b>${transition.kind === "NEW" ? "신규생 교재 처리" : "반이동 교재 1:1 확인"}</b><br>${transition.kind === "NEW" ? "입반된 반의 미배부 교재를 확인한 뒤 입고 교재 전체배부 또는 한 권씩 배부합니다." : "이전 반에서 빠지는 교재와 새 반에서 필요한 교재를 한 표에서 확인합니다."}<small>이 화면을 보는 것만으로는 배부·회수·재고가 바뀌지 않습니다.</small></div><div class="transition-guide">${transition.kind === "NEW" ? `<div><b>① 미배부 확인</b><small>입반된 반의 교재만 확인</small></div><div><b>② 일괄 또는 개별</b><small>여러 권은 전체 교재, 한 권은 행 선택</small></div>` : `<div><b>이전 미배부</b><small>필요 없으면 미배부 제외</small></div><div><b>이전 배부</b><small>보유 유지 또는 회수 판단</small></div><div><b>동일 교재</b><small>중복 없이 그대로 유지</small></div><div><b>새 반 교재</b><small>일반·무료·유료 배부</small></div>`}</div>` : "";
-        return `${transitionHead}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';processStudentBookQuery='';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<div class="managed-combo"><input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" onfocus="showStudentProcessBookPicker(this.value)" oninput="processStudentBookQuery=this.value;showStudentProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('studentProcessBookResults');if(b)b.innerHTML=''},160)"><div id="studentProcessBookResults" class="picker-results"></div></div></label><label>${transition ? "구분" : "상태"}<select onchange="${transition ? "processTransitionState" : "processStudentBookState"}=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${(transition ? ["전체","처리 필요","이전 반","새 반","동일 유지"] : ["전체","미배부","배부"]).map(x=>`<option ${x === (transition ? transitionState : state) ? "selected" : ""}>${x}</option>`).join("")}</select></label></div><p class="muted">${transition ? "반이동 기준" : "미배부 교재부터"} · ${rows.length}종</p><div class="scroll student-process-list"><table class="${transition ? "transition-book-table" : "student-table"}"><thead><tr>${transition ? "<th>구분</th><th>이전 반 교재</th><th>변경 후 교재</th><th>현재 상태</th><th>선택 후 처리</th>" : "<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>"}</tr></thead><tbody>${rows.map(({ book, teachers, classNames }) => { const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new", label=kind==="keep"?"동일 유지":kind==="old"?(quantity?"이전 배부":"이전 미배부"):"새 반 교재", suggestedAction=transition?(kind==="old"?(quantity?"RETURN":"EXCLUDE"):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE"); return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b><small>${quantity?`배부 · 보유 ${quantity}권`:"미배부"}</small>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":"danger"}">${quantity?`보유 ${quantity}권`:"미배부"}</b></td><td>${kind==='keep'?"처리 없음":suggestedAction==='EXCLUDE'?"선택 시 미배부 제외":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":"danger"}">${quantity?"배부":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`; }).join("")||'<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>${transition?`<div class="action-row"><button onclick="studentTransition=null;processTransitionState='전체';bid='';action='';render()">전체 교재현황 보기</button></div>`:""}`;
+        const transitionHead = transition?.kind === "NEW" ? '<div class="receipt"><b>신규생 교재 처리</b><br>입반된 반의 미배부 교재를 확인한 뒤 입고 교재 전체배부 또는 한 권씩 배부합니다.<small>이 화면을 보는 것만으로는 배부·회수·재고가 바뀌지 않습니다.</small></div><div class="transition-guide"><div><b>① 미배부 확인</b><small>입반된 반의 교재만 확인</small></div><div><b>② 일괄 또는 개별</b><small>여러 권은 전체 교재, 한 권은 행 선택</small></div></div>' : "";
+        const currentRequired = new Set(activePeriodClassIds(S, sid, selectedPeriodId()).flatMap(cid => arr(S.classes[cid]?.books)));
+        const changeStart = transition?.changes?.[0]?.time || transition?.savedAt || "";
+        const returnedBookIds = new Set(transition ? arr(S.movements).filter(m => m.periodId === selectedPeriodId() && m.type === "RETURN" && String(m.time || "") >= changeStart && (Number(m.studentDeltas?.[sid] || 0) < 0 || Number(m.periodStudentDeltas?.[selectedPeriodId()]?.[sid] || 0) < 0)).map(m => m.bookId) : []);
+
+        const renderRow = ({ book, teachers, classNames }) => { const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new", wasReturned=kind==="old"&&!quantity&&returnedBookIds.has(book.id), autoExcluded=!wasReturned&&kind==="old"&&!quantity&&!currentRequired.has(book.id), label=kind==="keep"?"동일 유지":kind==="old"?"이전반":"새반", suggestedAction=transition?(kind==="old"?(quantity?"RETURN":""):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE"); return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'||autoExcluded||wasReturned?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":"danger"}">${quantity?`배부 · 보유 ${quantity}권`:wasReturned?"회수":autoExcluded?"미배부 제외":"미배부"}</b></td><td>${kind==='keep'||autoExcluded||wasReturned?"처리 없음":suggestedAction==='EXCLUDE'?"선택 시 미배부 제외":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":"danger"}">${quantity?"배부":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`; };
+        const kept = transition?.kind === 'MOVE' ? rows.filter(({book}) => transition.beforeBookIds.includes(book.id) && transition.afterBookIds.includes(book.id)) : [];
+        const changedRows = kept.length ? rows.filter(row => !kept.includes(row)) : rows;
+        const tableHead = transition ? '<th>구분</th><th>이전 반 교재</th><th>변경 후 교재</th><th>현재 상태</th><th>선택 후 처리</th>' : '<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>';
+        const keepHtml = kept.length ? `<details class="compact-details" ${transitionState === '동일 유지' || query ? 'open' : ''}><summary>동일 유지 ${kept.length}종 보기</summary><div class="scroll student-process-list"><table class="transition-book-table"><thead><tr>${tableHead}</tr></thead><tbody>${kept.map(renderRow).join('')}</tbody></table></div></details>` : '';
+        return `${transitionHead}<div class="student-process-filter"><label>과목<select onchange="processStudentBookSubject=this.value;processStudentBookTeacher='전체';processStudentBookQuery='';bid='';action='';selected=[];render()">${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>강사<select onchange="processStudentBookTeacher=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${teachers.map((x) => `<option ${x === teacher ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>교재명<div class="managed-combo"><input value="${esc(window.processStudentBookQuery || "")}" placeholder="교재명 검색" onfocus="showStudentProcessBookPicker(this.value)" oninput="processStudentBookQuery=this.value;showStudentProcessBookPicker(this.value)" onblur="setTimeout(()=>{const b=document.getElementById('studentProcessBookResults');if(b)b.innerHTML=''},160)"><div id="studentProcessBookResults" class="picker-results"></div></div></label><label>${transition ? "구분" : "상태"}<select onchange="${transition ? "processTransitionState" : "processStudentBookState"}=this.value;processStudentBookQuery='';bid='';action='';selected=[];render()">${(transition ? ["전체","처리 필요","이전 반","새 반","동일 유지"] : ["전체","미배부","배부"]).map(x=>`<option ${x === (transition ? transitionState : state) ? "selected" : ""}>${x}</option>`).join("")}</select></label></div><p class="muted">${transition ? "반이동 기준" : "미배부 교재부터"} · ${rows.length}종</p><div class="scroll student-process-list"><table class="${transition ? "transition-book-table" : "student-table"}"><thead><tr>${transition ? "<th>구분</th><th>이전 반 교재</th><th>변경 후 교재</th><th>현재 상태</th><th>선택 후 처리</th>" : "<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>"}</tr></thead><tbody>${changedRows.map(renderRow).join("")||'<tr><td colspan="5">조건에 맞는 교재가 없습니다.</td></tr>'}</tbody></table></div>${keepHtml}${transition || latestStudentClassTransition(sid) ? `<div class="action-row"><button ${transition ? "disabled" : ""} onclick="showStudentBookOverview('${sid}',false)">반변경 교재 보기</button><button ${transition ? "" : "disabled"} onclick="showStudentBookOverview('${sid}',true)">전체 교재현황 보기</button></div>` : ""}`;
       }
       function studentReceiptBox(sid) {
         const r = window.lastStudentReceipt;
@@ -2868,7 +2879,7 @@
    )
    .join("")}</div>`
  }</section>
- <section class="panel"><h2>${view === "student" && tab === "학생" ? "처리 및 재고 흐름" : "배부·회수 및 재고 흐름"}</h2>${view === "academy" ? academyBulkBox() : ""}${view === "bundle" ? bundleActionBox() : ""}${view === "class" && cid ? bulkClassBox(cid) : ""}${view === "book" && book ? bookReturnBox(book.id) : ""}${view === "book" && book ? `<div class="receipt"><b>교재 중심 일괄배부</b><br>대상 반 전체의 미배부 학생을 선택한 뒤 ‘가능 대상 전체선택’을 사용하세요.</div>` : ""}${view === "student" && sid && window.studentProcessScope === "ALL" ? studentAllActionBox(sid, S.students[sid]?.active === false ? "RETURN" : window.action || "DISTRIBUTE") : book && view !== "class" ? actionBox(book, targets) : view === "class" && cid ? "" : view === "academy" || view === "book" || view === "bundle" ? "" : view === "student" && sid ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='${S.students[sid]?.active === false ? "RETURN" : "DISTRIBUTE"}';render()">전체 교재</button></div></div><div class="operation-guide">한 권은 왼쪽 교재를 선택하고, 여러 권은 ‘전체 교재’를 선택하세요.</div>` : '<p class="muted">대상을 선택한 뒤 교재를 선택하세요.</p>'}${view === "student" && sid ? studentReceiptBox(sid) : ""}</section></div>`;
+ <section class="panel"><h2>${view === "student" && tab === "학생" ? "처리 및 재고 흐름" : "배부·회수 및 재고 흐름"}</h2>${view === "academy" ? academyBulkBox() : ""}${view === "bundle" ? bundleActionBox() : ""}${view === "class" && cid ? bulkClassBox(cid) : ""}${view === "book" && book ? bookReturnBox(book.id) : ""}${view === "book" && book ? `<div class="receipt"><b>교재 중심 일괄배부</b><br>대상 반 전체의 미배부 학생을 선택한 뒤 ‘가능 대상 전체선택’을 사용하세요.</div>` : ""}${view === "student" && sid && window.studentProcessScope === "ALL" ? studentAllActionBox(sid, S.students[sid]?.active === false ? "RETURN" : window.action || "DISTRIBUTE") : book && view !== "class" ? actionBox(book, targets) : view === "class" && cid ? "" : view === "academy" || view === "book" || view === "bundle" ? "" : view === "student" && sid ? `<div class="scope-switch"><b>처리 범위</b><div class="tabs"><button class="on">선택 교재</button><button onclick="studentProcessScope='ALL';action='${S.students[sid]?.active === false ? "RETURN" : "DISTRIBUTE"}';render()">전체 교재</button></div></div><div class="operation-guide">한 권은 왼쪽 교재를 선택하고, 여러 권은 ‘전체 교재’를 선택하세요.</div>` : '<p class="muted">대상을 선택한 뒤 교재를 선택하세요.</p>'}${view === "student" && sid ? studentReceiptBox(sid) : ""}</section></div>${directStudentProcess ? classMoveCompletionHtml(sid) : ""}`;
       }
       function processPickerBooks() {
         return derivedValue("processPickerBooks", () => {
@@ -6690,6 +6701,7 @@
               actor,
               time: now(),
             };
+            recordClassChangeBookReview(st, sid, pid, s.classChanges[changeId], s.classChanges[changeId].time);
           }
           }),
         );
@@ -6767,6 +6779,7 @@
             actor,
             time: now(),
           };
+          recordClassChangeBookReview(st, sid, pid, s.classChanges[x], s.classChanges[x].time);
         }));
         if (!r) return;
         if (r.committed) {
@@ -6777,16 +6790,7 @@
           distributeIds = [...afterBookIds].filter((bookId) => !beforeBookIds.has(bookId) && held(sid, bookId) === 0);
           returnIds = [...beforeBookIds].filter((bookId) => !remainingAssignedBookIds.has(bookId) && held(sid, bookId) > 0);
           window.classMemoDraft = "";
-          window.studentTransition = {
-            sid,
-            kind: "MOVE",
-            beforeBookIds: [...beforeBookIds],
-            afterBookIds: [...afterBookIds],
-            distributeIds,
-            returnIds,
-            memo,
-            savedAt: now(),
-          };
+          window.studentTransition = latestStudentClassTransition(sid);
         }
         alert(
           r.committed
@@ -8339,8 +8343,9 @@
         if (!student || !changes.length) return null;
         const first = changes[0], last = changes[changes.length - 1],
           beforeClassIds = Object.keys(first.beforeClassIds || {}), afterClassIds = Object.keys(last.afterClassIds || {}),
-          beforeBookIds = [...ecodingBookIdsForClassSet(st, pid, Object.fromEntries(beforeClassIds.map((id) => [id, id])))],
-          afterBookIds = [...ecodingBookIdsForClassSet(st, pid, Object.fromEntries(afterClassIds.map((id) => [id, id])))];
+          afterBookIds = classChangeBookReview(last, st, pid).afterBookIds,
+          firstBookIds = classChangeBookReview(first, st, pid).beforeBookIds,
+          beforeBookIds = [...new Set([...firstBookIds, ...changes.flatMap(change => classChangeBookReview(change, st, pid).beforeBookIds).filter(bid => !afterBookIds.includes(bid))])];
         return { sid, kind: "MOVE", changes, beforeClassIds, afterClassIds, beforeBookIds, afterBookIds, memo: last.memo || "", savedAt: last.time || "" };
       }
       function classMoveUnresolvedBooks(sid, st = S, pid = selectedPeriodId()) {
@@ -8372,34 +8377,27 @@
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         const pid = selectedPeriodId(), transition = classMoveTransitionForStudent(sid), unresolved = classMoveUnresolvedBooks(sid);
         if (!transition) return alert("이미 완료됐거나 반변경 기록이 없습니다.");
-        if (unresolved.length) return alert(`새 반 미배부 교재 ${unresolved.length}종이 남아 있어 완료할 수 없습니다.`);
-        if (!(await askConfirm(`${S.students?.[sid]?.name || "학생"} 학생의 반변경 교재 확인을 완료할까요?\n완료 후 반변경 미완료 명단에서 제외됩니다.`))) return;
+        // Confirmation records review only; missing books remain missing.
+        if (!(await askConfirm(`${S.students?.[sid]?.name || "학생"} 학생의 반변경 교재 확인을 완료할까요?\n배부하지 않은 교재는 미배부로, 회수하지 않은 교재는 기존 보유 상태로 유지됩니다.\n재고는 변경하지 않고 반변경 미완료 명단에서 제외됩니다.`))) return;
         operationBusy = true;
-        const changeIds = transition.changes.map((change) => change.id), inventoryBefore = JSON.stringify({
-          books: Object.fromEntries(arr(S.books).map((book) => [book.id, Number(book.stock || 0)])),
-          holdings: Object.fromEntries(arr(S.students).map((student) => [student.id, student.holdings || {}])),
-          movementCount: Object.keys(S.movements || {}).length,
-        });
+        const changeIds = transition.changes.map((change) => change.id), reviewedRecords = JSON.stringify(transition.changes);
+        const inventorySignature = st => JSON.stringify({ books: st.books, holdings: Object.fromEntries(arr(st.students).map(student => [student.id, student.holdings || {}])), movements: st.movements, refundTasks: st.refundTasks, refundHistory: st.refundHistory });
         try {
         const result = await periodTransaction(operationPeriodId, "STUDENT_EDIT", (st) => {
-          const student = st.students?.[sid];
+          const student = st.students?.[sid], inventoryBefore = inventorySignature(st);
           if (!student) return false;
           for (const changeId of changeIds) {
             const change = student.classChanges?.[changeId];
             if (!change || change.workCompletedAt) return false;
           }
-          if (classMoveUnresolvedBooks(sid, st, pid).length) return false;
+          // Do not require distribution: another staff member may distribute later.
+          if (JSON.stringify(changeIds.map(changeId => student.classChanges[changeId])) !== reviewedRecords) return false;
           const completedAt = now();
           for (const changeId of changeIds) Object.assign(student.classChanges[changeId], { workStatus: "DONE", workCompletedAt: completedAt, workCompletedBy: actor });
+          if (inventoryBefore !== inventorySignature(st)) return false;
         });
         if (!result.committed) return alert("상태가 변경되어 완료하지 않았습니다. 다시 확인하세요.");
-        const next = result.snapshot.val(), inventoryAfter = JSON.stringify({
-          books: Object.fromEntries(arr(next.books).map((book) => [book.id, Number(book.stock || 0)])),
-          holdings: Object.fromEntries(arr(next.students).map((student) => [student.id, student.holdings || {}])),
-          movementCount: Object.keys(next.movements || {}).length,
-        });
-        if (inventoryBefore !== inventoryAfter) return alert("안전검사 실패: 완료 처리 중 재고자료가 달라졌습니다. 관리자에게 알려주세요.");
-        S = next;
+        S = result.snapshot.val();
         window.classMoveStudentId = "";
         window.studentTransition = null;
         tab = "반이동";
@@ -8413,7 +8411,7 @@
         const before = Object.keys(change.beforeClassIds || {}), after = Object.keys(change.afterClassIds || {});
         const removed = before.filter(cid => !after.includes(cid)), added = after.filter(cid => !before.includes(cid)), unchanged = before.filter(cid => after.includes(cid));
         const chips = ids => ids.map(cid => `<span>${esc(st.classes?.[cid]?.name || cid)}</span>`).join("");
-        return `<div class="recent-class-flow"><div><b>변경 전 반 · 빠진 반 ${removed.length}개</b><div class="class-chip-list">${chips(removed) || "빠진 반 없음"}</div></div><div><b>변경 후 반 · 추가된 반 ${added.length}개</b><div class="class-chip-list">${chips(added) || "추가된 반 없음"}</div></div></div>${unchanged.length ? `<details class="compact-details"><summary>변경 없는 반 ${unchanged.length}개 보기</summary><div class="class-chip-list">${chips(unchanged)}</div></details>` : ""}`;
+        return `<div class="recent-class-flow"><div><b>변경 전 반 ${removed.length}개</b><div class="class-chip-list">${chips(removed) || "빠진 반 없음"}</div></div><div><b>변경 후 반 ${added.length}개</b><div class="class-chip-list">${chips(added) || "추가된 반 없음"}</div></div></div>${unchanged.length ? `<details class="compact-details"><summary>변경 없는 반 ${unchanged.length}개 보기</summary><div class="class-chip-list">${chips(unchanged)}</div></details>` : ""}`;
       }
       function currentCommonClassesHtml(st, sid, pid) {
         // Read the same effective membership as student lookup; never add to saved history.
@@ -8422,6 +8420,66 @@
           .filter(cls => cls && cls.periodId === pid && cls.systemCommon === true);
         return `<div class="compact-details current-common-classes"><b>현재 적용 공통반 ${classes.length}개</b><div class="class-chip-list">${classes.map(cls => `<span>${esc([cls.subject, cls.name].filter(Boolean).join(" · "))}</span>`).join("") || "<span>현재 적용 공통반 없음</span>"}</div><small>현재 소속 기준 · 위 반변경 이력과 별도로 표시합니다.</small></div>`;
       }
+      // BEGIN BOOK REVIEW V1: metadata only; no inventory, holding or eligibility writes.
+      function classChangeBookReview(change, st, pid) {
+        if (change.bookReview?.version === 1) return {
+          beforeBookIds: arr(change.bookReview.beforeBookIds), afterBookIds: arr(change.bookReview.afterBookIds),
+          known: change.bookReview.known === true,
+        };
+        const before = change.beforeClassIds, after = change.afterClassIds;
+        const valid = set => set && typeof set === "object" && Object.keys(set).every(cid => st.classes?.[cid]?.periodId === pid && arr(st.classes[cid].books).every(bid => !!st.books?.[bid]));
+        // Historical membership must not disappear merely because a class later closed.
+        const books = set => {
+          const classes = Object.keys(set || {}).map(cid => st.classes?.[cid]).filter(cls => cls?.periodId === pid);
+          const common = classes.some(cls => cls.systemCommon !== true) ? systemCommonClasses(st, pid) : [];
+          return [...new Set([...classes, ...common].flatMap(cls => arr(cls.books)))];
+        };
+        return { beforeBookIds: books(before), afterBookIds: books(after), known: !!(valid(before) && valid(after)) };
+      }
+      function classChangeHasBookDifference(change, st, pid) {
+        const review = classChangeBookReview(change, st, pid);
+        return !review.known || JSON.stringify([...review.beforeBookIds].sort()) !== JSON.stringify([...review.afterBookIds].sort());
+      }
+      function recordClassChangeBookReview(st, sid, pid, change, time, legacy = false) {
+        if (!change || change.bookReview?.version === 1) return;
+        const student = st.students?.[sid];
+        if (!student || st.periods?.[pid]?.status !== "ACTIVE") return;
+        const review = classChangeBookReview(change, st, pid);
+        change.bookReview = { version: 1, ...review, capturedAt: time, source: legacy ? "CURRENT_MAPPING_BACKFILL" : "CLASS_CHANGE" };
+        if (!review.known || student.active === false || student.pendingReturn) return;
+        const currentBooks = new Set(activePeriodClassIds(st, sid, pid).flatMap(cid => arr(st.classes?.[cid]?.books)));
+        for (const bid of review.beforeBookIds) {
+          if (review.afterBookIds.includes(bid) || currentBooks.has(bid) || !st.books?.[bid] || Number(student.holdings?.[bid] || 0) > 0 || studentBookIsExcluded(st, sid, bid, pid)) continue;
+          const mid = id("M", ["CLASS_CHANGE_BOOK_EXCLUDE", pid, sid, change.id, bid].join("|"));
+          change.bookReview.autoExcludedBookIds ||= {};
+          change.bookReview.autoExcludedBookIds[bid] = { time, movementId: mid };
+          st.movements ||= {};
+          if (!st.movements[mid]) st.movements[mid] = { id: mid, periodId: pid, type: "BOOK_EXCLUDE", bookId: bid, bookName: st.books[bid].name || bid, studentId: sid, studentIds: { [sid]: sid }, studentNames: { [sid]: student.name }, actor: "자동 처리", time, memo: "반변경으로 현재 반에서 더 이상 필요하지 않은 미배부 교재 제외" + (legacy ? " · 기존 반변경 현재 상태 확인" : ""), source: "CLASS_CHANGE", sourceChangeId: change.id, logOnly: true };
+        }
+      }
+      function classMoveComparisonHtml(transition, st, pid) {
+        if (!transition) return "";
+        const changes = transition.changes || [];
+        return changes.map((change, i) => `<div class="row"><span><b>${i + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change, st)}`).join("") + currentCommonClassesHtml(st, transition.sid, pid);
+      }
+      function showStudentBookOverview(sid, overview) {
+        if (window.sid !== sid) return;
+        const save = () => ({ subject: window.processStudentBookSubject, teacher: window.processStudentBookTeacher, query: window.processStudentBookQuery, state: window.processStudentBookState, transitionState: window.processTransitionState });
+        window.bookOverviewFilters ||= {};
+        window.bookOverviewFilters[`${sid}:${selectedPeriodId()}:${overview ? "comparison" : "overview"}`] = save();
+        window.studentTransition = overview ? null : latestStudentClassTransition(sid);
+        const saved = window.bookOverviewFilters[`${sid}:${selectedPeriodId()}:${overview ? "overview" : "comparison"}`] || {};
+        window.processStudentBookSubject = saved.subject || "전체"; window.processStudentBookTeacher = saved.teacher || "전체";
+        window.processStudentBookQuery = saved.query || ""; window.processStudentBookState = saved.state || "전체";
+        window.processTransitionState = saved.transitionState || "전체"; window.bid = ""; window.action = ""; selected = []; receipt = null;
+        render();
+      }
+      function classMoveCompletionHtml(sid) {
+        const transition = classMoveTransitionForStudent(sid);
+        if (!transition || !transition.changes.some(c => classChangeHasBookDifference(c, S, selectedPeriodId()))) return "";
+        return `<div class="action-row class-move-complete-bar"><button onclick="completeClassMoveWork('${sid}')">반변경 처리 완료</button><small>배부·회수하지 않은 교재는 현재 상태로 유지됩니다.</small></div>`;
+      }
+      // END BOOK REVIEW V1
       function classMoveWorkScreen() {
         const pid = selectedPeriodId(), showDone = window.classMoveWorkView === "DONE",
           groups = classMoveWorkGroups(S, pid, showDone), pendingEvents = showDone ? [] : ["MOVE","ADD","REMOVE"].flatMap((type) => ecodingEvents(type)),
@@ -8431,7 +8489,7 @@
           eventRows = pendingEvents.map((event) => `<tr class="${selectedEvent?.id === event.id ? "selected-row" : ""}" onclick="classMoveStudentId='';ecodingEventId='${event.id}';ecodingPreviewEventId='';render()"><td><b>${esc(event.studentName)}</b></td><td>${event.type === "MOVE" ? "반변경" : event.type === "ADD" ? "반추가" : "반제외"}</td><td>${esc(fmt(event.createdAt))}</td><td><span class="badge warn">반영 전</span></td></tr>`).join(""),
           detail = selectedEvent ? ecodingEventDetail(selectedEvent) : selectedGroup ? (() => {
             const { student, changes } = selectedGroup, unresolved = showDone ? 0 : classMoveUnresolvedBooks(student.id).length;
-            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change)}`).join("")}${currentCommonClassesHtml(S, student.id, pid)}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>이전 반 보유 교재는 유지하거나 회수하고, 새 반 교재는 배부한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button ${unresolved ? "disabled" : ""} onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
+            return `<div class="student-head"><div><h2>${esc(student.name)}</h2><span>반변경 ${changes.length}회</span></div><span class="badge ${showDone ? "ok" : "warn"}">${showDone ? "완료" : "미완료"}</span></div><div class="list">${changes.map((change, index) => `<div class="row"><span><b>${index + 1}차 변경</b><small>${esc(fmt(change.time))} · ${esc(change.actor || "")}</small></span></div>${classChangeComparison(change)}`).join("")}${currentCommonClassesHtml(S, student.id, pid)}</div>${showDone ? `<p class="muted">${esc(fmt(changes[changes.length - 1].workCompletedAt))} · ${esc(changes[changes.length - 1].workCompletedBy || "")} 완료</p>` : `<div class="receipt"><b>${unresolved ? `새 반 미배부 ${unresolved}종` : "교재 처리 완료 가능"}</b><small>배부·회수가 필요하면 교재처리에서 진행하고, 현재 상태를 확인한 뒤 완료하세요.</small></div><div class="action-row"><button class="btn" onclick="openClassMoveWork('${student.id}')">교재처리</button><button onclick="completeClassMoveWork('${student.id}')">반변경 처리 완료</button></div>`}`;
           })() : '<h2>반변경 학생을 선택하세요.</h2><p class="muted">왼쪽 명단에서 학생을 선택하면 변경 전·후 반을 확인할 수 있습니다.</p>';
         document.querySelector("#screen").innerHTML = `<div class="grid manage-split"><section class="panel"><div class="student-head"><h2>반관리 ${groups.length + pendingEvents.length}명</h2><div class="tabs"><button class="${showDone ? "" : "on"}" onclick="classMoveWorkView='PENDING';classMoveStudentId='';ecodingEventId='';render()">미완료</button><button class="${showDone ? "on" : ""}" onclick="classMoveWorkView='DONE';classMoveStudentId='';ecodingEventId='';render()">완료 보기</button></div></div><table><thead><tr><th>학생명</th><th>구분</th><th>최근 변경</th><th>상태</th></tr></thead><tbody>${eventRows}${rows || (!eventRows ? '<tr><td colspan="4">학생이 없습니다.</td></tr>' : "")}</tbody></table></section><section class="panel">${detail}</section></div>`;
       }
@@ -8493,7 +8551,7 @@
           if(existing)localSid=existing.id;
           ensureSystemCommonClass(st,e.periodId);
           const student=existing||{id:localSid,externalId:e.externalStudentId,name:e.studentName,classes:{},periodClasses:{},periodMembership:{},holdings:{},active:true,source:'ECODING'};
-          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}if(['MOVE','ADD','REMOVE'].includes(e.type)){student.classChanges=student.classChanges||{};const changeId=`EC-${e.id}`,label=e.type==='MOVE'?'반변경':e.type==='ADD'?'반추가':'반제외';if(!student.classChanges[changeId])student.classChanges[changeId]={id:changeId,periodId:e.periodId,before:Object.keys(e.beforeClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),after:Object.keys(e.afterClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),beforeClassIds:{...(e.beforeClassIds||{})},afterClassIds:{...(e.afterClassIds||{})},memo:`이코딩 ${label}`,changeType:e.type,workStatus:'PENDING',workSource:'ECODING',sourceEventId:e.id,actor,time:now()};}rebuildStudentClasses(student);st.students[localSid]=student;closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
+          student.name=e.studentName;student.active=true;student.periodClasses=student.periodClasses||{};student.periodMembership=student.periodMembership||{};student.periodMembership[e.periodId]=true;student.periodClasses[e.periodId]={...(e.afterClassIds||{})};if(e.type==='NEW'){student.createdPeriodId=e.periodId;if(/^\d{4}-\d{2}-\d{2}$/.test(newAdmissionDate))student.admissionDate=newAdmissionDate;}if(['MOVE','ADD','REMOVE'].includes(e.type)){student.classChanges=student.classChanges||{};const changeId=`EC-${e.id}`,label=e.type==='MOVE'?'반변경':e.type==='ADD'?'반추가':'반제외';if(!student.classChanges[changeId])student.classChanges[changeId]={id:changeId,periodId:e.periodId,before:Object.keys(e.beforeClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),after:Object.keys(e.afterClassIds||{}).map(cid=>st.classes?.[cid]?.name||cid).join(', '),beforeClassIds:{...(e.beforeClassIds||{})},afterClassIds:{...(e.afterClassIds||{})},memo:`이코딩 ${label}`,changeType:e.type,workStatus:'PENDING',workSource:'ECODING',sourceEventId:e.id,actor,time:now()};}rebuildStudentClasses(student);st.students[localSid]=student;if(['MOVE','ADD','REMOVE'].includes(e.type))recordClassChangeBookReview(st,localSid,e.periodId,student.classChanges[`EC-${e.id}`],now());closeRefundTasksForReenrollment(st,localSid,e.periodId);e.status='DONE';e.completedAt=now();e.completedBy=actor;outcome='APPLIED';
         });
         if(r.committed){
           S=r.snapshot.val();
@@ -8502,7 +8560,7 @@
           distributeIds=[...afterBookIds].filter(bid=>!beforeBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)===0);
           returnIds=[...beforeBookIds].filter(bid=>!remainingAssignedBookIds.has(bid)&&Number(S.students?.[localSid]?.holdings?.[bid]||0)>0);
           if(event.type==='NEW'){window.ecodingEventId='';window.ecodingPreviewEventId='';window.newWorkSelectedIds=[localSid];tab='신규';selected=[];receipt=null;alert('신규 명단에 반영했습니다. 교재 처리는 신규 명단에서 진행하세요.');render();return;}
-          window.studentTransition={sid:localSid,kind:event.type,beforeBookIds:[...beforeBookIds],afterBookIds:[...afterBookIds],distributeIds,returnIds,memo:'이코딩 반이동',savedAt:now()};window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
+          window.studentTransition=latestStudentClassTransition(localSid);window.sid=localSid;window.studentHubView='process';window.ecodingPreviewEventId='';tab='학생';view='student';selected=[];receipt=null;render();
         } else alert(outcome==='STALE_CURRENT'?'교재 프로그램의 현재 반이 미리보기와 달라져 반영하지 않았습니다. 반이동 목록을 다시 확인하세요.':'반정보가 변경되어 처리하지 않았습니다. 다시 확인하세요.');
       }
       const saveEcodingMappingsBeforeManualExitLock = saveEcodingMappings;
@@ -9299,6 +9357,7 @@ function applyScopedEcoding(st,pid,fresh) {
       const sid=p.studentId||arr(out.students).find(s=>normalizeExternalId(s.externalId)===p.externalId)?.id;
       out.movements ||= {};const mid=id('M',JSON.stringify([pid,p.externalId,p.type,p.observedAt,p.beforeClassIds,p.afterClassIds,p.beforeName||'',p.name]));
       out.movements[mid]={id:mid,type:p.type==='RENAME'?'학생명 변경':p.type==='NEW'?'신규 등록':'반변경',periodId:pid,studentId:sid,studentName:p.name,actor:'이코딩 연동',time:fresh.syncedAt,memo:p.type==='RENAME'?`학생명 변경: ${p.beforeName} → ${p.name}`:p.type==='NEW'?'이코딩 신규 반배정 · 교재 미처리':'이코딩 현재 반 반영 · 교재 미처리',beforeClassIds:p.beforeClassIds,afterClassIds:p.afterClassIds};
+      if(p.type==='MOVE')for(const change of arr(out.students?.[sid]?.classChanges))if(change.periodId===pid&&change.time===p.observedAt&&change.workSource==='ECODING')recordClassChangeBookReview(out,sid,pid,change,fresh.syncedAt);
       if(p.type==='RENAME'){out.movements[mid].beforeName=p.beforeName;out.movements[mid].afterName=p.name;}
       else {out.movements[mid].businessDate=p.businessDate||'';out.movements[mid].dateSource=p.businessDate?'SOURCE':'UNKNOWN';}
       for(const e of arr(out.ecodingEvents))if(e.periodId===pid&&e.status==='PENDING'&&normalizeExternalId(e.externalStudentId)===p.externalId){
@@ -9969,10 +10028,10 @@ async function linkScopedReviewStudent(key,sid) {
           exitedInSelectedPeriod = studentExitedInPeriod(s, selectedPeriodId()),
           moveTransition = classMoveTransitionForStudent(sid),
           moveUnresolved = moveTransition ? classMoveUnresolvedBooks(sid).length : 0,
-          classBadges = (ids) => ids.map((cid) => { const cls = S.classes?.[cid]; return `<span>${esc(cls ? `${cls.subject || ""} · ${cls.teacher || "미지정"} · ${cls.name}` : cid)}</span>`; }).join("") || "없음",
-          recentHtml = moveTransition
-            ? `<details class="compact-details recent-class-result" open><summary>반변경 ${moveTransition.changes.length}회 · 최근 ${esc(fmt(moveTransition.savedAt))}</summary><div class="recent-class-flow"><div><b>최초 변경 전 반</b><div class="class-chip-list">${classBadges(moveTransition.beforeClassIds)}</div></div><div><b>현재 반</b><div class="class-chip-list">${classBadges(moveTransition.afterClassIds)}</div></div></div><div class="action-row"><span class="muted">${moveUnresolved ? `새 반 미배부 ${moveUnresolved}종` : "교재 처리 완료 가능"}</span><button ${moveUnresolved ? "disabled" : ""} onclick="completeClassMoveWork('${sid}')">반변경 처리 완료</button></div></details>`
-            : latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || "")} · ${esc(latest.memo || "메모 없음")}</div>` : "";
+          shownTransition = window.studentTransition?.sid === sid ? window.studentTransition : moveTransition,
+          recentHtml = shownTransition
+            ? `<details class="compact-details recent-class-result" open><summary>반변경 ${shownTransition.changes?.length || 1}회 · 최근 ${esc(fmt(shownTransition.savedAt))}</summary>${classMoveComparisonHtml(shownTransition, S, selectedPeriodId())}</details>`
+            : latest ? `<div class="receipt"><b>최근 기록</b> · ${fmt(latest.time)} · ${esc(movementLabel(latest))} · ${esc(movementBookName(latest) || '')} · ${esc(latest.memo || '메모 없음')}</div>` : '';
         return `<section class="panel student-process-summary"><div class="student-head"><div><h2>${esc(s.name)}</h2><span>${exitedInSelectedPeriod ? s.pendingReturn ? "퇴반·회수대기" : s.retainedBooksOnExit ? "퇴반·미회수" : "퇴반·회수완료" : "재원"} · 반 ${clsOf(sid).length}개 · 보유 ${heldCount}권 · 미배부 ${missingCount}권</span></div>${studentWorkspaceActions(sid, "process")}</div>${recentHtml}</section>`;
       }
       function intake() {
