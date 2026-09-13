@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-14.95" />
+    <meta name="bookflow-build" content="2026-09-14.96" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-14.95", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-14.96", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -228,7 +228,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-14.95";
+      const BOOKFLOW_BUILD = "2026-09-14.96";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -11442,11 +11442,14 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
           const quantities=found.map(x=>historyParticipantQuantity(m,x.id));
           return [{...base,who:classLabels.join(" · "),matchedParticipants:found,quantity:found.length&&quantities.every(x=>x!=null)?quantities.reduce((n,x)=>n+x,0):null,classSearch:true}];
         }
-        const hay=[...participants.map(x=>x.name),...books.map(x=>x.name),m.className,...arr(m.classNames),m.actor,m.memo,m.batchId].join(" ");
+        const hay=[...participants.map(x=>x.name),...books.map(x=>x.name),m.className,...arr(m.classNames),m.actor,historyActorLabel(m),m.memo,m.batchId].join(" ");
         return has(hay)?[base]:[];
       }
       function historyBusinessReason(m) {
         return ["IN","DISTRIBUTE","RETURN"].includes(m.type) ? (m.businessReason||"NORMAL") : "";
+      }
+      function historyActorLabel(m) {
+        return m.actor==='이코딩 연동'?'자동':m.actor||'미기록';
       }
       function historyClassSummary(change) {
         if(!change.beforeClassIds || !change.afterClassIds)return '변경전: '+(change.before||'기록 없음')+' · 변경후: '+(change.after||'기록 없음');
@@ -11517,12 +11520,12 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const details=index>=0?'<details class="history-event-details" ontoggle="historyOpenDetails(this,'+index+')">'+summary+'<div role="dialog" aria-label="업무이력 상세"></div></details>':'<details class="history-event-details">'+summary+'<div>'+
           '<header class="history-dialog-handle" onpointerdown="historyDragStart(event,this)"><b>업무이력 상세 <small>제목을 끌어 이동</small></b><button type="button" onclick="this.closest(\'details\').open=false">닫기</button></header><p><b>'+esc(batch)+'</b></p>'+flow+
           (m.totalAmount!=null?'<p>퇴반 환불 계산액 '+esc(won(m.totalAmount))+(m.type==="퇴반취소"?" · 이전 확정 기록 보존":"")+'</p>':"")+
-          '<p><b>'+esc(row.who)+'</b></p><p>행위자 '+esc(m.actor||"미기록")+' · '+esc(fmt(m.time))+'</p>'+historyClassBookDetails(review,m)+(classExclusion?'<p>'+badge+' '+esc(bookTitle)+' · <span class="transition-status-excluded">미배부 제외</span></p><small>재고 변동 없음</small>':'')+(memo?'<p><b>처리 내용·메모</b><br>'+esc(memo)+'</p>':'')+
+          '<p><b>'+esc(row.who)+'</b></p><p>행위자 '+esc(historyActorLabel(m))+' · '+esc(fmt(m.time))+'</p>'+historyClassBookDetails(review,m)+(classExclusion?'<p>'+badge+' '+esc(bookTitle)+' · <span class="transition-status-excluded">미배부 제외</span></p><small>재고 변동 없음</small>':'')+(memo?'<p><b>처리 내용·메모</b><br>'+esc(memo)+'</p>':'')+
           (row.books.length>1?'<p>조회 교재</p><ul>'+row.books.map(b=>'<li>'+esc(b.name)+(b.quantity!=null?' · '+esc(b.quantity)+'권':'')+'</li>').join("")+'</ul>':"")+
           (row.classSearch?'<p>처리 당시 해당 반 학생 '+row.matchedParticipants.length+'명</p><ul>'+row.matchedParticipants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul>':"")+
           (count>1?'<details><summary>전체 처리 대상 '+count+'명</summary><ul>'+row.participants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul></details>':"")+
           (m.batchId?'<details><summary>관리용 정보</summary><p>처리번호 '+esc(m.batchId)+'</p></details>':"")+'</div></details>';
-        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="행위자">'+esc(m.actor||"미기록")+'</td><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b>'+badge+(reason?'<small>'+esc(reason)+'</small>':'')+'</td>'+
+        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="행위자">'+esc(historyActorLabel(m))+'</td><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b>'+badge+(reason?'<small>'+esc(reason)+'</small>':'')+'</td>'+
           '<td data-label="대상"><button type="button" class="history-target-link history-short" title="'+esc(row.who)+' · 처리내역 열기" onclick="this.closest(\'tr\').querySelector(\'.history-event-details\').open=true">'+esc(row.who)+'</button>'+(row.personal&&count>1?'<small>일괄처리 중 이 학생의 기록</small>':row.classSearch?'<small>처리 당시 반 기준</small>':"")+'</td>'+
           '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="처리내용·메모">'+(!memo?'<span>-</span>':'')+details+'</td></tr>';
       }
@@ -11552,7 +11555,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
             for(const x of people){add("STUDENT",x.id,S.students?.[x.id]?.name||x.name,m);add("STUDENT",x.id,x.name,m);}
             for(const x of books)add("BOOK",x.id,x.name,m);
             for(const name of classes)add("CLASS","",name,m);
-            return {m,time:new Date(m.time).getTime(),text:[...people.flatMap(x=>[x.name,S.students?.[x.id]?.name||""]),...books.map(x=>x.name),...classes,m.actor,m.memo,m.batchId].join(" ").toLocaleLowerCase("ko")};
+            return {m,time:new Date(m.time).getTime(),text:[...people.flatMap(x=>[x.name,S.students?.[x.id]?.name||""]),...books.map(x=>x.name),...classes,m.actor,historyActorLabel(m),m.memo,m.batchId].join(" ").toLocaleLowerCase("ko")};
           });
           for(const e of entities.values())e.search=e.search.trim();
           return {entries,entities};
