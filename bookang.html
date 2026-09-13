@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-13.91" />
+    <meta name="bookflow-build" content="2026-09-13.92" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-13.91", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-09-13.92", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -226,7 +226,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-13.91";
+      const BOOKFLOW_BUILD = "2026-09-13.92";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -7638,12 +7638,13 @@
                 : `${x.before} → ${x.after}`;
             extra.push({
               type: "반변경",
+              historyClassChange: x,
               periodId: x.periodId,
               time: x.time,
               studentId: s.id,
               studentName: s.name,
               actor: x.actor,
-              memo: `${changeSummary} · ${x.memo}`,
+              memo: [changeSummary, x.memo].filter(Boolean).join(" · "),
             });
           }
           for (const x of arr(s.withdrawals))
@@ -11445,6 +11446,33 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
       function historyBusinessReason(m) {
         return ["IN","DISTRIBUTE","RETURN"].includes(m.type) ? (m.businessReason||"NORMAL") : "";
       }
+      function historyDisplayMemo(m) {
+        const memo=String(m.memo||"").trim();
+        return m.type==="반변경" && m.actor==="이코딩 연동" && memo==="이코딩 현재 반 반영 · 교재 미처리" ? "" : memo;
+      }
+      function historyClassBookReview(m) {
+        if(m.type!=="반변경")return null;
+        const signature=ids=>JSON.stringify(arr(ids).slice().sort());
+        let change=m.historyClassChange;
+        if(!change){
+          if(!m.beforeClassIds || !m.afterClassIds)return {known:false};
+          const matches=arr(S.students?.[m.studentId]?.classChanges).filter(x=>x.periodId===m.periodId && signature(x.beforeClassIds)===signature(m.beforeClassIds) && signature(x.afterClassIds)===signature(m.afterClassIds));
+          const exact=matches.filter(x=>x.time===m.time);
+          const candidates=exact.length?exact:matches;
+          if(candidates.length===1)change=candidates[0];
+          else if(candidates.length>1 && new Set(candidates.map(x=>JSON.stringify(x.bookReview))).size===1)change=candidates[0];
+        }
+        // Never infer a historical "unchanged" result from today's class/book mapping.
+        if(!change?.bookReview)return {known:false};
+        const review=classChangeBookReview(change,S,m.periodId);
+        return {...review,changed:signature(review.beforeBookIds)!==signature(review.afterBookIds),source:change.bookReview.source};
+      }
+      function historyClassBookDetails(review) {
+        if(!review)return "";
+        if(!review.known)return '<p>당시 교재 기록이 없어 교재 변경 여부를 확인할 수 없습니다.</p>';
+        const list=ids=>ids.length?'<ul>'+ids.map(id=>'<li>'+esc(S.books?.[id]?.name||id)+'</li>').join("")+'</ul>':'<p>없음</p>';
+        return '<p><b>'+(review.changed?'교재 변경':'교재 변경없음')+'</b></p>'+(review.source==='CURRENT_MAPPING_BACKFILL'?'<small>과거 이력은 교재 연결을 보완한 시점의 저장 기록으로 비교합니다.</small>':'')+'<div class="class-change-compare"><section><b>변경전</b>'+list(review.beforeBookIds)+'</section><section><b>변경후</b>'+list(review.afterBookIds)+'</section></div>';
+      }
       function historyResultHtml(row, index=-1) {
         const m=row.m, total=Math.abs(Number(m.quantity??m.itemCount??0)), count=row.participants.length;
         const type=movementLabel(m), reason={NORMAL:"일반",FREE:"무료",EXTRA_PAYMENT:"유료",CLASS_MOVE:"반변경",MISDISTRIBUTION:"실수",OTHER:"기타"}[historyBusinessReason(m)]||"";
@@ -11453,16 +11481,17 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const quantity=row.quantity==null ? (row.books.length?"수량 확인 필요":"") : quantityLabel+" "+row.quantity+"권";
         const batch=count>1 ? "일괄처리 전체 "+count+"명"+(total?" · "+total+"권":"") : "개별 처리";
         const flow=m.stockBefore==null?"":'<p><b>'+(count>1?"전체 일괄처리 기준 재고":"재고")+'</b> '+esc(m.stockBefore)+' → '+esc(m.stockAfter)+'</p>';
-        const memo=String(m.memo||"").trim(),summary='<summary class="history-content-preview" '+(!memo?'hidden':'')+' title="'+esc(memo)+'">'+esc(memo)+'</summary>';
+        const review=historyClassBookReview(m),badge=review?'<span class="transition-state '+(review.known?(review.changed?'new':'old'):'old')+'">'+(review.known?(review.changed?'교재 변경':'교재 변경없음'):'교재 기록 없음')+'</span>':'';
+        const memo=historyDisplayMemo(m),summary='<summary class="history-content-preview" '+(!memo?'hidden':'')+' title="'+esc(memo)+'">'+esc(memo)+'</summary>';
         const details=index>=0?'<details class="history-event-details" ontoggle="historyOpenDetails(this,'+index+')">'+summary+'<div role="dialog" aria-label="업무이력 상세"></div></details>':'<details class="history-event-details">'+summary+'<div>'+
           '<header class="history-dialog-handle" onpointerdown="historyDragStart(event,this)"><b>업무이력 상세 <small>제목을 끌어 이동</small></b><button type="button" onclick="this.closest(\'details\').open=false">닫기</button></header><p><b>'+esc(batch)+'</b></p>'+flow+
           (m.totalAmount!=null?'<p>퇴반 환불 계산액 '+esc(won(m.totalAmount))+(m.type==="퇴반취소"?" · 이전 확정 기록 보존":"")+'</p>':"")+
-          '<p>행위자 '+esc(m.actor||"미기록")+' · '+esc(fmt(m.time))+'</p><p><b>처리 내용·메모</b><br>'+esc(m.memo||"기록 없음")+'</p><small>자동 처리 설명과 직원 입력 메모가 함께 포함될 수 있습니다.</small>'+
+          '<p>행위자 '+esc(m.actor||"미기록")+' · '+esc(fmt(m.time))+'</p>'+historyClassBookDetails(review)+'<p><b>처리 내용·메모</b><br>'+esc(memo||"기록 없음")+'</p>'+
           (row.books.length>1?'<p>조회 교재</p><ul>'+row.books.map(b=>'<li>'+esc(b.name)+(b.quantity!=null?' · '+esc(b.quantity)+'권':'')+'</li>').join("")+'</ul>':"")+
           (row.classSearch?'<p>처리 당시 해당 반 학생 '+row.matchedParticipants.length+'명</p><ul>'+row.matchedParticipants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul>':"")+
           (count>1?'<details><summary>전체 처리 대상 '+count+'명</summary><ul>'+row.participants.map(x=>'<li>'+esc(x.name)+'</li>').join("")+'</ul></details>':"")+
           (m.batchId?'<details><summary>관리용 정보</summary><p>처리번호 '+esc(m.batchId)+'</p></details>':"")+'</div></details>';
-        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="행위자">'+esc(m.actor||"미기록")+'</td><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b>'+(reason?'<small>'+esc(reason)+'</small>':'')+'</td>'+
+        return '<tr'+(row.studentId?' data-history-student="'+esc(row.studentId)+'"':"")+'><td data-label="행위자">'+esc(m.actor||"미기록")+'</td><td data-label="일시">'+esc(fmt(m.time))+'</td><td data-label="처리"><b>'+esc(type)+'</b>'+badge+(reason?'<small>'+esc(reason)+'</small>':'')+'</td>'+
           '<td data-label="대상"><button type="button" class="history-target-link history-short" title="'+esc(row.who)+' · 처리내역 열기" onclick="this.closest(\'tr\').querySelector(\'.history-event-details\').open=true">'+esc(row.who)+'</button>'+(row.personal&&count>1?'<small>일괄처리 중 이 학생의 기록</small>':row.classSearch?'<small>처리 당시 반 기준</small>':"")+'</td>'+
           '<td data-label="교재·수량"><span class="history-short" title="'+esc(bookTitle)+'">'+esc(bookTitle)+'</span><small>'+esc(quantity)+'</small></td><td data-label="처리내용·메모">'+(!memo?'<span>-</span>':'')+details+'</td></tr>';
       }
@@ -11575,7 +11604,7 @@ document.querySelector("#screen").innerHTML = `<section class="panel"><h2>퇴반
         const show=(!q||q.length>=2||entity);
         if(show)for(const entry of prepared.entries){
           const m=entry.m;
-          if(entry.time<from||entry.time>to||window.histType&&m.type!==window.histType||window.histReason&&historyBusinessReason(m)!==window.histReason||window.histMemoOnly&&!String(m.memo||"").trim())continue;
+          if(entry.time<from||entry.time>to||window.histType&&m.type!==window.histType||window.histReason&&historyBusinessReason(m)!==window.histReason||window.histMemoOnly&&!historyDisplayMemo(m))continue;
           if(entity&&!entityEvents?.has(m))continue;
           if(!entity&&q&&!entry.text.includes(normalized))continue;
           rows.push(...historyProjection(m,entity?.kind||scope,q,entity?.kind==="STUDENT"?entity.id:"",entity));
