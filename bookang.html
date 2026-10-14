@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-09-18.97" />
+    <meta name="bookflow-build" content="2026-10-14.98" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-09-18.97", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-10-14.98", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -228,7 +228,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-09-18.97";
+      const BOOKFLOW_BUILD = "2026-10-14.98";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1797,6 +1797,53 @@
           ),
         );
       }
+      let rootSaveUncertain = false;
+      async function largeRootTransaction(update) {
+        const fail = (code) => Object.assign(new Error(code), { code });
+        if (rootSaveUncertain) throw fail("SAVE_RESULT_UNKNOWN");
+        const user = firebase.auth().currentUser;
+        if (!user) throw fail("AUTH_REQUIRED");
+        const uid = user.uid, token = await user.getIdToken();
+        const sameUser = () => firebase.auth().currentUser?.uid === uid;
+        const url = new URL(root.toString());
+        url.pathname = url.pathname.replace(/\/$/, "") + ".json";
+        url.searchParams.set("auth", token);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (!sameUser()) throw fail("AUTH_CHANGED");
+          const read = await fetch(url, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(45000) });
+          if (!read.ok) throw fail(`READ_${read.status}`);
+          const etag = read.headers.get("etag"), current = await read.json();
+          if (!etag || !current?.books || !current?.students) throw fail("INVALID_SAVE_BASE");
+          const candidate = JSON.parse(JSON.stringify(current));
+          if (update(candidate) === false) return { committed: false, snapshot: { val: () => current } };
+          const body = JSON.stringify(candidate);
+          if (new Blob([body]).size > 240 * 1024 * 1024) throw fail("SAVE_TOO_LARGE");
+          if (!sameUser()) throw fail("AUTH_CHANGED");
+          // One conditional whole-root write: stock, holdings and ledger stay atomic.
+          // Only a definite 412 is retried; an unknown outcome is never replayed.
+          let response;
+          try {
+            response = await fetch(url, { method: "PUT", cache: "no-store", headers: { "Content-Type": "application/json", "If-Match": etag }, body, signal: AbortSignal.timeout(45000) });
+          } catch (_) {
+            rootSaveUncertain = true;
+            throw fail("SAVE_RESULT_UNKNOWN");
+          }
+          if (response.status === 412) continue;
+          if (!response.ok) {
+            if (response.status >= 500) rootSaveUncertain = true;
+            throw fail(rootSaveUncertain ? "SAVE_RESULT_UNKNOWN" : `SAVE_${response.status}`);
+          }
+          try {
+            const saved = await response.json();
+            if (!saved?.books || !saved?.students) throw fail("INVALID_SAVE_RESPONSE");
+            return { committed: true, snapshot: { val: () => saved } };
+          } catch (_) {
+            rootSaveUncertain = true;
+            throw fail("SAVE_RESULT_UNKNOWN");
+          }
+        }
+        throw fail("SAVE_CONFLICT");
+      }
       function transaction(mutator, options = {}) {
         if (navigator.onLine === false) {
           alert("인터넷 연결이 끊겨 저장을 시작하지 않았습니다. 연결을 확인한 뒤 다시 시도하세요.");
@@ -1823,8 +1870,11 @@
             selected = liveSelected;
           }
         };
+        // Size limits apply equally to distribution, return, refund and audit.
+        // Keep small SDK transactions unchanged; large roots need one atomic REST CAS.
+        const useDistributionRest = rootSaveUncertain || new Blob([JSON.stringify(S)]).size >= 14 * 1024 * 1024;
         let optimisticState = null;
-        if (!options.skipOptimistic) try {
+        if (!useDistributionRest && !options.skipOptimistic) try {
           optimisticState = typeof structuredClone === "function"
             ? structuredClone(S)
             : JSON.parse(JSON.stringify(S));
@@ -1843,7 +1893,7 @@
           optimisticState = null;
           console.error("optimistic transaction preview failed", error);
         }
-        const pending = root.transaction(
+        const pending = useDistributionRest ? largeRootTransaction(runMutation) : root.transaction(
           (st) => {
             st = st || { books: {}, classes: {}, students: {}, movements: {} };
             // Firebase supplies a fresh local snapshot for every retry.  Making
@@ -1875,7 +1925,7 @@
             if (pendingRemoteState) {
               S = pendingRemoteState;
               pendingRemoteState = null;
-            } else {
+            } else if (!useDistributionRest) {
               const snapshot = await root.once("value");
               S = snapshot.val() || {
                 books: {}, classes: {}, students: {}, movements: {},
@@ -4392,13 +4442,15 @@
               message: msg,
               time: now(),
             };
-          });
+          }, { skipOptimistic: true, distributionSave: true });
           alert(r.committed ? msg : msg || "전체 배부를 취소했습니다.");
           if (r.committed) {
             receipt = msg;
             selected = [];
           }
           render();
+        } catch (error) {
+          reportDistributionSaveError(error, "ACADEMY_ALL_BOOKS", opId);
         } finally {
           operationBusy = false;
         }
@@ -4500,7 +4552,7 @@
               message: msg,
               time: now(),
             };
-          });
+          }, { skipOptimistic: true, distributionSave: true });
           alert(r.committed ? msg : msg || "전체 배부를 취소했습니다.");
           if (r.committed) {
             window.lastIntakeBid = "";
@@ -4508,9 +4560,19 @@
             receipt = msg;
           }
           render();
+        } catch (error) {
+          reportDistributionSaveError(error, "BOOK_ALL_TARGETS", opId);
         } finally {
           operationBusy = false;
         }
+      }
+      function reportDistributionSaveError(error, mode, opId) {
+        // Keep diagnostics on this device only. Never persist names, tokens or raw errors.
+        const code = String(error?.code || error?.name || "UNKNOWN").replace(/[^A-Za-z0-9_/-]/g, "").slice(0, 80);
+        const diagnostic = { time: now(), mode, operationId: opId || "", code };
+        try { localStorage.setItem("bookflowLastDistributionError", JSON.stringify(diagnostic)); } catch (_) {}
+        receipt = null;
+        alert(`배부 저장 결과를 확인하지 못했습니다. 완료로 처리하지 않습니다.\n중복 배부를 막기 위해 다시 누르지 말고, 새로고침 후 배부 이력과 재고를 확인하세요.\n오류: ${code}\n확인번호: ${opId || "없음"}`);
       }
       let operationBusy = false;
       function operationId(button) {
@@ -4579,6 +4641,7 @@
         if (operationBusy) return alert("앞 작업을 반영 중입니다.");
         if (!selected.length) return alert("대상을 선택하세요.");
         const originalButtonText = button?.textContent || "";
+        const nDistributionTargets = selected.length;
         if (button) {
           button.disabled = true;
           button.textContent = "반영 중...";
@@ -4623,10 +4686,7 @@
             ))
           )
             return;
-          // The transaction below applies the same mutation to the local snapshot
-          // before it waits for Firebase.  Clear only the editor selection first so
-          // that the immediate render shows the completed state, not a second
-          // phantom preview or a long-lived "반영 중" button.
+          // Bulk distribution must not appear completed before server acknowledgement.
           window.action = "";
           window.memoDraft = "";
           const r = await periodTransaction(operationPeriodId, type === "RETURN" ? "RETURN" : "DISTRIBUTE", (st) => {
@@ -4791,7 +4851,7 @@
               message: msg,
               time: now(),
             };
-          });
+          }, { skipOptimistic: !isReturn && nDistributionTargets > 1, distributionSave: type === "DISTRIBUTE" });
           if (!r.committed)
             return alert(msg || "다른 직원 처리와 겹쳐 반영되지 않았습니다.");
           S = r.snapshot.val();
@@ -4821,6 +4881,9 @@
            window.businessReason = type === "ADDITIONAL" ? "" : "NORMAL";
            window.memoDraft = "";
            render();
+        } catch (error) {
+          if (type !== "DISTRIBUTE") throw error;
+          reportDistributionSaveError(error, "SELECTED_STUDENTS", button?.dataset.operationId);
         } finally {
           operationBusy = false;
           if (button?.isConnected) {
