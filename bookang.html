@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-11-03.104" />
+    <meta name="bookflow-build" content="2026-11-03.105" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-11-03.104", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-11-03.105", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -270,7 +270,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-11-03.104";
+      const BOOKFLOW_BUILD = "2026-11-03.105";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1898,8 +1898,10 @@
         // Only reuse an exact, recent server acknowledgement. The conditional PUT
         // remains authoritative: a concurrent remote change still yields 412.
         const cache = acknowledgedRootCache;
-        const reusable = cache && cache.uid === uid && cache.path === url.origin + url.pathname &&
-          Date.now() - cache.time < 60000 && cache.json === JSON.stringify(S);
+        const cacheAge = cache ? Date.now() - cache.time : Infinity;
+        const matchingCache = cache && cache.uid === uid && cache.path === url.origin + url.pathname && cache.json === JSON.stringify(S);
+        const reusable = matchingCache && cacheAge >= 0 && cacheAge < 60000;
+        const revalidatable = matchingCache && cache.time > 0 && cacheAge >= 60000 && cacheAge < 15 * 60000;
         acknowledgedRootCache = null;
         for (let attempt = 0; attempt < 3; attempt++) {
           if (!sameUser()) throw fail("AUTH_CHANGED");
@@ -1908,10 +1910,26 @@
             etag = cache.etag;
             current = JSON.parse(cache.json);
           } else {
-            const read = await fetch(url, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(45000) });
-            if (!read.ok) throw fail(`READ_${read.status}`);
-            etag = read.headers.get("etag");
-            current = await read.json();
+            // A short metadata-only read may revalidate an older acknowledged
+            // snapshot. Never associate a new ETag with old data. A mismatch,
+            // unsupported response or timeout always takes the full-read path.
+            if (attempt === 0 && revalidatable) {
+              const checkUrl = new URL(url);checkUrl.searchParams.set("print", "silent");
+              let check;
+              try { check = await fetch(checkUrl, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(3000) }); } catch (_) { /* full read below */ }
+              if (check?.status === 401 || check?.status === 403) throw fail(`READ_${check.status}`);
+              if (check?.status === 204 && check.headers.get("etag") === cache.etag && cache.etag && sameUser()) {
+                etag = cache.etag;current = JSON.parse(cache.json);
+              }
+              try { await check?.body?.cancel(); } catch (_) { /* no write has occurred */ }
+              if (!sameUser()) throw fail("AUTH_CHANGED");
+            }
+            if (!current) {
+              const read = await fetch(url, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(45000) });
+              if (!read.ok) throw fail(`READ_${read.status}`);
+              etag = read.headers.get("etag");
+              current = await read.json();
+            }
           }
           if (!etag || !current?.books || !current?.students) throw fail("INVALID_SAVE_BASE");
           const candidate = JSON.parse(JSON.stringify(current));
