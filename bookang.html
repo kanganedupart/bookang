@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-11-03.103" />
+    <meta name="bookflow-build" content="2026-11-03.104" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-11-03.103", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-11-03.104", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -215,7 +215,7 @@
       .intake-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
       .intake-row-actions button{height:30px;min-height:30px;padding:0 9px;font-size:12px;line-height:28px;margin:0}
       .intake-row-actions button+button{margin-left:0}.intake-edit-fields{display:grid;gap:12px}
-      .intake-edit-dialog{max-height:85vh;overflow:auto}
+      .intake-edit-dialog,.app-dialog[aria-label="입고 메모"]{width:min(420px,calc(100vw - 40px));max-height:85vh;overflow:auto}
       .intake-history-panel{margin-top:16px;padding:16px 20px}
       @media(max-width:980px){.intake-fields label{grid-column:auto!important}}
       @media(max-width:720px){#inFlow .flow{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}#inFlow .arrow{transform:none}}
@@ -224,16 +224,18 @@
       .intake-record-table{width:100%;table-layout:auto}
       .intake-record-table th,.intake-record-table td{padding:9px 10px;white-space:nowrap;vertical-align:middle;font-size:13px;text-align:left}
       .intake-record-table th:nth-child(1),.intake-record-table td:nth-child(1){width:7%}
-      .intake-record-table th:nth-child(2),.intake-record-table td:nth-child(2){width:9%}
-      .intake-record-table th:nth-child(3),.intake-record-table td:nth-child(3){width:29%}
-      .intake-record-table th:nth-child(4),.intake-record-table td:nth-child(4){width:12%;text-align:center}
-      .intake-record-table th:nth-child(5),.intake-record-table td:nth-child(5){width:9%;min-width:72px;box-sizing:border-box;padding-left:20px;padding-right:20px;text-align:center;font-variant-numeric:tabular-nums}
+      .intake-record-table th:nth-child(2),.intake-record-table td:nth-child(2){width:8%}
+      .intake-record-table th:nth-child(3),.intake-record-table td:nth-child(3){width:20%}
+      .intake-record-table th:nth-child(4),.intake-record-table td:nth-child(4){width:13%;text-align:center}
+      .intake-record-table th:nth-child(5),.intake-record-table td:nth-child(5){width:12%;min-width:72px;box-sizing:border-box;padding-left:20px;padding-right:20px;text-align:center;font-variant-numeric:tabular-nums}
       .intake-count span{display:inline-block;min-width:4ch;text-align:right}
-      .intake-record-table th:nth-child(6),.intake-record-table td:nth-child(6){width:25%}
-      .intake-record-table th:last-child,.intake-record-table td:last-child{width:9%;text-align:center}
+      .intake-record-table th:nth-child(6),.intake-record-table td:nth-child(6){width:28%}
+      .intake-record-table th:last-child,.intake-record-table td:last-child{width:12%;text-align:center}
       .intake-record-table .intake-row-actions{justify-content:center}
       .intake-record-table .intake-book-name{white-space:nowrap;word-break:normal;overflow:visible;text-overflow:clip;text-align:left}
-      .intake-memo-button{display:block;width:clamp(160px,20vw,390px);max-width:390px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;margin:0;min-height:30px;text-align:left;font-size:13px;font-weight:400}
+      .intake-memo-button{display:flex;align-items:center;gap:10px;width:clamp(200px,23vw,460px);max-width:460px;white-space:nowrap;border:0;background:transparent;padding:0;margin:0;min-height:30px;text-align:left;font-size:13px;font-weight:400}
+      .intake-memo-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .intake-memo-author{flex:none;color:var(--muted);font-size:12px}
       @media(max-width:600px){.intake-history-panel{padding:14px 10px}.intake-record-table th:last-child,.intake-record-table td:last-child{position:sticky;right:0;background:#fff;border-left:1px solid var(--line)}.intake-record-table th:last-child{background:#edf2f8}}
       .intake-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
       .intake-panel-heading h2{margin:0}.intake-panel-heading button{margin:0;font-size:13px;white-space:nowrap}
@@ -268,7 +270,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-11-03.103";
+      const BOOKFLOW_BUILD = "2026-11-03.104";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -7433,14 +7435,18 @@
         const original=S.movements?.[mid];if(!original)return;
         const record=(inventoryIntakeIndex().get(original.bookId)||[]).find(m=>m.id===mid);
         if(!record)return;
-        document.getElementById("appDialogHost").innerHTML=`<div class="app-dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-label="입고 메모"><h2>입고 메모</h2><div class="app-dialog-message">${esc(record.memo||"메모 없음")}</div><div class="app-dialog-actions"><button onclick="document.getElementById('appDialogHost').innerHTML=''">닫기</button></div></section></div>`;
+        const correction=S.intakeCorrections?.[mid];
+        const detailTime=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('ko-KR'):"기록 없음";
+        document.getElementById("appDialogHost").innerHTML=`<div class="app-dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-label="입고 메모"><h2>입고 메모</h2><p class="muted">입고자 ${esc(original.actor||"기록 없음")} · 입고일시 ${esc(detailTime(original.time))}</p><div class="app-dialog-message">${esc(record.memo||"메모 없음")}</div>${correction&&correction.bookId===original.bookId?`<p class="muted">수정자 ${esc(correction.actor||"기록 없음")} · 수정일시 ${esc(detailTime(correction.time))}</p>`:""}<div class="app-dialog-actions"><button onclick="document.getElementById('appDialogHost').innerHTML=''">닫기</button></div></section></div>`;
       }
       function renderIntakeHistory() {
         const host=document.getElementById("inlineIntakeHistory");if(!host)return;
         const records=filteredIntakeRecords();
         host.innerHTML=`<div class="intake-list-heading"><h2>입고내역</h2><span class="muted">${records.length}건 · 입고 1건당 한 줄</span></div><div class="scroll intake-record-scroll"><table class="intake-record-table"><thead><tr><th>과목</th><th>강사</th><th>교재명</th><th>입고일</th><th>수량</th><th>메모</th><th>관리</th></tr></thead><tbody>${records.map(m=>{
           const editable=m.quantity>0&&!!intakeCorrectionBasis(S,m.id,selectedPeriodId());
-          return `<tr data-intake-id="${esc(m.id)}" data-book-id="${esc(m.bookId)}"><td>${esc(S.books[m.bookId]?.subject||'—')}</td><td>${esc(S.books[m.bookId]?.teacher||'학원 공통')}</td><td class="intake-book-name">${esc(m.currentBookName)}</td><td>${esc(intakeDateLabel(m.time))}</td><td class="intake-count"><span>${esc(m.quantity)}</span></td><td><button class="intake-memo-button" title="메모 전체 보기" onclick="showIntakeMemo('${m.id}')">${esc(m.memo||'—')}</button></td><td><div class="intake-row-actions">${editable?`<button onclick="openIntakeCorrection('${m.id}',false,'inline')">수정</button><button class="danger" onclick="openIntakeCorrection('${m.id}',true,'inline')">취소</button>`:`<span class="muted">${m.quantity===0?'취소됨':'조회만'}</span>`}</div></td></tr>`;
+          const correction=S.intakeCorrections?.[m.id];
+          const memoActor=correction&&correction.bookId===m.bookId?correction.actor:m.actor;
+          return `<tr data-intake-id="${esc(m.id)}" data-book-id="${esc(m.bookId)}"><td>${esc(S.books[m.bookId]?.subject||'—')}</td><td>${esc(S.books[m.bookId]?.teacher||'학원 공통')}</td><td class="intake-book-name">${esc(m.currentBookName)}</td><td>${esc(intakeDateLabel(m.time))}</td><td class="intake-count"><span>${esc(m.quantity)}</span></td><td><button class="intake-memo-button" title="메모·작성 정보 보기" onclick="showIntakeMemo('${m.id}')"><span class="intake-memo-text">${esc(m.memo||'—')}</span><span class="intake-memo-author">· ${esc(memoActor||'기록 없음')}</span></button></td><td><div class="intake-row-actions">${editable?`<button onclick="openIntakeCorrection('${m.id}',false,'inline')">수정</button><button class="danger" onclick="openIntakeCorrection('${m.id}',true,'inline')">취소</button>`:`<span class="muted">${m.quantity===0?'취소됨':'조회만'}</span>`}</div></td></tr>`;
         }).join('')||'<tr><td colspan="7">조건에 맞는 입고내역이 없습니다.</td></tr>'}</tbody></table></div>`;
       }
       function inventory() {
