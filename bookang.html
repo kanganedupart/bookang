@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="bookflow-build" content="2026-10-20.100" />
+    <meta name="bookflow-build" content="2026-11-03.101" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style id="bookflowVersionGateStyle">html{visibility:hidden}</style>
     <script>
       (() => {
-        const currentBuild = "2026-10-20.100", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
+        const currentBuild = "2026-11-03.101", reveal = () => { document.documentElement.style.visibility = ""; document.getElementById("bookflowVersionGateStyle")?.remove(); };
         const latestBuild = () => fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => String(data?.build || ""));
         const updateKey = (build) => `bookflow-version-attempt:${build}`;
         const showUpdateBanner = (build) => {
@@ -205,6 +205,34 @@
       .inventory-audit-toolbar #inventoryAuditBatch:disabled{background:#e9edf2!important;color:#687585!important;border-color:#d5dce5!important;opacity:1;cursor:not-allowed}
       #inventoryAuditSavedNotice{margin:0 0 12px;font-size:13px;line-height:1.5}#inventoryAuditSavedNotice:empty{display:none}
       @media(max-width:720px){.inventory-audit-toolbar{flex-direction:column;align-items:stretch;gap:12px;padding:12px}.inventory-audit-toolbar #inventoryAuditBatch{width:100%;min-width:0}}
+      .intake-history-dialog{width:min(820px,calc(100vw - 32px));max-height:85vh;display:flex;flex-direction:column}
+      .intake-history-dialog .scroll{overflow:auto;min-height:0}
+      .intake-history-table{table-layout:fixed;min-width:640px;width:100%}
+      .intake-history-table th,.intake-history-table td{padding:10px 12px;font-size:13px;vertical-align:middle}
+      .intake-history-table th:nth-child(1){width:190px}.intake-history-table th:nth-child(2){width:70px}.intake-history-table th:nth-child(4){width:112px}
+      .intake-history-table td:nth-child(2){text-align:right;font-variant-numeric:tabular-nums}
+      .intake-memo{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .intake-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
+      .intake-row-actions button{height:30px;min-height:30px;padding:0 9px;font-size:12px;line-height:28px;margin:0}
+      .intake-row-actions button+button{margin-left:0}.intake-edit-fields{display:grid;gap:12px}
+      .intake-edit-dialog{max-height:85vh;overflow:auto}
+      .intake-history-panel{margin-top:16px;padding:16px 20px}
+      @media(max-width:980px){.intake-fields label{grid-column:auto!important}}
+      @media(max-width:720px){#inFlow .flow{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}#inFlow .arrow{transform:none}}
+      .intake-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+      .intake-list-heading h2{margin:0}
+      .intake-record-table{width:100%;table-layout:auto}
+      .intake-record-table th,.intake-record-table td{padding:7px 9px;white-space:nowrap;vertical-align:middle;font-size:13px}
+      .intake-record-table th:nth-child(2),.intake-record-table td:nth-child(2){width:94px}
+      .intake-record-table th:nth-child(3),.intake-record-table td:nth-child(3){width:42px;text-align:right;font-variant-numeric:tabular-nums}
+      .intake-record-table th:last-child,.intake-record-table td:last-child{width:100px}
+      .intake-record-table .intake-book-name{white-space:nowrap;word-break:normal;overflow:visible;text-overflow:clip;text-align:left}
+      .intake-memo-button{display:block;width:clamp(100px,18vw,260px);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;margin:0;min-height:30px;text-align:left;font-size:13px;font-weight:400}
+      @media(max-width:600px){.intake-history-panel{padding:14px 10px}.intake-record-table th:last-child,.intake-record-table td:last-child{position:sticky;right:0;background:#fff;border-left:1px solid var(--line)}.intake-record-table th:last-child{background:#edf2f8}}
+      .intake-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+      .intake-panel-heading h2{margin:0}.intake-panel-heading button{margin:0;font-size:13px;white-space:nowrap}
+      .intake-history-dialog h2{word-break:keep-all;overflow-wrap:anywhere}
+      @media(max-width:600px){.intake-history-dialog{padding:16px}.intake-history-table th:last-child,.intake-history-table td:last-child{position:sticky;right:0;border-left:1px solid var(--line);background:#fff}.intake-history-table th:last-child{background:#edf2f8}}
     </style>
   </head>
   <body>
@@ -234,7 +262,7 @@
         appId: "1:675243179974:web:ffad30acbcd63741bc4db0",
       };
       firebase.initializeApp(firebaseConfig);
-      const BOOKFLOW_BUILD = "2026-10-20.100";
+      const BOOKFLOW_BUILD = "2026-11-03.101";
       const ECODING_OPERATION_LOCKED = false;
       function blockUnverifiedEcodingOperation(){
         if(!ECODING_OPERATION_LOCKED)return false;
@@ -1804,6 +1832,51 @@
         );
       }
       let rootSaveUncertain = false;
+      function emptyPersistedValue(value) {
+        return value == null || (typeof value === "object" && Object.keys(value).every(key => emptyPersistedValue(value[key])));
+      }
+      function samePersistedValue(expected, actual) {
+        if (expected === actual) return true;
+        if (emptyPersistedValue(expected)) return emptyPersistedValue(actual);
+        if (!expected || typeof expected !== "object" || !actual || typeof actual !== "object") return false;
+        // Server transforms must be read back normally, never predicted locally.
+        if (Object.prototype.hasOwnProperty.call(expected, ".sv")) return false;
+        const keys=Object.keys(expected).filter(key=>!emptyPersistedValue(expected[key]));
+        const actualKeys=Object.keys(actual).filter(key=>!emptyPersistedValue(actual[key]));
+        return keys.length===actualKeys.length && keys.every(key=>samePersistedValue(expected[key],actual[key]));
+      }
+      function normalizeAcknowledgedJSON(value, before) {
+        if(value==null)return null;
+        if(typeof value!=="object")return value;
+        const keys=Object.keys(value);
+        if(keys.some(k=>[".sv",".value",".priority"].includes(k)))throw new Error("READ_BACK_REQUIRED");
+        // Existing arrays/numeric maps already came from the server. Never guess a
+        // new sparse-array representation; that uncommon case uses full readback.
+        if(Array.isArray(value)||keys.some(k=>/^(0|[1-9]\d*)$/.test(k))){
+          if(JSON.stringify(value)===JSON.stringify(before))return before;
+          if(Array.isArray(value)&&value.length&&value.every(v=>!emptyPersistedValue(v)))return value.map((v,i)=>normalizeAcknowledgedJSON(v,before?.[i]));
+          throw new Error("READ_BACK_REQUIRED");
+        }
+        const entries=keys.map(k=>[k,normalizeAcknowledgedJSON(value[k],before?.[k])]).filter(([,v])=>v!==null);
+        return entries.length?Object.fromEntries(entries):null;
+      }
+      async function readOperationAcknowledgement(url, current, candidate) {
+        const ids=Object.keys(candidate.processedOperations||{}).filter(id=>!current.processedOperations?.[id]);
+        if(ids.length!==1)return null;
+        const id=ids[0], expected=candidate.processedOperations[id];
+        if(!expected || expected.id!==id || !expected.time)return null;
+        const added=Object.values(candidate.movements||{}).filter(m=>!current.movements?.[m.id]);
+        if(!added.length||!added.every(m=>m.operationId===id&&["IN","DISTRIBUTE","RETURN","ADJUST"].includes(m.type)))return null;
+        try{
+          const saved=normalizeAcknowledgedJSON(candidate,current), proofUrl=new URL(url);
+          proofUrl.pathname=proofUrl.pathname.replace(/\.json$/,"/processedOperations/"+encodeURIComponent(id)+".json");
+          const proof=await fetch(proofUrl,{cache:"no-store",signal:AbortSignal.timeout(3000)});
+          if(!proof.ok)return null;
+          const actual=await proof.json();
+          return samePersistedValue(expected,actual)?saved:null;
+        }catch(_){return null;}
+      }
+      let acknowledgedRootCache = null;
       async function largeRootTransaction(update) {
         const fail = (code) => Object.assign(new Error(code), { code });
         if (rootSaveUncertain) throw fail("SAVE_RESULT_UNKNOWN");
@@ -1814,11 +1887,24 @@
         const url = new URL(root.toString());
         url.pathname = url.pathname.replace(/\/$/, "") + ".json";
         url.searchParams.set("auth", token);
+        // Only reuse an exact, recent server acknowledgement. The conditional PUT
+        // remains authoritative: a concurrent remote change still yields 412.
+        const cache = acknowledgedRootCache;
+        const reusable = cache && cache.uid === uid && cache.path === url.origin + url.pathname &&
+          Date.now() - cache.time < 60000 && cache.json === JSON.stringify(S);
+        acknowledgedRootCache = null;
         for (let attempt = 0; attempt < 3; attempt++) {
           if (!sameUser()) throw fail("AUTH_CHANGED");
-          const read = await fetch(url, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(45000) });
-          if (!read.ok) throw fail(`READ_${read.status}`);
-          const etag = read.headers.get("etag"), current = await read.json();
+          let etag, current;
+          if (attempt === 0 && reusable) {
+            etag = cache.etag;
+            current = JSON.parse(cache.json);
+          } else {
+            const read = await fetch(url, { cache: "no-store", headers: { "X-Firebase-ETag": "true" }, signal: AbortSignal.timeout(45000) });
+            if (!read.ok) throw fail(`READ_${read.status}`);
+            etag = read.headers.get("etag");
+            current = await read.json();
+          }
           if (!etag || !current?.books || !current?.students) throw fail("INVALID_SAVE_BASE");
           const candidate = JSON.parse(JSON.stringify(current));
           if (update(candidate) === false) return { committed: false, snapshot: { val: () => current } };
@@ -1829,7 +1915,7 @@
           // Only a definite 412 is retried; an unknown outcome is never replayed.
           let response;
           try {
-            response = await fetch(url, { method: "PUT", cache: "no-store", headers: { "Content-Type": "application/json", "If-Match": etag }, body, signal: AbortSignal.timeout(45000) });
+            response = await fetch(url, { method: "PUT", cache: "no-store", headers: { "Content-Type": "application/json", "If-Match": etag, "X-Firebase-ETag": "true" }, body, signal: AbortSignal.timeout(45000) });
           } catch (_) {
             rootSaveUncertain = true;
             throw fail("SAVE_RESULT_UNKNOWN");
@@ -1840,8 +1926,24 @@
             throw fail(rootSaveUncertain ? "SAVE_RESULT_UNKNOWN" : `SAVE_${response.status}`);
           }
           try {
-            const saved = await response.json();
+            const savedEtag = response.headers?.get("etag");
+            // A successful conditional HTTP write AND an exact independent realtime
+            // snapshot are both required. Never use an optimistic local preview here.
+            // If realtime is late or differs, retain the original full response path.
+            const remote = typeof pendingRemoteState !== "undefined" ? pendingRemoteState : null;
+            const acknowledgedRealtime = response.status === 200 && savedEtag && remote && samePersistedValue(candidate, remote);
+            // A new unique operation marker was written atomically with the root.
+            // Read that small immutable receipt when the realtime stream is late.
+            let saved=acknowledgedRealtime?remote:response.status===200&&savedEtag&&sameUser()?await readOperationAcknowledgement(url,current,candidate):null;
+            if (saved) {
+              // Only cancel the redundant response download, after commit confirmation.
+              try { await response.body?.cancel(); } catch (_) { /* committed and independently verified */ }
+            } else saved = await response.json();
             if (!saved?.books || !saved?.students) throw fail("INVALID_SAVE_RESPONSE");
+            if (savedEtag && sameUser()) acknowledgedRootCache = {
+              uid, path: url.origin + url.pathname, etag: savedEtag,
+              json: JSON.stringify(saved), time: Date.now(),
+            };
             return { committed: true, snapshot: { val: () => saved } };
           } catch (_) {
             rootSaveUncertain = true;
@@ -2670,7 +2772,7 @@
         const studentStatusInput=document.getElementById("studentBookQuery");
         conditionBookPicker(studentStatusInput,()=>[...document.querySelectorAll("#studentBookRows tr")].filter((row)=>!row.hidden),{
           choiceKey:"studentBookChoice",queryKey:"studentBookQuery",
-          info:(row)=>({id:row.dataset.bookId,name:row.dataset.book||"",meta:[row.dataset.subject,row.dataset.state==="HELD"?"배부":"미배부"].filter(Boolean).join(" · "),row}),
+          info:(row)=>({id:row.dataset.bookId,name:row.dataset.book||"",meta:[row.dataset.subject,row.dataset.state==="HELD"?"배부":row.dataset.state==="EXCLUDED"?"미배부 제외":"미배부"].filter(Boolean).join(" · "),row}),
           clear:()=>{window.studentBookDetail="";},
           filter:()=>syncStudentBookFilters("query"),
         });
@@ -2726,7 +2828,7 @@
             .filter((x) =>
               (subject === "전체" || (x.book.subject || "미지정") === subject) &&
               (teacher === "전체" || x.teachers.includes(teacher)) &&
-              (transition || state === "전체" || (state === "배부" ? held(sid, x.book.id) > 0 : held(sid, x.book.id) === 0)) &&
+              (transition || state === "전체" || (state === "배부" ? held(sid, x.book.id) > 0 : held(sid, x.book.id) === 0 && !studentBookIsExcluded(S, sid, x.book.id))) &&
               (!transition || transitionState === "전체" || (() => { const was=(transition.beforeBookIds||[]).includes(x.book.id), is=(transition.afterBookIds||[]).includes(x.book.id); return transitionState === "처리 필요" ? was !== is : transitionState === "변경전" ? was && !is : transitionState === "변경후" ? !was && is : was && is; })()) &&
               (!query || x.book.name.toLowerCase().includes(query)),
             )
@@ -2745,7 +2847,14 @@
         const changeStart = transition?.changes?.[0]?.time || transition?.savedAt || "";
         const returnedBookIds = new Set(transition ? arr(S.movements).filter(m => m.periodId === selectedPeriodId() && m.type === "RETURN" && String(m.time || "") >= changeStart && (Number(m.studentDeltas?.[sid] || 0) < 0 || Number(m.periodStudentDeltas?.[selectedPeriodId()]?.[sid] || 0) < 0)).map(m => m.bookId) : []);
 
-        const renderRow = ({ book, teachers, classNames }) => { const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new", wasReturned=kind==="old"&&!quantity&&returnedBookIds.has(book.id), autoExcluded=!wasReturned&&kind==="old"&&!quantity&&!currentRequired.has(book.id), label=kind==="keep"?"변경없음":kind==="old"?"변경전":"변경후", suggestedAction=transition?(kind==="old"?(quantity?"RETURN":""):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE"); return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'||autoExcluded||wasReturned?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":autoExcluded?"transition-status-excluded":"danger"}">${quantity?`배부 · 보유 ${quantity}권`:wasReturned?"회수":autoExcluded?"미배부 제외":"미배부"}</b></td><td>${kind==='keep'||autoExcluded||wasReturned?"처리 없음":suggestedAction==='EXCLUDE'?"선택 시 미배부 제외":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":"danger"}">${quantity?"배부":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`; };
+        const renderRow = ({ book, teachers, classNames }) => {
+          const quantity=held(sid,book.id), was=!!transition&&(transition.beforeBookIds||[]).includes(book.id), is=!!transition&&(transition.afterBookIds||[]).includes(book.id), kind=!transition?"":was&&is?"keep":was?"old":"new",
+            wasReturned=kind==="old"&&!quantity&&returnedBookIds.has(book.id),
+            autoExcluded=!quantity&&!wasReturned&&(studentBookIsExcluded(S,sid,book.id)||(kind==="old"&&!currentRequired.has(book.id))),
+            label=kind==="keep"?"변경없음":kind==="old"?"변경전":"변경후",
+            suggestedAction=autoExcluded?"":transition?(kind==="old"?(quantity?"RETURN":""):kind==="new"&&!quantity?"DISTRIBUTE":""):(quantity?"":"DISTRIBUTE");
+          return `<tr data-book-id="${book.id}" class="${book.id===selectedBookId?"selected":""}" onclick="${kind==='keep'||autoExcluded||wasReturned?"return;":""}bid='${book.id}';studentProcessScope='SINGLE';action='${suggestedAction}';businessReason='${suggestedAction==='DISTRIBUTE'?'NORMAL':''}';selected=[];receipt=null;lastStudentReceipt=null;render()">${transition?`<td><span class="transition-state ${kind}">${label}</span></td><td>${was?`<b>${esc(book.name)}</b>`:"—"}</td><td>${is?`<b>${esc(book.name)}</b><small>${esc(classNames.join(" · ")||"변경 반")}</small>`:"—"}</td><td><b class="${quantity?"success":autoExcluded?"transition-status-excluded":"danger"}">${quantity?`배부 · 보유 ${quantity}권`:wasReturned?"회수":autoExcluded?"미배부 제외":"미배부"}</b></td><td>${kind==='keep'||autoExcluded||wasReturned?"처리 없음":suggestedAction==='RETURN'?"선택 시 회수 검토":"선택 시 배부 유형 선택"}</td>`:`<td>${esc(book.subject||"")}</td><td><b>${esc(book.name)}</b></td><td>${esc(teachers.join(" · ")||"-")}<small>${esc(classNames.join(" · ")||"-")}</small></td><td><b class="${quantity?"success":autoExcluded?"transition-status-excluded":"danger"}">${quantity?"배부":autoExcluded?"미배부 제외":"미배부"}</b></td><td><b>${quantity}권</b></td>`}</tr>`;
+        };
         const kept = transition?.kind === 'MOVE' ? rows.filter(({book}) => transition.beforeBookIds.includes(book.id) && transition.afterBookIds.includes(book.id)) : [];
         const changedRows = kept.length ? rows.filter(row => !kept.includes(row)) : rows;
         const tableHead = transition ? '<th>구분</th><th>변경전</th><th>변경후</th><th>현재 상태</th><th>선택 후 처리</th>' : '<th>과목</th><th>교재명</th><th>강사·반</th><th>현재 상태</th><th>보유</th>';
@@ -7122,9 +7231,10 @@
           validQuantity = Number.isInteger(q) && q > 0;
         if (b)
           inFlow.innerHTML = `<div class="flow"><div>현재재고<br><b>${b.stock || 0}</b></div><div class="arrow">+${validQuantity ? q : 0} →</div><div>입고 후 예상<br><b>${(b.stock || 0) + (validQuantity ? q : 0)}</b></div></div>`;
+        else if(document.getElementById("inFlow")) inFlow.innerHTML='<div class="flow-placeholder">교재 하나를 선택하면<br>입고 전·후 재고가 표시됩니다.</div>';
         if (confirmButton)
           confirmButton.disabled = !(
-            b && validQuantity && String(memoInput?.value || "").trim()
+            b && b.active !== false && validQuantity && String(memoInput?.value || "").trim()
           );
       }
       async function doIntake(button) {
@@ -7134,8 +7244,8 @@
         const bid = window.inBid,
           q = Number(inQty.value),
           memo = inMemo.value.trim(),
-          intakeSubject = window.inSubject,
-          intakeOwner = window.inOwner,
+          intakeSubject = S.books?.[bid]?.subject,
+          intakeOwner = S.books?.[bid]?.teacher || "학원 공통",
           opId = operationId(button),
           shownStock = Number(S.books?.[bid]?.stock || 0);
         if (!Number.isInteger(q) || q < 1) return alert("수량을 확인하세요.");
@@ -7150,7 +7260,8 @@
               return false;
             }
             const b = st.books[bid];
-            if (!b || b.active === false || b.subject !== intakeSubject || (b.teacher || "학원 공통") !== intakeOwner) {
+            const belongsToPeriod=!!b?.periodIds?.[operationPeriodId]||arr(st.classes).some(c=>classInPeriod(c,operationPeriodId)&&arr(c.books).includes(bid));
+            if (!b || b.active === false || !belongsToPeriod || b.subject !== intakeSubject || (b.teacher || "학원 공통") !== intakeOwner) {
               msg = "선택한 조건과 교재가 달라졌습니다. 교재를 다시 선택하세요.";
               return false;
             }
@@ -7168,6 +7279,7 @@
               batchId,
               operationId: opId,
               type: "IN",
+              periodId: operationPeriodId,
               bookId: bid,
               bookName: b.name,
               studentId: null,
@@ -7211,7 +7323,7 @@
             if(!index.has(m.bookId))index.set(m.bookId,[]);
             const correction = S.intakeCorrections?.[m.id];
             index.get(m.bookId).push(correction && correction.bookId === m.bookId
-              ? {...m, originalQuantity:m.quantity, quantity:correction.quantity, memo:`${m.memo || ""} · 입고 정정: ${correction.reason || ""}`}
+              ? {...m, originalQuantity:m.quantity, quantity:correction.quantity, memo:`${correction.memo ?? m.memo ?? ""} · 입고 ${correction.status==="CANCELLED"?"취소":"정정"}: ${correction.reason || ""}`}
               : m);
           }
           for(const records of index.values())records.sort((a,b)=>String(a.time||"").localeCompare(String(b.time||"")));
@@ -7229,9 +7341,96 @@
         const quantity=additional?s.additional:s.first.quantity;
         return '<button class="intake-quantity" type="button" title="입고 날짜별 내역 열기" onclick="showInventoryIntakes(\''+esc(bid)+'\')">'+esc(quantity==null?'확인 필요':quantity)+'</button>';
       }
+      function intakeCorrectionBasis(st, mid, pid) {
+        const original=st.movements?.[mid], book=st.books?.[original?.bookId], correction=st.intakeCorrections?.[mid];
+        if (!original || original.type!=="IN" || !book || !periodAllowsForId(st,pid,"IN")) return null;
+        // A missing historical period is ambiguous. Never guess a different period.
+        const recordPeriod=original.periodId || correction?.periodId;
+        if (recordPeriod ? recordPeriod!==pid : !(book.periodIds?.[pid] && Object.keys(book.periodIds).length===1)) return null;
+        if (correction && correction.bookId!==original.bookId) return null;
+        const quantity=Number(correction ? correction.quantity : original.quantity), stock=Number(book.stock || 0);
+        if (!Number.isSafeInteger(quantity)||quantity<0||!Number.isSafeInteger(stock)||stock<0) return null;
+        return {original,book,correction,quantity,stock,memo:correction?.memo ?? original.memo ?? ""};
+      }
+      function openIntakeCorrection(mid, cancel=false, returnTo="popup") {
+        if (operationBusy) return;
+        const pid=selectedPeriodId(), basis=intakeCorrectionBasis(S,mid,pid);
+        if (!basis || basis.quantity===0) return alert("취소된 입고이거나 현재 대상에서 정정할 수 없는 기록입니다.");
+        window.intakeCorrectionDraft={mid,pid,cancel,returnTo,stock:basis.stock,quantity:basis.quantity,original:JSON.stringify(basis.original),correction:JSON.stringify(basis.correction || null)};
+        const host=document.getElementById("appDialogHost");
+        host.innerHTML=`<div class="app-dialog-backdrop"><section class="app-dialog intake-edit-dialog" role="dialog" aria-modal="true" aria-label="입고 ${cancel?"취소":"수정"}"><h2>입고 ${cancel?"취소":"수정"}</h2><p><b>${esc(basis.book.name)}</b><br>${esc(intakeDateLabel(basis.original.time))} · 현재 입고 ${basis.quantity}권</p><div class="intake-edit-fields"><label>정정 후 입고수량<input id="intakeEditQuantity" type="number" min="1" step="1" value="${cancel?0:basis.quantity}" ${cancel?"disabled":""}></label><label>입고 메모<input id="intakeEditMemo" value="${esc(basis.memo)}" ${cancel?"disabled":""}></label><label>변경 사유 · 필수<input id="intakeEditReason" placeholder="잘못 입력한 수량 등 사유"></label></div><p class="muted">현재 재고 ${basis.stock}권에서 수량 차이만 반영합니다. 원래 입고와 변경 이력은 남습니다.</p><div class="app-dialog-actions"><button onclick="finishIntakeCorrection('${basis.book.id}','${returnTo}')">뒤로</button><button class="${cancel?'danger-btn':'btn'}" onclick="saveIntakeCorrection(this)">${cancel?'입고 취소':'수정 저장'}</button></div></section></div>`;
+      }
+      function finishIntakeCorrection(bid, returnTo) {
+        if(returnTo==="inline") {document.getElementById("appDialogHost").innerHTML="";renderIntakeHistory();}
+        else showInventoryIntakes(bid);
+      }
+      async function saveIntakeCorrection(button) {
+        if (operationBusy || !window.intakeCorrectionDraft) return;
+        const draft={...window.intakeCorrectionDraft}, quantity=draft.cancel?0:Number(document.getElementById("intakeEditQuantity").value),
+          memo=document.getElementById("intakeEditMemo").value.trim(), reason=document.getElementById("intakeEditReason").value.trim();
+        if (!reason || !Number.isSafeInteger(quantity) || quantity<(draft.cancel?0:1)) return alert("입고수량과 변경 사유를 확인하세요.");
+        const basis=intakeCorrectionBasis(S,draft.mid,draft.pid), after=draft.stock+quantity-draft.quantity;
+        if (!basis || selectedPeriodId()!==draft.pid) return alert("대상이 변경되었습니다. 입고내역을 다시 여세요.");
+        if (after<0 || !Number.isSafeInteger(after)) return alert("현재 재고보다 많이 줄일 수 없습니다. 이미 배부된 수량을 먼저 확인하세요.");
+        if (quantity===draft.quantity && memo===basis.memo) return alert("변경한 내용이 없습니다.");
+        const opId=operationId(button), mid="M"+crypto.randomUUID(), time=now();
+        operationBusy=true; button.disabled=true;
+        let message="";
+        try {
+          if (!(await askConfirm(`입고 ${draft.quantity}권 → ${quantity}권\n재고 ${draft.stock}권 → ${after}권\n원래 기록을 보존하고 ${draft.cancel?'취소':'정정'}할까요?`))) return;
+          const result=await periodTransaction(draft.pid,"IN",st=>{
+            if(st.processedOperations?.[opId]) {message="이미 반영된 작업입니다.";return false;}
+            const current=intakeCorrectionBasis(st,draft.mid,draft.pid);
+            if(!current || current.stock!==draft.stock || !samePersistedValue(current.original,JSON.parse(draft.original)) || !samePersistedValue(current.correction || null,JSON.parse(draft.correction))) {
+              message="재고 또는 입고내역이 변경되었습니다. 내역을 다시 열어 확인하세요.";return false;
+            }
+            const delta=quantity-current.quantity;
+            if(current.stock+delta<0) {message="재고가 부족하여 정정하지 않았습니다.";return false;}
+            current.book.stock=current.stock+delta;
+            st.intakeCorrections=st.intakeCorrections || {};
+            st.intakeCorrections[draft.mid]={bookId:current.book.id,periodId:draft.pid,originalQuantity:current.original.quantity,quantity,memo,reason,actor,time,status:draft.cancel?"CANCELLED":"CORRECTED",movementId:mid};
+            st.movements[mid]={id:mid,periodId:draft.pid,type:"ADJUST",subtype:draft.cancel?"INTAKE_CANCEL":"INTAKE_CORRECTION",bookId:current.book.id,bookName:current.book.name,sourceMovementId:draft.mid,operationId:opId,quantity:delta,stockBefore:current.stock,stockAfter:current.stock+delta,intakeQuantityBefore:current.quantity,intakeQuantityAfter:quantity,previousCorrection:current.correction || null,memo:`입고 ${draft.cancel?'취소':'정정'} · ${current.quantity} → ${quantity}권 · ${reason}`,actor,time};
+            st.processedOperations=st.processedOperations || {};
+            st.processedOperations[opId]={id:opId,message:"입고 정정 반영",time};
+          },{skipOptimistic:true,silentRender:true});
+          if(result.committed) {window.intakeCorrectionDraft=null;render();finishIntakeCorrection(basis.book.id,draft.returnTo);}
+          else {finishIntakeCorrection(basis.book.id,draft.returnTo);alert(message || "저장하지 않았습니다. 현재 상태를 다시 확인하세요.");}
+        } catch(error) {alert("저장 완료를 확인하지 못했습니다. 다시 누르지 말고 새로고침 후 입고내역을 확인하세요.");console.error("intake correction failed",error.code || error.message);}
+        finally {operationBusy=false;if(button.isConnected)button.disabled=false;}
+      }
       function showInventoryIntakes(bid) {
         const s=inventoryIntakeSummary(bid),host=document.getElementById("appDialogHost");if(!host)return;
-        host.innerHTML='<div class="app-dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-label="입고내역"><h2>'+esc(S.books[bid]?.name||'교재')+' 입고내역</h2><p>동일 교재 ID의 전체 입고 기록 기준입니다. 최초는 첫 입고 기록, 추가는 이후 입고 합계입니다. 회수·재고조정은 제외합니다.</p><div class="scroll"><table><thead><tr><th>입고일시</th><th>수량</th><th>메모</th></tr></thead><tbody>'+s.records.map(m=>'<tr><td>'+esc(m.time?fmt(m.time):'일시 미기록')+'</td><td>'+esc(m.quantity)+'권</td><td>'+esc(m.memo||'—')+'</td></tr>').join('')+'</tbody></table></div><button type="button" onclick="document.getElementById(\'appDialogHost\').innerHTML=\'\'">닫기</button></section></div>';
+        host.innerHTML='<div class="app-dialog-backdrop"><section class="app-dialog intake-history-dialog" role="dialog" aria-modal="true" aria-label="입고내역"><h2>'+esc(S.books[bid]?.name||'교재')+' 입고내역</h2><p class="muted">수정·취소해도 원래 기록은 남습니다. 재고에는 수량 차이만 반영합니다.</p><div class="scroll"><table class="intake-history-table"><thead><tr><th>입고일시</th><th>수량</th><th>메모</th><th>관리</th></tr></thead><tbody>'+s.records.map(m=>{
+          const editable=m.quantity>0&&!!intakeCorrectionBasis(S,m.id,selectedPeriodId());
+          return '<tr><td>'+esc(m.time?fmt(m.time):'일시 미기록')+'</td><td>'+esc(m.quantity)+'권</td><td title="'+esc(m.memo||'')+'"><span class="intake-memo">'+esc(m.memo||'—')+'</span></td><td><div class="intake-row-actions">'+(editable?'<button onclick="openIntakeCorrection(\''+esc(m.id)+'\')">수정</button><button class="danger" onclick="openIntakeCorrection(\''+esc(m.id)+'\',true)">취소</button>':'<span class="muted">'+(m.quantity===0?'취소됨':'조회만')+'</span>')+'</div></td></tr>';
+        }).join('')+'</tbody></table></div><div class="app-dialog-actions"><button type="button" onclick="document.getElementById(\'appDialogHost\').innerHTML=\'\'">닫기</button></div></section></div>';
+      }
+      function intakeDateLabel(time) {
+        return time && Number.isFinite(new Date(time).getTime()) ? localDateKey(time) : "미기록";
+      }
+      function filteredIntakeRecords() {
+        const pid=selectedPeriodId(), scope=periodBookIds(),query=String(window.inBookQuery||"").normalize("NFKC").trim().toLocaleLowerCase("ko");
+        return arr(S.books).filter(b=>scope.has(b.id)&&(!window.inSubject||b.subject===window.inSubject)&&(!window.inOwner||(b.teacher||"학원 공통")===window.inOwner)&&
+          (window.inBid?b.id===window.inBid:!query||String(b.name||"").normalize("NFKC").toLocaleLowerCase("ko").includes(query)))
+          .flatMap(b=>(inventoryIntakeIndex().get(b.id)||[]).filter(m=>{
+            const p=m.periodId||S.intakeCorrections?.[m.id]?.periodId;
+            return p?p===pid:!!b.periodIds?.[pid]&&Object.keys(b.periodIds).length===1;
+          }).map(m=>({...m,currentBookName:b.name})))
+          .sort((a,b)=>String(b.time||"").localeCompare(String(a.time||""))||a.currentBookName.localeCompare(b.currentBookName,"ko")||String(a.id).localeCompare(String(b.id)));
+      }
+      function showIntakeMemo(mid) {
+        const original=S.movements?.[mid];if(!original)return;
+        const record=(inventoryIntakeIndex().get(original.bookId)||[]).find(m=>m.id===mid);
+        if(!record)return;
+        document.getElementById("appDialogHost").innerHTML=`<div class="app-dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-label="입고 메모"><h2>입고 메모</h2><div class="app-dialog-message">${esc(record.memo||"메모 없음")}</div><div class="app-dialog-actions"><button onclick="document.getElementById('appDialogHost').innerHTML=''">닫기</button></div></section></div>`;
+      }
+      function renderIntakeHistory() {
+        const host=document.getElementById("inlineIntakeHistory");if(!host)return;
+        const records=filteredIntakeRecords();
+        host.innerHTML=`<div class="intake-list-heading"><h2>입고내역</h2><span class="muted">${records.length}건 · 입고 1건당 한 줄</span></div><div class="scroll intake-record-scroll"><table class="intake-record-table"><thead><tr><th>교재명</th><th>입고일</th><th>수량</th><th>메모</th><th>관리</th></tr></thead><tbody>${records.map(m=>{
+          const editable=m.quantity>0&&!!intakeCorrectionBasis(S,m.id,selectedPeriodId());
+          return `<tr data-intake-id="${esc(m.id)}" data-book-id="${esc(m.bookId)}"><td class="intake-book-name">${esc(m.currentBookName)}</td><td>${esc(intakeDateLabel(m.time))}</td><td class="intake-count">${esc(m.quantity)}</td><td><button class="intake-memo-button" title="메모 전체 보기" onclick="showIntakeMemo('${m.id}')">${esc(m.memo||'—')}</button></td><td><div class="intake-row-actions">${editable?`<button onclick="openIntakeCorrection('${m.id}',false,'inline')">수정</button><button class="danger" onclick="openIntakeCorrection('${m.id}',true,'inline')">취소</button>`:`<span class="muted">${m.quantity===0?'취소됨':'조회만'}</span>`}</div></td></tr>`;
+        }).join('')||'<tr><td colspan="5">조건에 맞는 입고내역이 없습니다.</td></tr>'}</tbody></table></div>`;
       }
       function inventory() {
         const relevantBookIds = periodBookIds(),
@@ -10172,6 +10371,8 @@ async function linkScopedReviewStudent(key,sid) {
         return m.bookName || S.books[m.bookId]?.name || "";
       }
       function movementLabel(m) {
+        if (m.type === "ADJUST" && m.subtype === "INTAKE_CORRECTION") return "입고 정정";
+        if (m.type === "ADJUST" && m.subtype === "INTAKE_CANCEL") return "입고 취소";
         if (m.type === "IN") return "입고";
         if (m.type === "BOOK_EXCLUDE") return "미배부 제외";
         if (m.type === "BOOK_EXCLUDE_CANCEL") return "미배부 제외 취소";
@@ -10231,23 +10432,23 @@ async function linkScopedReviewStudent(key,sid) {
       }
       function intake() {
         const all = arr(S.books)
-            .filter((b) => b.active !== false)
+            .filter((b) => periodBookIds().has(b.id))
             .sort((a, b) => a.name.localeCompare(b.name, "ko")),
           subjects = orderedSubjects(all.map((b) => b.subject));
         const subject = subjects.includes(window.inSubject)
             ? window.inSubject
-            : subjects[0] || "",
+            : "",
           owners = uniq(
             all
-              .filter((b) => b.subject === subject)
+              .filter((b) => !subject || b.subject === subject)
               .map((b) => b.teacher || "학원 공통"),
           );
         const owner = owners.includes(window.inOwner)
             ? window.inOwner
-            : owners[0] || "",
+            : "",
           books = all.filter(
             (b) =>
-              b.subject === subject && (b.teacher || "학원 공통") === owner,
+              (!subject || b.subject === subject) && (!owner || (b.teacher || "학원 공통") === owner),
           );
         window.inSubject = subject;
         window.inOwner = owner;
@@ -10256,10 +10457,12 @@ async function linkScopedReviewStudent(key,sid) {
             : "",
           last = bookBulkPlan(S, window.lastIntakeBid),
           mode = "existing";
+        if(window.inBid && !bid) window.inBookQuery="";
+        window.inBid=bid;
         document.querySelector("#screen").innerHTML =
-          `<div class="workspace-split"><section class="panel"><h2>입고 대상</h2><p class="muted">새 교재는 관리 › 반·교재에서 먼저 등록한 뒤 입고합니다.</p>${
+          `<div class="workspace-split"><section class="panel"><h2>입고 대상</h2><p class="muted">조건으로 내역을 조회하고, 새 입고는 교재 하나를 선택한 뒤 확정하세요.</p>${
             mode === "existing"
-              ? `<div class="intake-fields"><label>① 과목<select onchange="inSubject=this.value;inOwner='';inBid='';inBookQuery='';intake()"><option value="">선택</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select onchange="inOwner=this.value;inBid='';inBookQuery='';intake()"><option value="">선택</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input id="inBookSearch" value="${esc(window.inBookQuery||S.books[bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showIntakeBookPicker(this.value)" oninput="inBookQuery=this.value;inBid='';showIntakeBookPicker(this.value);intakePreview()" onblur="setTimeout(()=>{const b=document.getElementById('inBookResults');if(b)b.innerHTML=''},160)"><div id="inBookResults" class="picker-results"></div></div></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항" oninput="intakePreview()"></label></div>`
+              ? `<div class="intake-fields"><label>① 과목<select id="intakeSubject" onchange="inSubject=this.value;inOwner='';inBid='';inBookQuery='';bookInventoryHub()"><option value="">전체 과목</option>${subjects.map((x) => `<option ${x === subject ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>② 강사<select id="intakeOwner" onchange="inOwner=this.value;inBid='';inBookQuery='';bookInventoryHub()"><option value="">전체 강사</option>${owners.map((x) => `<option ${x === owner ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label><label>③ 교재<div class="managed-combo"><input id="inBookSearch" value="${esc(window.inBookQuery||S.books[bid]?.name||"")}" placeholder="교재명 입력 또는 선택" onfocus="showIntakeBookPicker(this.value)" oninput="inBookQuery=this.value;inBid='';showIntakeBookPicker(this.value);intakePreview();renderIntakeHistory()" onblur="setTimeout(()=>{const b=document.getElementById('inBookResults');if(b)b.innerHTML=''},160)"><div id="inBookResults" class="picker-results"></div></div></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="inQty" type="number" min="1" step="1" oninput="intakePreview()"></label><label style="grid-column:span 2">메모<input id="inMemo" placeholder="입고처·차수·특이사항" oninput="intakePreview()"></label></div>`
               : `<div class="intake-fields"><label>과목<input id="nbiSubject"></label><label>강사<input id="nbiTeacher" placeholder="공통교재는 공통"></label><label>교재명<input id="nbiName"></label></div><div class="intake-fields" style="margin-top:14px"><label>입고수량<input id="nbiQty" type="number" min="1" step="1" oninput="newBookIntakePreview()"></label><label style="grid-column:span 2">입고 메모<input id="nbiMemo" placeholder="입고처·차수·특이사항"></label></div>`
           }</section><section class="panel workspace-side"><h2>입고 전·후 재고</h2>${
             mode === "existing"
@@ -10267,11 +10470,12 @@ async function linkScopedReviewStudent(key,sid) {
               : `<div id="nbiFlow"><div class="flow"><div>현재재고<br><b>0</b></div><div class="arrow">+0 →</div><div>입고 후 예상<br><b>0</b></div></div></div><button class="btn" style="width:100%;margin-top:14px" onclick="commitNewBookIntake(this)">신규교재 등록·입고 확정</button>`
           }${window.intakeReceipt ? `<div class="receipt transaction-result"><b>방금 처리 완료</b><br>${esc(window.intakeReceipt)}</div>` : ""}${
             mode === "existing" && last ? `<hr><h3>방금 입고한 교재 후속 배부</h3><div class="flow"><div>현재재고<br><b>${last.stock}</b></div><div class="arrow">-${last.need} →</div><div>배부 후<br><b class="${last.after < 0 ? "danger" : ""}">${last.after}</b></div></div><p><b>${esc(last.name)}</b> · 대상 반 전체 미배부 ${last.need}명</p>${last.after < 0 ? `<p class="error">재고 ${Math.abs(last.after)}권 부족 — 전체 배부하지 않습니다.</p>` : ""}<label>배부 메모<input id="lastIntakeMemo" value="입고 후 대상 전체 일괄배부"></label><button class="btn" style="width:100%" ${!last.need || last.after < 0 ? "disabled" : ""} onclick="commitBulkBook('${last.bid}',this)">입고 교재 전체 일괄배부</button>` : ""
-          }</section></div>`;
+          }</section></div><section class="panel intake-history-panel" id="inlineIntakeHistory"></section>`;
+        renderIntakeHistory();
         if (mode === "existing" && bid) intakePreview();
       }
-      function showIntakeBookPicker(value){const box=document.getElementById("inBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko");box.innerHTML=arr(S.books).filter((b)=>b.active!==false&&b.subject===window.inSubject&&(b.teacher||"학원 공통")===window.inOwner&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseIntakeBook")).join("");}
-      function chooseIntakeBook(id){const book=S.books?.[id];if(!book)return;window.inBid=id;window.inBookQuery=book.name;intake();}
+      function showIntakeBookPicker(value){const box=document.getElementById("inBookResults");if(!box)return;const q=String(value||"").normalize("NFKC").trim().toLocaleLowerCase("ko"),scope=periodBookIds();box.innerHTML=arr(S.books).filter((b)=>scope.has(b.id)&&(!window.inSubject||b.subject===window.inSubject)&&(!window.inOwner||(b.teacher||"학원 공통")===window.inOwner)&&(!q||b.name.normalize("NFKC").toLocaleLowerCase("ko").includes(q))).sort((a,b)=>a.name.localeCompare(b.name,"ko")).slice(0,40).map((b)=>bookPickerButton(b,"chooseIntakeBook")).join("");}
+      function chooseIntakeBook(id){const book=S.books?.[id];if(!book||!periodBookIds().has(id))return;window.inBid=id;window.inBookQuery=book.name;bookInventoryHub();}
       function newBookIntake() {
         window.intakeMode = "new";
         window.intakeReceipt = "";
@@ -10601,7 +10805,7 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
                 ? `<button class="btn" onclick="studentHubView='new';newStudentId='${s.id}';newAssigned=[];registrationDate='${studentAdmissionDate(s) || localDateKey()}';render()">반배정 계속</button><button class="danger-btn" onclick="withdrawStudent('${s.id}')">등록 취소·퇴반</button>`
                 : `${studentWorkspaceActions(s.id, "status")}<button class="danger-btn" onclick="withdrawStudent('${s.id}')">퇴반 등록</button>`;
           detail = `<div id="studentDetail">
-          <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
+          <div class="student-head"><div><h2>${esc(s.name)} ${exitedInSelectedPeriod ? '<span class="badge" style="background:#fde8e7;color:#9b3b35">퇴반</span>' : ""} ${refundPending ? '<span class="badge warn">퇴반대기</span>' : exitedInSelectedPeriod && refundTask?.status === "DONE" ? '<span class="badge ok">퇴반완료</span>' : ""}</h2><span class="muted">현재 ${classes.length}개 반 · 교재 ${books.length}권 · 미배부 ${books.filter((book) => !held(s.id, book.id) && !studentBookIsExcluded(S,s.id,book.id)).length}권</span><br><b>전체 교재비 ${won(priceSummary.totalAmount)} · 배부 ${won(priceSummary.distributedAmount)} · 미배부 환불예정 ${won(priceSummary.missingAmount)}</b>${priceSummary.missingPriceCount ? `<small class="error">금액 미등록 ${priceSummary.missingPriceCount}종</small>` : ""}</div><div class="action-row student-actions">${actionButtons}</div></div>
           ${exitReviewPanel(s, refundTask)}
   <details class="compact-details"><summary>현재 반 ${classes.length}개 보기 · 반을 눌러 퇴반/이동</summary><div class="class-chip-list">${classes.map((item) => `<button onclick="openClassExit('${s.id}','${item.id}')">${esc(item.subject || "")} · ${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}</button>`).join("") || "<span>배정된 반 없음</span>"}</div></details>${endedClasses.length ? `<details class="compact-details"><summary>종료 반 ${endedClasses.length}개 · 과거 기록</summary><div class="class-chip-list">${endedClasses.map((item)=>`<span>${esc(item.subject||"")} · ${esc(item.teacher||"강사 미지정")} · ${esc(item.name)} <i class="badge">종료</i></span>`).join("")}</div></details>` : ""}${excludedBooks.length ? `<details class="compact-details"><summary>미배부 제외 ${excludedBooks.length}권 보기</summary><div class="list">${excludedBooks.map(({ book, exclusion }) => `<div class="row"><span><b>${esc(book.name)}</b><small>${esc(exclusion.reason || "사유 없음")} · ${esc(exclusion.actor || "")} · ${fmt(exclusion.time)}</small></span><button onclick="restoreStudentBook('${s.id}','${book.id}')">제외 취소</button></div>`).join("")}</div></details>` : ""}
   <div class="student-book-toolbar" aria-label="교재 필터">
@@ -10618,9 +10822,10 @@ detail = `<div id="studentDetail"><div class="student-head"><div><h2>${esc(s.nam
       const relatedTeachers = [...new Set(related.map((item) => item.teacher).filter(Boolean))];
       const relatedClasses = [...new Set(related.map((item) => item.name).filter(Boolean))];
       const quantity = held(s.id, book.id);
+      const excluded = !quantity && studentBookIsExcluded(S, s.id, book.id);
       const isExitBook = exitBooks.some((item) => item.id === book.id);
       const price = bookPriceValue(book);
-      return `<tr data-book-id="${book.id}" data-subject="${esc(book.subject || "")}" data-teachers="${esc(relatedTeachers.join("|"))}" data-classes="${esc(relatedClasses.join("|"))}" data-book="${esc(book.name || "")}" data-state="${quantity ? "HELD" : "MISSING"}"><td>${esc(book.subject)}</td><td><b>${esc(book.name)}</b></td><td>${related.map((item) => `${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}`).join("<br>") || (s.active === false && isExitBook ? "퇴반 전 교재" : "이전 반·추가배부")}</td><td><b class="${quantity ? "success" : "danger"}">${quantity ? "배부" : "미배부"}</b></td><td><b>${price == null ? "금액 미등록" : won(price)}</b></td><td><b>${quantity}권</b></td></tr>`;
+      return `<tr data-book-id="${book.id}" data-subject="${esc(book.subject || "")}" data-teachers="${esc(relatedTeachers.join("|"))}" data-classes="${esc(relatedClasses.join("|"))}" data-book="${esc(book.name || "")}" data-state="${quantity ? "HELD" : excluded ? "EXCLUDED" : "MISSING"}"><td>${esc(book.subject)}</td><td><b>${esc(book.name)}</b></td><td>${related.map((item) => `${esc(item.teacher || "강사 미지정")} · ${esc(item.name)}`).join("<br>") || (s.active === false && isExitBook ? "퇴반 전 교재" : "이전 반·추가배부")}</td><td><b class="${quantity ? "success" : excluded ? "transition-status-excluded" : "danger"}">${quantity ? "배부" : excluded ? "미배부 제외" : "미배부"}</b></td><td><b>${price == null ? "금액 미등록" : won(price)}</b></td><td><b>${quantity}권</b></td></tr>`;
     })
     .join("")}</tbody></table></div>
   <details class="compact-details history-details"><summary>최근 메모·이력 ${recent.length}건 보기</summary><div class="history-compact">${recent.map((movement) => `<div class="row"><span>${fmt(movement.time)} · <b>${esc(movementLabel(movement))}</b> · ${esc(movementBookName(movement) || "")}<small>${esc(movement.actor || "")} · ${esc(movement.memo || "메모 없음")}</small></span><b>${movement.stockBefore == null ? "" : `${movement.stockBefore} → ${movement.stockAfter}`}</b></div>`).join("") || '<p class="muted">이력 없음</p>'}</div></details>
